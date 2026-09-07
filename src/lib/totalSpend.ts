@@ -1,3 +1,4 @@
+import { t } from './i18n';
 import type { AppSettings, UsageHistory, UsagePeriod } from './types';
 
 export interface SpendProvider {
@@ -75,7 +76,7 @@ export function projectSpend(
 }
 
 export function emptySpendMessage(metric: AppSettings['totalSpendMetric']) {
-  if (metric === 'tokens') return 'No token data for this period';
-  if (metric === 'costPerMillion') return 'No cost-per-token data for this period';
-  return 'No cost data for this period';
+  if (metric === 'tokens') return t('share.noTokenData');
+  if (metric === 'costPerMillion') return t('share.noCostPerTokenData');
+  return t('share.noCostData');
 }

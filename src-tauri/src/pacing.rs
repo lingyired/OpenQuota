@@ -121,19 +121,21 @@ pub enum Milestone {
 }
 
 impl Milestone {
-    pub fn title(self) -> &'static str {
+    /// i18n dictionary key for the milestone title.
+    pub fn title_key(self) -> &'static str {
         match self {
-            Self::AlmostOut => "Almost Out",
-            Self::CuttingItClose => "Cutting It Close",
-            Self::WillRunOut => "Will Run Out",
+            Self::AlmostOut => "notif.almost_out",
+            Self::CuttingItClose => "notif.cutting_it_close",
+            Self::WillRunOut => "notif.will_run_out",
         }
     }
 
-    pub fn body(self) -> &'static str {
+    /// i18n dictionary key for the milestone body.
+    pub fn body_key(self) -> &'static str {
         match self {
-            Self::AlmostOut => "Under 10% usage remaining for this window.",
-            Self::CuttingItClose => "Projected to finish close to your limit.",
-            Self::WillRunOut => "Projected to run out before the limit resets.",
+            Self::AlmostOut => "notif.almost_out_body",
+            Self::CuttingItClose => "notif.cutting_it_close_body",
+            Self::WillRunOut => "notif.will_run_out_body",
         }
     }
 }

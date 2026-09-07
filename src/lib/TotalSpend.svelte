@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { locale } from 'svelte-i18n';
+  import { t, tStore } from './i18n';
   import Icon from './Icon.svelte';
   import { formatSpendValue, totalSpendRingCenter } from './metricFormat';
   import SelectMenu from './SelectMenu.svelte';
@@ -18,6 +20,7 @@
     onShare: (projection: SpendProjection) => boolean | Promise<boolean>;
   }
   let { providers, settings, catalog, onChange, onShare }: Props = $props();
+  const currentLocale = $derived($locale);
   const providerDisplayName = (id: string) => catalog.displayName(id, settings.providerNames);
   const projection = $derived(
     projectSpend(providers, settings.totalSpendPeriod, settings.totalSpendMetric),
@@ -46,15 +49,31 @@
     if (value === null) return undefined;
     const exact = formatSpendValue(value, settings.totalSpendMetric, 'full');
     if (projection.costEstimated && settings.totalSpendMetric !== 'tokens') {
-      return `${exact} · Estimated locally, so it may be off`;
+      return `${exact} · ${t('metric.estimatedLocally')}`;
     }
     return exact;
   }
   function metricTitle() {
-    if (settings.totalSpendMetric === 'tokens') return 'Tokens';
-    if (settings.totalSpendMetric === 'costPerMillion') return 'Cost/MTok';
-    return 'Cost';
+    if (settings.totalSpendMetric === 'tokens') return t('share.tokens');
+    if (settings.totalSpendMetric === 'costPerMillion') return t('share.costPerMillion');
+    return t('share.cost');
   }
+  const ringCenterLabel = $derived.by(() => {
+    void currentLocale;
+    return ringCenter(projection.centerValue);
+  });
+  const centerTooltipText = $derived.by(() => {
+    void currentLocale;
+    return centerTooltip(projection.centerValue);
+  });
+  const metricTitleText = $derived.by(() => {
+    void currentLocale;
+    return metricTitle();
+  });
+  const emptyMessageText = $derived.by(() => {
+    void currentLocale;
+    return emptySpendMessage(settings.totalSpendMetric);
+  });
   function patch(patch: Partial<AppSettings>) {
     onChange({ ...settings, ...patch });
   }
@@ -68,47 +87,49 @@
 
 <section
   class="total-spend-section"
-  aria-label="Total Spend"
+  aria-label={$tStore('share.totalSpend')}
   data-total-spend
   style={`--total-card-padding-x:${TOTAL_SPEND_GEOMETRY.cardPaddingX}px;--total-card-padding-y:${TOTAL_SPEND_GEOMETRY.cardPaddingY}px;--total-switcher-height:${TOTAL_SPEND_GEOMETRY.switcherHeight}px;--total-period-size:${TOTAL_SPEND_GEOMETRY.periodFontSize}px;--total-body-gap:${TOTAL_SPEND_GEOMETRY.bodyGap}px;--total-legend-gap:${TOTAL_SPEND_GEOMETRY.legendGap}px;--total-ring-size:${TOTAL_SPEND_GEOMETRY.ringDiameter}px;--total-center-size:${TOTAL_SPEND_GEOMETRY.centerFontSize}px;--total-center-unit-size:${TOTAL_SPEND_GEOMETRY.centerUnitFontSize}px;--total-legend-size:${TOTAL_SPEND_GEOMETRY.legendFontSize}px;`}
 >
   <div class="total-card__header">
     <div class="total-card__title">
       <SelectMenu
-        label="Total Spend Metric"
+        label={$tStore('share.totalSpendMetric')}
         value={settings.totalSpendMetric}
         variant="title"
         options={[
-          { value: 'cost', label: 'Cost' },
-          { value: 'costPerMillion', label: 'Cost/MTok' },
-          { value: 'tokens', label: 'Tokens' },
+          { value: 'cost', label: $tStore('share.cost') },
+          { value: 'costPerMillion', label: $tStore('share.costPerMillion') },
+          { value: 'tokens', label: $tStore('share.tokens') },
         ]}
         onChange={(value) => patch({ totalSpendMetric: value as AppSettings['totalSpendMetric'] })}
       />
       <span
         class="icon-button icon-button--plain total-card__info"
-        data-tooltip={`Only includes ${providerNames.join(' and ')}.`}
-        aria-label={`Only includes ${providerNames.join(' and ')}`}
+        data-tooltip={$tStore('share.onlyIncludes', { providers: providerNames.join(' and ') })}
+        aria-label={$tStore('share.onlyIncludes', {
+          providers: providerNames.join(' and '),
+        }).replace(/\.$/, '')}
         role="img"><Icon name="about" size={13} strokeWidth={1.9} /></span
       >
     </div>
     <button
       class="icon-button icon-button--plain total-card__share"
       type="button"
-      aria-label={`Share ${metricTitle()} Screenshot`}
-      data-tooltip="Share Screenshot"
+      aria-label={$tStore('share.shareMetric', { metric: metricTitleText })}
+      data-tooltip={$tStore('share.shareScreenshot')}
       onclick={share}
       ><Icon name={shareCopied ? 'check' : 'share'} size={14} strokeWidth={1.8} /></button
     >
   </div>
   <div class="total-card">
-    <div class="period-switcher" aria-label="Total Spend period">
+    <div class="period-switcher" aria-label={$tStore('share.totalSpendPeriod')}>
       <span
         class="period-switcher__selection"
         style={`transform: translateX(${periodIndex * 100}%)`}
         aria-hidden="true"
       ></span>
-      {#each [['today', 'Today'], ['yesterday', 'Yesterday'], ['last30Days', '30 Days']] as option (option[0])}
+      {#each [['today', $tStore('share.today')], ['yesterday', $tStore('share.yesterday')], ['last30Days', $tStore('share.days30')]] as option (option[0])}
         <button
           class:active={settings.totalSpendPeriod === option[0]}
           type="button"
@@ -119,7 +140,7 @@
     </div>
     {#if projection.centerValue === null}
       <div class="total-card__empty">
-        <span>{emptySpendMessage(settings.totalSpendMetric)}</span>
+        <span>{emptyMessageText}</span>
       </div>
     {:else}
       <div class="total-card__body">
@@ -137,10 +158,8 @@
               />
             {/each}
           </svg>
-          <div class="spend-ring__label" data-tooltip={centerTooltip(projection.centerValue)}>
-            <strong>{ringCenter(projection.centerValue).primary}</strong><span
-              >{ringCenter(projection.centerValue).unit}</span
-            >
+          <div class="spend-ring__label" data-tooltip={centerTooltipText}>
+            <strong>{ringCenterLabel.primary}</strong><span>{ringCenterLabel.unit}</span>
           </div>
         </div>
         <div class="spend-legend">

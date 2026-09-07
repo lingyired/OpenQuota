@@ -195,6 +195,8 @@ export interface ProviderLayout {
   metrics: MetricLayout[];
 }
 
+export type LanguagePreference = 'system' | 'en' | 'zh-CN';
+
 export interface NotificationPreferences {
   almostOut: boolean;
   cuttingItClose: boolean;
@@ -237,6 +239,7 @@ export interface AppSettings {
   providers: ProviderLayout[];
   knownProviderIds: string[];
   providerNames: Record<string, string>;
+  language: LanguagePreference;
   showTotalSpend: boolean;
   theme: 'system' | 'light' | 'dark';
   density: 'default' | 'compact';

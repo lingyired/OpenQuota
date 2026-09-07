@@ -25,6 +25,7 @@ function settingsView(
     settings: {
       schemaVersion: 8,
       providerNames: {},
+      language: 'en',
       providers: [],
       knownProviderIds: [],
       showTotalSpend: true,

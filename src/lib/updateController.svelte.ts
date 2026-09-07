@@ -1,4 +1,5 @@
 import { checkForApplicationUpdates, installApplicationUpdate, openUpdatePage } from './backend';
+import { t } from './i18n';
 import { SvelteDate } from 'svelte/reactivity';
 import type { UpdateFailure, UpdateProgress, UpdateStatus } from './types';
 
@@ -25,7 +26,7 @@ export class UpdateController {
       onChecked(new SvelteDate().toISOString());
       if (manual) onMessage(updateCheckMessage(status));
     } catch (error) {
-      if (manual) this.error = updateFailure(error, 'Updates could not be checked.');
+      if (manual) this.error = updateFailure(error, t('update.couldNotCheck'));
     } finally {
       this.checking = false;
     }
@@ -39,7 +40,7 @@ export class UpdateController {
     try {
       await installApplicationUpdate();
     } catch (error) {
-      this.error = updateFailure(error, 'The update could not be installed.');
+      this.error = updateFailure(error, t('update.couldNotInstall'));
       this.installing = false;
       this.progress = null;
     }
@@ -49,7 +50,7 @@ export class UpdateController {
     try {
       await openUpdatePage();
     } catch (error) {
-      this.error = updateFailure(error, 'The OpenQuota download page could not be opened.');
+      this.error = updateFailure(error, t('update.downloadPageError'));
     }
   }
 
@@ -59,17 +60,17 @@ export class UpdateController {
 }
 
 export function nextUpdateLabel(value: string | undefined, now: number) {
-  if (!value) return 'Waiting for first update';
+  if (!value) return t('update.waitingFirst');
   const timestamp = Date.parse(value);
-  if (Number.isNaN(timestamp)) return 'Next update unavailable';
+  if (Number.isNaN(timestamp)) return t('update.nextUnavailable');
   const remaining = Math.min(
     USAGE_REFRESH_INTERVAL_MS,
     Math.max(0, timestamp + USAGE_REFRESH_INTERVAL_MS - now),
   );
   const seconds = Math.ceil(remaining / 1000);
   return seconds >= 60
-    ? `Next update in ${Math.ceil(seconds / 60)}m`
-    : `Next update in ${seconds}s`;
+    ? t('update.nextInM', { m: Math.ceil(seconds / 60) })
+    : t('update.nextInS', { s: seconds });
 }
 
 export function updateFailure(error: unknown, fallback: string): UpdateFailure {
@@ -79,7 +80,7 @@ export function updateFailure(error: unknown, fallback: string): UpdateFailure {
       return {
         code: typeof candidate.code === 'string' ? candidate.code : 'update_failed',
         message: candidate.message,
-        action: typeof candidate.action === 'string' ? candidate.action : 'Try again later.',
+        action: typeof candidate.action === 'string' ? candidate.action : t('update.tryAgainLater'),
         retryable: candidate.retryable !== false,
       };
     }
@@ -87,14 +88,14 @@ export function updateFailure(error: unknown, fallback: string): UpdateFailure {
   return {
     code: 'update_failed',
     message: typeof error === 'string' ? error : fallback,
-    action: 'Try again or download the installer from the release page.',
+    action: t('update.tryAgainOrDownload'),
     retryable: true,
   };
 }
 
 function updateCheckMessage(status: UpdateStatus) {
-  if (!status.available) return `OpenQuota ${status.currentVersion} is up to date.`;
+  if (!status.available) return t('update.upToDate', { version: status.currentVersion });
   return status.version
-    ? `OpenQuota ${status.version} is available.`
-    : 'An OpenQuota update is available.';
+    ? t('update.available', { version: status.version })
+    : t('update.availableNoVersion');
 }

@@ -4,6 +4,7 @@ use tauri::{AppHandle, Manager};
 use tauri_plugin_notification::{NotificationExt, PermissionState};
 
 use crate::{
+    i18n,
     models::{ProviderSnapshot, ProviderViewState},
     pacing::{NotificationEvaluator, PaceAlert},
     popup::PopupDismissGuard,
@@ -29,6 +30,7 @@ pub fn finish_refresh(
     notifications: &NotificationEvaluator,
 ) {
     let preferences = settings.get();
+    let locale = i18n::resolve(preferences.language);
     tray_presentation::update(app, state, &preferences, settings.registry());
     notifications.prune(&preferences);
     for snapshot in state.providers.values().filter_map(notification_snapshot) {
@@ -38,7 +40,7 @@ pub fn finish_refresh(
             settings.registry(),
             chrono::Utc::now(),
         );
-        let failed = deliver(app, &alerts);
+        let failed = deliver(app, &alerts, locale);
         if !failed.is_empty() {
             notifications.rollback(&failed);
         }
@@ -51,7 +53,7 @@ fn notification_snapshot(state: &ProviderViewState) -> Option<&ProviderSnapshot>
     state.snapshot.as_ref()
 }
 
-fn deliver(app: &AppHandle, alerts: &[PaceAlert]) -> Vec<PaceAlert> {
+fn deliver(app: &AppHandle, alerts: &[PaceAlert], locale: i18n::Locale) -> Vec<PaceAlert> {
     if permission(app) != "granted" {
         if !alerts.is_empty() {
             crate::app_debug!(
@@ -67,12 +69,13 @@ fn deliver(app: &AppHandle, alerts: &[PaceAlert]) -> Vec<PaceAlert> {
         .filter_map(|alert| {
             let result = show(
                 app,
-                alert.milestone.title(),
+                locale,
+                i18n::tr(locale, alert.milestone.title_key()),
                 &format!(
                     "{} · {}\n{}",
                     alert.provider,
                     alert.metric,
-                    alert.milestone.body()
+                    i18n::tr(locale, alert.milestone.body_key())
                 ),
             );
             if result.is_ok() {
@@ -86,11 +89,11 @@ fn deliver(app: &AppHandle, alerts: &[PaceAlert]) -> Vec<PaceAlert> {
         .collect()
 }
 
-fn show(app: &AppHandle, title: &str, body: &str) -> Result<(), String> {
+fn show(app: &AppHandle, locale: i18n::Locale, title: &str, body: &str) -> Result<(), String> {
     let mut notification = notify_rust::Notification::new();
     notification.summary(title).body(body).appname("OpenQuota");
     #[cfg(any(target_os = "linux", target_os = "macos"))]
-    notification.action("default", "Open OpenQuota");
+    notification.action("default", i18n::tr(locale, "notif.open"));
     #[cfg(target_os = "windows")]
     notification.app_id(&app.config().identifier);
     #[cfg(target_os = "macos")]

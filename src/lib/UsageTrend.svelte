@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { SvelteDate } from 'svelte/reactivity';
+  import { tBackendStore, tStore } from './i18n';
   import { formatMetricNumber } from './metricFormat';
   import type { DailyUsage } from './types';
 
@@ -64,13 +65,13 @@
   });
 </script>
 
-<section class="trend-row" aria-label="Usage Trend">
-  <strong>Usage Trend</strong>
+<section class="trend-row" aria-label={$tStore('metric.usageTrend')}>
+  <strong>{$tStore('metric.usageTrend')}</strong>
   {#if total > 0}
     <div
       class="trend-chart-wrap"
       role="group"
-      aria-label="Usage trend chart details"
+      aria-label={$tStore('metric.usageTrendChartDetails')}
       onmouseenter={revealDetail}
       onmouseleave={concealDetail}
     >
@@ -78,22 +79,25 @@
         class="trend-bars"
         class:trend-bars--active={detailVisible}
         role="img"
-        aria-label={`30-day token chart. Peak ${compact(peak.tokens)} tokens on ${peak.date}.`}
+        aria-label={$tStore('metric.thirtyDayTokenChart', {
+          peak: compact(peak.tokens),
+          date: peak.date,
+        })}
       >
         {#each points as point (point.date)}
           <span
             style={`height: ${Math.max(point.tokens > 0 ? 18 : 2, (point.tokens / max) * 100)}%`}
-            title={`${point.date}: ${compact(point.tokens)} tokens`}
+            title={`${point.date}: ${compact(point.tokens)} ${$tStore('units.tokens')}`}
           ></span>
         {/each}
       </div>
       {#if detailVisible}
         <aside class="trend-detail" onmouseenter={revealDetail} onmouseleave={concealDetail}>
           <header>
-            <strong>Usage Trend</strong><span
+            <strong>{$tStore('metric.usageTrend')}</strong><span
               >{hoveredDate
-                ? `${dayLabel(highlightedPoint.date)} · ${compact(highlightedPoint.tokens)} tokens`
-                : `peak ${compact(peak.tokens)} tokens`}</span
+                ? `${dayLabel(highlightedPoint.date)} · ${compact(highlightedPoint.tokens)} ${$tStore('units.tokens')}`
+                : $tStore('metric.peakTokens', { value: compact(peak.tokens) })}</span
             >
           </header>
           <div
@@ -115,12 +119,12 @@
               >{dayLabel(points.at(-1)?.date ?? '')}</span
             >
           </div>
-          <small class="trend-detail__source">{sourceNote}</small>
+          <small class="trend-detail__source">{$tBackendStore(sourceNote)}</small>
         </aside>
       {/if}
     </div>
   {:else}
-    <p class="trend-empty">No data</p>
+    <p class="trend-empty">{$tStore('metric.noData')}</p>
   {/if}
 </section>
 

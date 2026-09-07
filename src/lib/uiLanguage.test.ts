@@ -8,6 +8,7 @@ import dashboard from './Dashboard.svelte?raw';
 import providerNameSection from './ProviderNameSection.svelte?raw';
 import settings from './SettingsScreen.svelte?raw';
 import { coLocatedComponentCss } from './uiStyleSources';
+import { en } from './i18n/messages/en';
 
 const css = `${tokensCss}\n${layoutCss}\n${sharedComponentCss}\n${coLocatedComponentCss}`;
 
@@ -41,41 +42,54 @@ describe('native UI language contract', () => {
   });
 
   it('keeps Customize concise and free of duplicate status and count copy', () => {
-    expect(customizeList).toContain('Notifications, appearance and more');
-    expect(customizeList).toContain('{provider.metrics.length} metrics');
+    expect(customizeList).toContain("$tStore('customize.settingsDesc')");
+    expect(en.customize.settingsDesc).toBe('Notifications, appearance and more');
+    expect(customizeList).toContain(
+      "$tStore('customize.metricCount', { count: provider.metrics.length })",
+    );
+    expect(en.customize.metricCount).toBe('{count} metrics');
     expect(customizeList).not.toContain('Detected locally');
     expect(customizeList).not.toContain('screen-intro');
     expect(customizeList).not.toContain('pinned\n');
-    expect(customizeDetail).toContain('Drag metrics here');
-    expect(customizeDetail).toContain('Starred for menu bar');
-    expect(customizeDetail).toContain('Removed from menu bar');
-    expect(customizeDetail).toContain('Up to 2 stars per provider');
+    expect(customizeDetail).toContain("$tStore('customize.dragMetricsHere')");
+    expect(en.customize.dragMetricsHere).toBe('Drag metrics here');
+    expect(customizeDetail).toContain('customize.starredForMenuBar');
+    expect(en.customize.starredForMenuBar).toBe('Starred for menu bar');
+    expect(customizeDetail).toContain('customize.removedFromMenuBar');
+    expect(en.customize.removedFromMenuBar).toBe('Removed from menu bar');
+    expect(customizeDetail).toContain('customize.upTo2Stars');
+    expect(en.customize.upTo2Stars).toBe('Up to 2 stars per provider');
     expect(customizeDetail).not.toContain('provider-toggle-row');
     expect(customizeDetail).not.toContain('section-divider');
     expect(customizeDetail).not.toContain('of 2 pinned');
   });
 
   it('uses the shared Settings labels and single-line control rows', () => {
-    for (const label of [
-      'General',
-      'Show Total Spend',
-      'Launch at Login',
-      'Global Shortcut',
-      'Icon Style',
-      'Appearance',
-      'Window Mode',
-      'Usage Display',
-      'Notifications',
-      'Advanced',
-      'Updates',
-      'Check for Updates Automatically',
-      'Check for Updates…',
-    ]) {
-      expect(settings).toContain(label);
+    const settingsLabels: Record<string, string> = {
+      'settings.general': 'General',
+      'settings.showTotalSpend': 'Show Total Spend',
+      'settings.launchAtLogin': 'Launch at Login',
+      'settings.globalShortcut': 'Global Shortcut',
+      'settings.iconStyle': 'Icon Style',
+      'settings.appearance': 'Appearance',
+      'settings.windowMode': 'Window Mode',
+      'settings.usageDisplay': 'Usage Display',
+      'settings.notifications': 'Notifications',
+      'settings.advanced': 'Advanced',
+      'settings.updates': 'Updates',
+      'settings.checkForUpdatesAutomatically': 'Check for Updates Automatically',
+      'settings.checkForUpdates': 'Check for Updates…',
+    };
+    for (const [key, label] of Object.entries(settingsLabels)) {
+      expect(settings).toContain(`$tStore('${key}')`);
+      expect(en.settings[key.replace('settings.', '') as keyof typeof en.settings]).toBe(label);
     }
-    expect(settings).toContain("{ value: 'system', label: 'Auto' }");
-    expect(settings).toContain("{ value: 'twelveHour', label: '12-hour' }");
-    expect(settings).toContain("{ value: 'twentyFourHour', label: '24-hour' }");
+    expect(settings).toContain("{ value: 'system', label: $tStore('settings.languageAuto') }");
+    expect(en.settings.languageAuto).toBe('Auto');
+    expect(settings).toContain("{ value: 'twelveHour', label: $tStore('settings.twelveHour') }");
+    expect(settings).toContain(
+      "{ value: 'twentyFourHour', label: $tStore('settings.twentyFourHour') }",
+    );
     expect(settings).not.toContain('<h2>Startup</h2>');
     expect(settings).not.toContain('Automatic Checks');
     expect(settings).not.toContain('Combined cost and token summary.');
@@ -84,11 +98,24 @@ describe('native UI language contract', () => {
   });
 
   it('keeps dashboard onboarding, empty state, and menus on the shared wording', () => {
-    expect(dashboard).toContain('Welcome to OpenQuota');
-    expect(dashboard).toContain('Open Customize');
-    expect(dashboard).toContain('Turn on Customize to choose what to show.');
-    expect(dashboard).toContain('Customize…');
-    expect(dashboard).toContain('Refresh {providerDisplayName(menuProvider.id)}');
+    const dashboardLabels: Record<string, string> = {
+      'dashboard.welcome': 'Welcome to OpenQuota',
+      'dashboard.openCustomize': 'Open Customize',
+      'dashboard.empty': 'Turn on Customize to choose what to show.',
+      'dashboard.customize': 'Customize…',
+      'dashboard.rename': 'Rename…',
+      'dashboard.shareScreenshot': 'Share Screenshot',
+      'dashboard.hideMetric': 'Hide',
+      'dashboard.unstar': 'Unstar',
+      'dashboard.starForMenuBar': 'Star for menu bar',
+      'dashboard.refreshing': 'Refreshing',
+    };
+    for (const [key, label] of Object.entries(dashboardLabels)) {
+      expect(dashboard).toContain(`$tStore('${key}')`);
+      expect(en.dashboard[key.replace('dashboard.', '') as keyof typeof en.dashboard]).toBe(label);
+    }
+    expect(dashboard).toContain("$tStore('dashboard.refreshProvider', {");
+    expect(en.dashboard.refreshProvider).toBe('Refresh {provider}');
     expect(dashboard).not.toContain('Providers Detected');
     expect(dashboard).not.toContain('Starter Provider');
     expect(dashboard).not.toContain("Expand'} On Demand");

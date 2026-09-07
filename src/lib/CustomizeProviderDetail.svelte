@@ -1,9 +1,11 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { flip } from 'svelte/animate';
+  import { locale } from 'svelte-i18n';
   import type { ProviderCatalogIndex } from './metrics';
   import { desktopPlatform } from './platform';
   import SelectMenu from './SelectMenu.svelte';
+  import { t, tBackend, tStore } from './i18n';
   import type {
     AppSettings,
     MetricLayout,
@@ -44,6 +46,11 @@
   }: Props = $props();
   const metricDefinition = (id: string) => catalog.metric(id);
   const providerDisplayName = (id: string) => catalog.displayName(id, settings.providerNames);
+  const currentLocale = $derived(locale);
+  const metricLabel = $derived((id: string) => {
+    void currentLocale;
+    return tBackend(metricDefinition(id)?.label ?? id);
+  });
   let message = $state('');
   let messageKind = $state<'success' | 'denied'>('success');
   let messageTimer: ReturnType<typeof setTimeout> | undefined;
@@ -68,7 +75,7 @@
   function togglePin(metric: MetricLayout, button: HTMLButtonElement) {
     if (!provider || !metricDefinition(metric.id)?.pinnable) return;
     if (!metric.pinned && provider.metrics.filter((item) => item.pinned).length >= 2) {
-      showMessage('Up to 2 stars per provider', 'denied');
+      showMessage(t('customize.upTo2Stars'), 'denied');
       if (!reducedMotion) {
         button.animate?.(
           [
@@ -85,7 +92,10 @@
       }
       return;
     }
-    showMessage(metric.pinned ? 'Removed from menu bar' : 'Starred for menu bar', 'success');
+    showMessage(
+      metric.pinned ? t('customize.removedFromMenuBar') : t('customize.starredForMenuBar'),
+      'success',
+    );
     updateMetric({ ...metric, pinned: !metric.pinned });
   }
   function showMessage(text: string, kind: 'success' | 'denied') {
@@ -144,7 +154,7 @@
   const taskbandMetricOptions = $derived(
     trayMetrics.map((metric) => ({
       value: metric.id,
-      label: metricDefinition(metric.id)?.label ?? metric.id,
+      label: metricLabel(metric.id),
     })),
   );
   const taskbandSlotOptions = $derived([{ value: '', label: 'None' }, ...taskbandMetricOptions]);
@@ -203,7 +213,7 @@
 {#if provider}
   <section
     class="screen customize-detail"
-    aria-label={`Customize ${providerDisplayName(provider.id)}`}
+    aria-label={$tStore('customize.customizeProvider', { id: providerDisplayName(provider.id) })}
   >
     {#if canRenameProvider(provider.id, renamableProviderIds)}
       <ProviderNameSection {settings} {provider} {catalog} onChange={onNameChange} />
@@ -213,9 +223,15 @@
       <div
         class="metric-section"
         role="group"
-        aria-label={section === 'alwaysVisible' ? 'Always Visible metrics' : 'On Demand metrics'}
+        aria-label={$tStore(
+          section === 'alwaysVisible'
+            ? 'customize.alwaysVisibleMetrics'
+            : 'customize.onDemandMetrics',
+        )}
       >
-        <h2>{section === 'alwaysVisible' ? 'Always Visible' : 'On Demand'}</h2>
+        <h2>
+          {$tStore(section === 'alwaysVisible' ? 'customize.alwaysVisible' : 'customize.onDemand')}
+        </h2>
         <div class="metric-list" role="list">
           {#if sectionMetrics.length === 0}
             <div
@@ -224,7 +240,7 @@
               data-reorder-group={`customize-metrics:${provider.id}`}
               data-reorder-id={`section:${section}`}
             >
-              Drag metrics here
+              {$tStore('customize.dragMetricsHere')}
             </div>
           {/if}
           {#each sectionMetrics as metric (metric.id)}
@@ -237,7 +253,7 @@
               use:pointerReorder={{
                 id: metric.id,
                 group: `customize-metrics:${provider.id}`,
-                label: metricDefinition(metric.id)?.label ?? metric.id,
+                label: metricLabel(metric.id),
                 gripOnly: true,
                 touchGripOnly: true,
                 onReorder: (targetId) => {
@@ -259,20 +275,21 @@
                 data-reorder-touch-handle
                 role="button"
                 tabindex="0"
-                aria-label={`Move ${metricDefinition(metric.id)?.label ?? metric.id}`}
+                aria-label={$tStore('customize.moveMetric', { label: metricLabel(metric.id) })}
                 aria-describedby="reorder-instructions"
                 aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
                 ><Icon name="grip-lines" size={16} strokeWidth={2} /></span
               >
-              <span class="customize-metric-name"
-                >{metricDefinition(metric.id)?.label ?? metric.id}</span
-              >
+              <span class="customize-metric-name">{metricLabel(metric.id)}</span>
               <span class="customize-metric-pin-slot">
                 {#if metricDefinition(metric.id)?.pinnable}<button
                     class:pinned={metric.pinned}
                     class="pin-button"
                     type="button"
-                    aria-label={`${metric.pinned ? 'Unpin' : 'Pin'} ${metricDefinition(metric.id)?.label}`}
+                    aria-label={$tStore(
+                      metric.pinned ? 'customize.unpinMetric' : 'customize.pinMetric',
+                      { label: metricLabel(metric.id) },
+                    )}
                     onclick={(event) => togglePin(metric, event.currentTarget)}
                     ><Icon
                       name={metric.pinned ? 'star-filled' : 'star'}
@@ -283,7 +300,7 @@
               </span>
               <label class="switch"
                 ><input
-                  aria-label={`Show ${metricDefinition(metric.id)?.label ?? metric.id}`}
+                  aria-label={$tStore('customize.showMetric', { label: metricLabel(metric.id) })}
                   type="checkbox"
                   checked={metric.enabled}
                   onchange={(event) =>
@@ -299,37 +316,37 @@
       </div>
     {/each}
     {#if platform === 'windows'}
-      <div class="taskband-section" role="group" aria-label="Taskbar">
-        <h2>Taskbar</h2>
+      <div class="taskband-section" role="group" aria-label={$tStore('customize.taskbar')}>
+        <h2>{$tStore('customize.taskbar')}</h2>
         <div class="taskband-row">
           <span class="taskband-row-label"
-            ><b>Show on Taskbar</b><small
-              >Display this monitor as a label on the Windows taskbar.</small
+            ><b>{$tStore('customize.showOnTaskbar')}</b><small
+              >{$tStore('customize.showOnTaskbarDesc')}</small
             ></span
           >
           <label class="switch"
             ><input
               type="checkbox"
-              aria-label="Show on taskbar"
+              aria-label={$tStore('customize.showOnTaskbar')}
               checked={taskband?.enabled ?? true}
               onchange={(event) => updateTaskband({ enabled: event.currentTarget.checked })}
             /><span></span></label
           >
         </div>
         <div class="taskband-row">
-          <span class="taskband-row-label"><b>Position</b></span><SelectMenu
+          <span class="taskband-row-label"><b>{$tStore('customize.position')}</b></span><SelectMenu
             label="Taskbar Position"
             value={taskband?.side ?? ''}
             options={[
-              { value: '', label: 'Follow Default' },
-              { value: 'left', label: 'Left (Start)' },
-              { value: 'right', label: 'Right (Tray)' },
+              { value: '', label: $tStore('customize.followDefault') },
+              { value: 'left', label: $tStore('customize.leftStart') },
+              { value: 'right', label: $tStore('customize.rightTray') },
             ]}
             onChange={(value) => updateTaskband({ side: value ? (value as TaskbandSide) : null })}
           />
         </div>
         <div class="taskband-row">
-          <span class="taskband-row-label"><b>First Line</b></span><SelectMenu
+          <span class="taskband-row-label"><b>{$tStore('customize.firstLine')}</b></span><SelectMenu
             label="First Line Content"
             value={taskbandSlotTop}
             options={taskbandSlotOptions}
@@ -337,7 +354,8 @@
           />
         </div>
         <div class="taskband-row">
-          <span class="taskband-row-label"><b>Second Line Left</b></span><SelectMenu
+          <span class="taskband-row-label"><b>{$tStore('customize.secondLineLeft')}</b></span
+          ><SelectMenu
             label="Second Line Left Content"
             value={taskbandSlotBottom}
             options={taskbandSlotOptions}
@@ -345,7 +363,8 @@
           />
         </div>
         <div class="taskband-row">
-          <span class="taskband-row-label"><b>Second Line Right</b></span><SelectMenu
+          <span class="taskband-row-label"><b>{$tStore('customize.secondLineRight')}</b></span
+          ><SelectMenu
             label="Second Line Right Content"
             value={taskbandSlotBottom2}
             options={taskbandSlotOptions}
@@ -354,14 +373,14 @@
         </div>
         <div class="taskband-row">
           <span class="taskband-row-label"
-            ><b>Show Short Labels</b><small
-              >Prefix second-line values with short labels (e.g. "W 80%").</small
+            ><b>{$tStore('customize.showShortLabels')}</b><small
+              >{$tStore('customize.showShortLabelsDesc')}</small
             ></span
           >
           <label class="switch"
             ><input
               type="checkbox"
-              aria-label="Show short labels"
+              aria-label={$tStore('customize.showShortLabels')}
               checked={taskband?.showLabels ?? true}
               onchange={(event) => updateTaskband({ showLabels: event.currentTarget.checked })}
             /><span></span></label
@@ -369,14 +388,16 @@
         </div>
         {#snippet taskbandLineStyle(label: string, line: 'top' | 'bottom')}
           <div class="taskband-row">
-            <span class="taskband-row-label"><b>{label} Color</b></span>
+            <span class="taskband-row-label"
+              ><b>{$tStore('customize.lineColor', { label })}</b></span
+            >
             <div class="taskband-color-control">
               <SelectMenu
-                label={`${label} Color`}
+                label={$tStore('customize.lineColor', { label })}
                 value={taskbandColor(line).mode}
                 options={[
-                  { value: 'auto', label: 'Auto' },
-                  { value: 'custom', label: 'Custom' },
+                  { value: 'auto', label: $tStore('customize.auto') },
+                  { value: 'custom', label: $tStore('customize.custom') },
                 ]}
                 onChange={(value) =>
                   updateTaskbandColor(
@@ -388,7 +409,7 @@
                   class="taskband-color-input"
                   type="color"
                   value={taskbandColor(line).value}
-                  aria-label={`${label} color`}
+                  aria-label={$tStore('customize.lineColor', { label })}
                   onchange={(event) =>
                     updateTaskbandColor(
                       line === 'top' ? 'topColor' : 'bottomColor',
@@ -398,11 +419,12 @@
             </div>
           </div>
           <div class="taskband-row">
-            <span class="taskband-row-label"><b>{label} Bold</b></span>
+            <span class="taskband-row-label"><b>{$tStore('customize.lineBold', { label })}</b></span
+            >
             <label class="switch"
               ><input
                 type="checkbox"
-                aria-label={`${label} bold`}
+                aria-label={$tStore('customize.lineBold', { label })}
                 checked={line === 'top'
                   ? (taskband?.topBold ?? false)
                   : (taskband?.bottomBold ?? false)}
@@ -414,7 +436,8 @@
             >
           </div>
           <div class="taskband-row">
-            <span class="taskband-row-label"><b>{label} Size</b></span>
+            <span class="taskband-row-label"><b>{$tStore('customize.lineSize', { label })}</b></span
+            >
             <input
               class="number-field"
               type="number"
@@ -422,7 +445,7 @@
               max="16"
               step="0.5"
               value={line === 'top' ? (taskband?.topSize ?? 9) : (taskband?.bottomSize ?? 9)}
-              aria-label={`${label} size`}
+              aria-label={$tStore('customize.lineSize', { label })}
               onchange={(event) =>
                 updateTaskband({
                   [line === 'top' ? 'topSize' : 'bottomSize']: Number(event.currentTarget.value),
@@ -430,15 +453,17 @@
             />
           </div>
           <div class="taskband-row">
-            <span class="taskband-row-label"><b>{label} Alignment</b></span><SelectMenu
-              label={`${label} Alignment`}
+            <span class="taskband-row-label"
+              ><b>{$tStore('customize.lineAlignment', { label })}</b></span
+            ><SelectMenu
+              label={$tStore('customize.lineAlignment', { label })}
               value={String(
                 line === 'top' ? (taskband?.topAlign ?? 0) : (taskband?.bottomAlign ?? 0),
               )}
               options={[
-                { value: '0', label: 'Left' },
-                { value: '1', label: 'Center' },
-                { value: '2', label: 'Right' },
+                { value: '0', label: $tStore('customize.left') },
+                { value: '1', label: $tStore('customize.center') },
+                { value: '2', label: $tStore('customize.right') },
               ]}
               onChange={(value) =>
                 updateTaskband({
@@ -447,11 +472,12 @@
             />
           </div>
         {/snippet}
-        {@render taskbandLineStyle('First Line', 'top')}
+        {@render taskbandLineStyle($tStore('customize.firstLine'), 'top')}
         {@render taskbandLineStyle('Second Line', 'bottom')}
         <div class="taskband-row">
           <span class="taskband-row-label"
-            ><b>Padding</b><small>Left and right padding inside the label, in pixels.</small></span
+            ><b>{$tStore('customize.padding')}</b><small>{$tStore('customize.paddingDesc')}</small
+            ></span
           >
           <div class="taskband-pad-controls">
             <input
@@ -478,7 +504,7 @@
         </div>
         <div class="taskband-row taskband-row--button">
           <button class="taskband-restore" type="button" onclick={restoreTaskbandDefaults}
-            >Restore Defaults</button
+            >{$tStore('customize.restoreDefaults')}</button
           >
         </div>
       </div>

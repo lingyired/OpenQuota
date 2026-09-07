@@ -2,6 +2,7 @@ mod child_process;
 mod commands;
 mod desktop_integration;
 mod hashing;
+mod i18n;
 mod logging;
 #[cfg(any(target_os = "macos", test))]
 mod menu_bar;
@@ -63,21 +64,59 @@ use crate::{
 };
 
 fn install_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
+    // Settings are managed before install_tray runs; the tray menu is built
+    // once at startup from the initial language preference.
+    let locale = i18n::resolve(app.state::<Arc<SettingsService>>().get().language);
     #[cfg(target_os = "macos")]
     let menu = {
-        let settings_item =
-            MenuItem::with_id(app, "settings", "Settings", true, Some("CmdOrCtrl+,"))?;
+        let settings_item = MenuItem::with_id(
+            app,
+            "settings",
+            i18n::tr(locale, "menu.settings_short"),
+            true,
+            Some("CmdOrCtrl+,"),
+        )?;
         let separator = PredefinedMenuItem::separator(app)?;
-        let quit = MenuItem::with_id(app, "quit", "Quit OpenQuota", true, Some("CmdOrCtrl+Q"))?;
+        let quit = MenuItem::with_id(
+            app,
+            "quit",
+            i18n::tr(locale, "menu.quit"),
+            true,
+            Some("CmdOrCtrl+Q"),
+        )?;
         Menu::with_items(app, &[&settings_item, &separator, &quit])?
     };
     #[cfg(not(target_os = "macos"))]
     let menu = {
-        let open = MenuItem::with_id(app, "open", "Open OpenQuota", true, None::<&str>)?;
-        let customize = MenuItem::with_id(app, "customize", "Customize…", true, None::<&str>)?;
-        let settings_item = MenuItem::with_id(app, "settings", "Settings…", true, None::<&str>)?;
+        let open = MenuItem::with_id(
+            app,
+            "open",
+            i18n::tr(locale, "menu.open"),
+            true,
+            None::<&str>,
+        )?;
+        let customize = MenuItem::with_id(
+            app,
+            "customize",
+            i18n::tr(locale, "menu.customize"),
+            true,
+            None::<&str>,
+        )?;
+        let settings_item = MenuItem::with_id(
+            app,
+            "settings",
+            i18n::tr(locale, "menu.settings"),
+            true,
+            None::<&str>,
+        )?;
         let separator = PredefinedMenuItem::separator(app)?;
-        let quit = MenuItem::with_id(app, "quit", "Quit OpenQuota", true, None::<&str>)?;
+        let quit = MenuItem::with_id(
+            app,
+            "quit",
+            i18n::tr(locale, "menu.quit"),
+            true,
+            None::<&str>,
+        )?;
         Menu::with_items(app, &[&open, &customize, &settings_item, &separator, &quit])?
     };
 

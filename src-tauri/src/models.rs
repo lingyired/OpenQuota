@@ -763,6 +763,15 @@ impl Default for TaskbandPreferences {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+pub enum LanguagePreference {
+    #[default]
+    System,
+    En,
+    #[serde(rename = "zh-CN")]
+    ZhCn,
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NotificationPreferences {
@@ -778,6 +787,7 @@ pub struct AppSettings {
     pub providers: Vec<ProviderLayout>,
     pub known_provider_ids: Vec<String>,
     pub provider_names: BTreeMap<String, String>,
+    pub language: LanguagePreference,
     pub show_total_spend: bool,
     pub theme: ThemePreference,
     pub density: DensityPreference,
@@ -811,6 +821,7 @@ impl Default for AppSettings {
             providers: Vec::new(),
             known_provider_ids: Vec::new(),
             provider_names: BTreeMap::new(),
+            language: LanguagePreference::System,
             show_total_spend: true,
             theme: ThemePreference::System,
             density: DensityPreference::Default,

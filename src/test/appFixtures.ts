@@ -345,6 +345,7 @@ export const settingsState: SettingsViewState = {
   settings: {
     schemaVersion: 8,
     providerNames: {},
+    language: 'en',
     knownProviderIds: ['claude', 'codex', 'antigravity'],
     showTotalSpend: true,
     theme: 'system',

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tBackendStore } from './i18n';
   import Icon from './Icon.svelte';
   import type { ProviderNotice } from './types';
 
@@ -15,7 +16,8 @@
 >
   <span class="provider-notice-icon"><Icon name="warning" size={12} strokeWidth={2} /></span>
   <span class="provider-notice-copy"
-    ><strong>{notice.title}</strong><small>{notice.message}</small></span
+    ><strong>{$tBackendStore(notice.title)}</strong><small>{$tBackendStore(notice.message)}</small
+    ></span
   >
 </div>
 

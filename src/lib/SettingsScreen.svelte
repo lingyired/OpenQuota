@@ -1,6 +1,8 @@
 <script lang="ts">
+  import { locale } from 'svelte-i18n';
   import type { PanelHeightMode } from './backend';
   import Icon from './Icon.svelte';
+  import { t, tBackendStore, tStore } from './i18n';
   import type { DesktopPlatform } from './platform';
   import SelectMenu from './SelectMenu.svelte';
   import type {
@@ -47,13 +49,15 @@
   let recording = $state(false);
   let logActionError = $state<string | null>(null);
   const settings = $derived(settingsView.settings);
-  const revealLogLabel = $derived(
-    platform === 'macos'
-      ? 'Reveal in Finder'
+  const currentLocale = $derived(locale);
+  const revealLogLabel = $derived.by(() => {
+    void currentLocale;
+    return platform === 'macos'
+      ? t('settings.revealInFinder')
       : platform === 'windows'
-        ? 'Reveal in File Explorer'
-        : 'Open Containing Folder',
-  );
+        ? t('settings.revealInFileExplorer')
+        : t('settings.openContainingFolder');
+  });
   const anyNotificationEnabled = $derived(
     settings.notifications.almostOut ||
       settings.notifications.cuttingItClose ||
@@ -83,7 +87,7 @@
       await onCopyLogPath();
       logActionError = null;
     } catch {
-      logActionError = "Couldn't copy the log path to the clipboard.";
+      logActionError = t('settings.couldNotCopyLogPath');
     }
   }
   async function revealLogFile() {
@@ -91,7 +95,7 @@
       await onOpenLogFolder();
       logActionError = null;
     } catch {
-      logActionError = "Couldn't reveal the log file.";
+      logActionError = t('settings.couldNotRevealLogFile');
     }
   }
   function record(event: KeyboardEvent) {
@@ -134,101 +138,118 @@
   }
 </script>
 
-<section class="screen settings-screen" aria-label="Settings">
+<section class="screen settings-screen" aria-label={$tStore('settings.title')}>
   {#if settingsView.integrationError}<p class="notice" role="alert">
-      {settingsView.integrationError}
+      {$tBackendStore(settingsView.integrationError)}
     </p>{/if}
 
   {#if settingsView.platformSummary}<div class="settings-section">
-      <h2>Linux</h2>
+      <h2>{$tStore('settings.linuxHeader')}</h2>
       <div class="setting-row">
-        <span><b>Desktop Integration</b><small>{settingsView.platformSummary}</small></span>
+        <span
+          ><b>{$tStore('settings.desktopIntegration')}</b><small
+            >{$tBackendStore(settingsView.platformSummary)}</small
+          ></span
+        >
       </div>
     </div>{/if}
 
   <div class="settings-section">
-    <h2>General</h2>
+    <h2>{$tStore('settings.general')}</h2>
+    <div class="setting-row">
+      <span><b>{$tStore('settings.language')}</b></span><SelectMenu
+        label={$tStore('settings.language')}
+        value={settings.language}
+        options={[
+          { value: 'system', label: $tStore('settings.languageAuto') },
+          { value: 'en', label: 'English' },
+          { value: 'zh-CN', label: '简体中文' },
+        ]}
+        onChange={(value) => patch({ language: value as AppSettings['language'] })}
+      />
+    </div>
     <label class="setting-row"
-      ><span><b>Show Total Spend</b></span><input
+      ><span><b>{$tStore('settings.showTotalSpend')}</b></span><input
         type="checkbox"
         checked={settings.showTotalSpend}
         onchange={(event) => patch({ showTotalSpend: event.currentTarget.checked })}
       /></label
     >
     <label class="setting-row"
-      ><span><b>Launch at Login</b></span><input
+      ><span><b>{$tStore('settings.launchAtLogin')}</b></span><input
         type="checkbox"
         checked={settings.launchAtLogin}
         onchange={(event) => patch({ launchAtLogin: event.currentTarget.checked })}
       /></label
     >
     <div class="setting-row">
-      <span><b>Global Shortcut</b></span>
+      <span><b>{$tStore('settings.globalShortcut')}</b></span>
       <div class="shortcut-field">
         <button
           class:recording
           type="button"
           aria-pressed={recording}
           aria-describedby="shortcut-recording-help"
-          data-tooltip="Open OpenQuota from anywhere"
+          data-tooltip={$tStore('settings.openFromAnywhere')}
           onclick={() => (recording = !recording)}
           onkeydown={record}
           onblur={() => (recording = false)}
-          >{recording ? 'Type Shortcut…' : (settings.globalShortcut ?? 'Record Shortcut')}</button
+          >{recording
+            ? $tStore('settings.typeShortcut')
+            : (settings.globalShortcut ?? $tStore('settings.recordShortcut'))}</button
         >{#if settings.globalShortcut}<button
             type="button"
-            aria-label="Clear global shortcut"
+            aria-label={$tStore('settings.clearGlobalShortcut')}
             onclick={() => patch({ globalShortcut: null })}
             ><Icon name="close" size={10} strokeWidth={2.2} /></button
           >{/if}
       </div>
       <small id="shortcut-recording-help" class="sr-only"
-        >Activate to record. While recording, press a modifier shortcut to save it, Delete to clear
-        it, or Escape to cancel.</small
+        >{$tStore('settings.shortcutRecordingHelp')}</small
       >
     </div>
   </div>
 
   <div class="settings-section">
-    <h2>Appearance</h2>
+    <h2>{$tStore('settings.appearance')}</h2>
     {#if platform === 'macos'}
       <div class="setting-row">
-        <span><b>Icon Style</b></span><SelectMenu
-          label="Icon Style"
+        <span><b>{$tStore('settings.iconStyle')}</b></span><SelectMenu
+          label={$tStore('settings.iconStyle')}
           value={settings.menuBarStyle}
           options={[
-            { value: 'text', label: 'Text' },
-            { value: 'bars', label: 'Bars' },
+            { value: 'text', label: $tStore('settings.text') },
+            { value: 'bars', label: $tStore('settings.bars') },
           ]}
           onChange={(value) => patch({ menuBarStyle: value as AppSettings['menuBarStyle'] })}
         />
       </div>
     {/if}
     <div class="setting-row">
-      <span><b>Theme</b></span><SelectMenu
-        label="Theme"
+      <span><b>{$tStore('settings.theme')}</b></span><SelectMenu
+        label={$tStore('settings.theme')}
         value={settings.theme}
         options={[
-          { value: 'system', label: 'System' },
-          { value: 'light', label: 'Light' },
-          { value: 'dark', label: 'Dark' },
+          { value: 'system', label: $tStore('settings.system') },
+          { value: 'light', label: $tStore('settings.light') },
+          { value: 'dark', label: $tStore('settings.dark') },
         ]}
         onChange={(value) => patch({ theme: value as AppSettings['theme'] })}
       />
     </div>
     <div class="setting-row">
-      <span><b>Density</b></span><SelectMenu
-        label="Density"
+      <span><b>{$tStore('settings.density')}</b></span><SelectMenu
+        label={$tStore('settings.density')}
         value={settings.density}
         options={[
-          { value: 'default', label: 'Default' },
-          { value: 'compact', label: 'Compact' },
+          { value: 'default', label: $tStore('settings.default') },
+          { value: 'compact', label: $tStore('settings.compact') },
         ]}
         onChange={(value) => patch({ density: value as AppSettings['density'] })}
       />
     </div>
     <label class="setting-row"
-      ><span><b>Reduce Animations</b></span><input
+      ><span><b>{$tStore('settings.reduceAnimations')}</b></span><input
         type="checkbox"
         checked={settings.reduceAnimations}
         onchange={(event) => patch({ reduceAnimations: event.currentTarget.checked })}
@@ -236,36 +257,36 @@
     >
     {#if settingsView.trayAvailable}
       <div class="setting-row">
-        <span><b>Window Mode</b></span><SelectMenu
-          label="Window Mode"
+        <span><b>{$tStore('settings.windowMode')}</b></span><SelectMenu
+          label={$tStore('settings.windowMode')}
           value={settings.windowMode}
           options={[
-            { value: 'popup', label: 'Tray Popup' },
-            { value: 'floating', label: 'Floating Window' },
+            { value: 'popup', label: $tStore('settings.trayPopup') },
+            { value: 'floating', label: $tStore('settings.floatingWindow') },
           ]}
           onChange={(value) => patch({ windowMode: value as AppSettings['windowMode'] })}
         />
       </div>
     {/if}
     <div class="setting-row">
-      <span><b>Panel Height</b></span><SelectMenu
-        label="Panel Height"
+      <span><b>{$tStore('settings.panelHeight')}</b></span><SelectMenu
+        label={$tStore('settings.panelHeight')}
         value={panelHeightMode}
         options={[
-          { value: 'automatic', label: 'Automatic' },
-          { value: 'manual', label: 'Manual' },
+          { value: 'automatic', label: $tStore('settings.automatic') },
+          { value: 'manual', label: $tStore('settings.manual') },
         ]}
         onChange={(value) => onPanelHeightModeChange(value as PanelHeightMode)}
       />
     </div>
     <div class="setting-row">
-      <span><b>Time Format</b></span><SelectMenu
-        label="Time Format"
+      <span><b>{$tStore('settings.timeFormat')}</b></span><SelectMenu
+        label={$tStore('settings.timeFormat')}
         value={settings.timeFormat}
         options={[
-          { value: 'system', label: 'Auto' },
-          { value: 'twelveHour', label: '12-hour' },
-          { value: 'twentyFourHour', label: '24-hour' },
+          { value: 'system', label: $tStore('settings.auto') },
+          { value: 'twelveHour', label: $tStore('settings.twelveHour') },
+          { value: 'twentyFourHour', label: $tStore('settings.twentyFourHour') },
         ]}
         onChange={(value) => patch({ timeFormat: value as AppSettings['timeFormat'] })}
       />
@@ -273,35 +294,35 @@
   </div>
 
   <div class="settings-section">
-    <h2>Usage Display</h2>
+    <h2>{$tStore('settings.usageDisplay')}</h2>
     <div class="setting-row">
-      <span><b>Show Usage As</b></span><SelectMenu
-        label="Show Usage As"
+      <span><b>{$tStore('settings.showUsageAs')}</b></span><SelectMenu
+        label={$tStore('settings.showUsageAs')}
         value={settings.usageDisplay}
         options={[
-          { value: 'left', label: 'Left' },
-          { value: 'used', label: 'Used' },
+          { value: 'left', label: $tStore('settings.left') },
+          { value: 'used', label: $tStore('settings.used') },
         ]}
         onChange={(value) => patch({ usageDisplay: value as AppSettings['usageDisplay'] })}
       />
     </div>
     <div class="setting-row">
-      <span><b>Reset Times</b></span><SelectMenu
-        label="Reset Times"
+      <span><b>{$tStore('settings.resetTimes')}</b></span><SelectMenu
+        label={$tStore('settings.resetTimes')}
         value={settings.resetDisplay}
         options={[
-          { value: 'countdown', label: 'Countdown' },
-          { value: 'exact', label: 'Exact Time' },
+          { value: 'countdown', label: $tStore('settings.countdown') },
+          { value: 'exact', label: $tStore('settings.exactTime') },
         ]}
         onChange={(value) => patch({ resetDisplay: value as AppSettings['resetDisplay'] })}
       />
     </div>
     <label class="setting-row"
       ><span
-        ><b>Always Show Pacing</b><i
+        ><b>{$tStore('settings.alwaysShowPacing')}</b><i
           class="setting-info"
-          data-tooltip="Show how you're pacing on every metric, not just ones near their limit"
-          aria-label="Show how you're pacing on every metric, not just ones near their limit"
+          data-tooltip={$tStore('settings.alwaysShowPacingTooltip')}
+          aria-label={$tStore('settings.alwaysShowPacingTooltip')}
           ><Icon name="about" size={12} strokeWidth={1.8} /></i
         ></span
       ><input
@@ -314,11 +335,11 @@
 
   {#if platform === 'windows'}
     <div class="settings-section">
-      <h2>Taskbar</h2>
+      <h2>{$tStore('settings.taskbar')}</h2>
       <label class="setting-row"
         ><span
-          ><b>Show Monitors on the Taskbar</b><small
-            >Display each enabled monitor as a two-line label on the Windows taskbar.</small
+          ><b>{$tStore('settings.showMonitorsOnTaskbar')}</b><small
+            >{$tStore('settings.showMonitorsOnTaskbarDesc')}</small
           ></span
         ><input
           type="checkbox"
@@ -327,51 +348,60 @@
         /></label
       >
       <div class="setting-row">
-        <span><b>Default Position</b></span><SelectMenu
-          label="Default Position"
+        <span><b>{$tStore('settings.defaultPosition')}</b></span><SelectMenu
+          label={$tStore('settings.defaultPosition')}
           value={settings.taskband.defaultSide}
           options={[
-            { value: 'left', label: 'Left (Start)' },
-            { value: 'right', label: 'Right (Tray)' },
+            { value: 'left', label: $tStore('settings.leftStart') },
+            { value: 'right', label: $tStore('settings.rightTray') },
           ]}
           onChange={(value) => patchTaskband({ defaultSide: value as TaskbandSide })}
         />
       </div>
       <div class="setting-row">
-        <span><b>Label Spacing</b><small>Gap between taskbar labels, in pixels.</small></span><input
+        <span
+          ><b>{$tStore('settings.labelSpacing')}</b><small
+            >{$tStore('settings.labelSpacingDesc')}</small
+          ></span
+        ><input
           class="number-field"
           type="number"
           min="0"
           max="40"
           value={settings.taskband.margin}
-          aria-label="Label spacing"
+          aria-label={$tStore('settings.labelSpacing')}
           onchange={(event) =>
             patchTaskband({ margin: clampInt(event.currentTarget.value, 0, 40) })}
         />
       </div>
       <div class="setting-row">
-        <span><b>Left Edge Margin</b><small>Offset from the left edge of the taskbar.</small></span
+        <span
+          ><b>{$tStore('settings.leftEdgeMargin')}</b><small
+            >{$tStore('settings.leftEdgeMarginDesc')}</small
+          ></span
         ><input
           class="number-field"
           type="number"
           min="0"
           max="400"
           value={settings.taskband.edgeMarginLeft}
-          aria-label="Left edge margin"
+          aria-label={$tStore('settings.leftEdgeMargin')}
           onchange={(event) =>
             patchTaskband({ edgeMarginLeft: clampInt(event.currentTarget.value, 0, 400) })}
         />
       </div>
       <div class="setting-row">
         <span
-          ><b>Right Edge Margin</b><small>Offset from the right edge of the taskbar.</small></span
+          ><b>{$tStore('settings.rightEdgeMargin')}</b><small
+            >{$tStore('settings.rightEdgeMarginDesc')}</small
+          ></span
         ><input
           class="number-field"
           type="number"
           min="0"
           max="400"
           value={settings.taskband.edgeMarginRight}
-          aria-label="Right edge margin"
+          aria-label={$tStore('settings.rightEdgeMargin')}
           onchange={(event) =>
             patchTaskband({ edgeMarginRight: clampInt(event.currentTarget.value, 0, 400) })}
         />
@@ -381,14 +411,15 @@
 
   <div class="settings-section">
     <h2>
-      Notifications {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
+      {$tStore('settings.notifications')}
+      {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
     </h2>
     <label class="setting-row"
       ><span
-        ><b>Almost Out</b><i
+        ><b>{$tStore('settings.almostOut')}</b><i
           class="setting-info"
-          data-tooltip="Alert when a limit drops below 10% remaining."
-          aria-label="Alert when a limit drops below 10% remaining."
+          data-tooltip={$tStore('settings.almostOutTooltip')}
+          aria-label={$tStore('settings.almostOutTooltip')}
           ><Icon name="about" size={12} strokeWidth={1.8} /></i
         ></span
       ><input
@@ -399,10 +430,10 @@
     >
     <label class="setting-row"
       ><span
-        ><b>Cutting It Close</b><i
+        ><b>{$tStore('settings.cuttingItClose')}</b><i
           class="setting-info"
-          data-tooltip="Alert when a limit is projected to finish with little left."
-          aria-label="Alert when a limit is projected to finish with little left."
+          data-tooltip={$tStore('settings.cuttingItCloseTooltip')}
+          aria-label={$tStore('settings.cuttingItCloseTooltip')}
           ><Icon name="about" size={12} strokeWidth={1.8} /></i
         ></span
       ><input
@@ -413,10 +444,10 @@
     >
     <label class="setting-row"
       ><span
-        ><b>Will Run Out</b><i
+        ><b>{$tStore('settings.willRunOut')}</b><i
           class="setting-info"
-          data-tooltip="Alert when a limit is projected to finish before it resets."
-          aria-label="Alert when a limit is projected to finish before it resets."
+          data-tooltip={$tStore('settings.willRunOutTooltip')}
+          aria-label={$tStore('settings.willRunOutTooltip')}
           ><Icon name="about" size={12} strokeWidth={1.8} /></i
         ></span
       ><input
@@ -431,12 +462,12 @@
           <span
             ><b
               >{settingsView.notificationPermission === 'denied'
-                ? 'Notifications are blocked'
-                : 'Permission is required'}</b
+                ? $tStore('settings.notificationsBlocked')
+                : $tStore('settings.permissionRequired')}</b
             ><small
               >{settingsView.notificationPermission === 'denied'
-                ? 'Enable OpenQuota notifications in system settings.'
-                : 'Allow notifications to receive the alerts selected above.'}</small
+                ? $tStore('settings.notificationsBlockedDesc')
+                : $tStore('settings.permissionRequiredDesc')}</small
             ></span
           >
           <button
@@ -445,7 +476,9 @@
             onclick={settingsView.notificationPermission === 'denied'
               ? onOpenNotificationSettings
               : onRequestNotifications}
-            >{settingsView.notificationPermission === 'denied' ? 'Open Settings' : 'Allow'}</button
+            >{settingsView.notificationPermission === 'denied'
+              ? $tStore('settings.openSettings')
+              : $tStore('settings.allow')}</button
           >
         </div>
       </div>
@@ -453,23 +486,23 @@
   </div>
 
   <div class="settings-section">
-    <h2>Advanced</h2>
+    <h2>{$tStore('settings.advanced')}</h2>
     <div class="setting-row">
-      <span><b>Log Level</b></span><SelectMenu
-        label="Log Level"
+      <span><b>{$tStore('settings.logLevel')}</b></span><SelectMenu
+        label={$tStore('settings.logLevel')}
         value={settings.logLevel}
         options={[
-          { value: 'error', label: 'Error' },
-          { value: 'warn', label: 'Warning' },
-          { value: 'info', label: 'Info' },
-          { value: 'debug', label: 'Debug' },
+          { value: 'error', label: $tStore('settings.error') },
+          { value: 'warn', label: $tStore('settings.warning') },
+          { value: 'info', label: $tStore('settings.info') },
+          { value: 'debug', label: $tStore('settings.debug') },
         ]}
         onChange={(value) => patch({ logLevel: value as AppSettings['logLevel'] })}
       />
     </div>
     <div class="setting-row setting-row--button">
       <button class="secondary-button settings-wide-button" type="button" onclick={copyLogPath}
-        >Copy Log Path</button
+        >{$tStore('settings.copyLogPath')}</button
       >
     </div>
     <div class="setting-row setting-row--button">
@@ -484,15 +517,15 @@
       <button
         class="secondary-button settings-wide-button settings-reset-button"
         type="button"
-        onclick={onResetAllSettings}>Reset All Settings…</button
+        onclick={onResetAllSettings}>{$tStore('settings.resetAllSettings')}</button
       >
     </div>
   </div>
 
   <div class="settings-section">
-    <h2>Updates</h2>
+    <h2>{$tStore('settings.updates')}</h2>
     <label class="setting-row"
-      ><span><b>Check for Updates Automatically</b></span><input
+      ><span><b>{$tStore('settings.checkForUpdatesAutomatically')}</b></span><input
         type="checkbox"
         checked={settings.autoCheckUpdates}
         onchange={(event) => patch({ autoCheckUpdates: event.currentTarget.checked })}
@@ -503,7 +536,10 @@
         type="button"
         class="secondary-button settings-wide-button"
         disabled={checkingUpdate}
-        onclick={onCheckForUpdates}>{checkingUpdate ? 'Checking…' : 'Check for Updates…'}</button
+        onclick={onCheckForUpdates}
+        >{checkingUpdate
+          ? $tStore('settings.checking')
+          : $tStore('settings.checkForUpdates')}</button
       >
     </div>
     {#if updateError}<div class="settings-update-error" role="alert">
@@ -511,9 +547,17 @@
       </div>{/if}
   </div>
 
-  <button class="screen-cross-link" type="button" aria-label="Customize" onclick={onCustomize}>
+  <button
+    class="screen-cross-link"
+    type="button"
+    aria-label={$tStore('settings.customize')}
+    onclick={onCustomize}
+  >
     <Icon name="sliders" size={17} />
-    <span><b>Customize</b><small>Choose what's visible and where</small></span>
+    <span
+      ><b>{$tStore('settings.customize')}</b><small>{$tStore('settings.customizeDesc')}</small
+      ></span
+    >
     <Icon name="chevron-right" size={13} strokeWidth={2.2} />
   </button>
 </section>

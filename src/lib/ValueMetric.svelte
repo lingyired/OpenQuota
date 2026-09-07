@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
+  import { locale } from 'svelte-i18n';
+  import { t, tStore } from './i18n';
   import { formatMetricValue } from './metricFormat';
   import { formatReset } from './pacing';
   import Icon from './Icon.svelte';
@@ -15,6 +17,7 @@
   }
 
   let { label, metric, now, resetDisplay, timeFormat }: Props = $props();
+  const currentLocale = $derived($locale);
   let detailOpen = $state(false);
   let detailTop = $state(8);
   let showTimer: ReturnType<typeof setTimeout> | undefined;
@@ -24,12 +27,18 @@
   const showsResetDetail = $derived(metric?.id === 'rateLimitResets');
   const hasEstimatedValue = $derived(metric?.values.some((value) => value.estimated) ?? false);
 
-  const reading = $derived(
-    metric?.values
-      .map((value) => formatMetricValue(value.number, value.kind, 'row', value.label ?? undefined))
-      .join(' · ') ?? 'No data',
-  );
+  const reading = $derived.by(() => {
+    void currentLocale;
+    return (
+      metric?.values
+        .map((value) =>
+          formatMetricValue(value.number, value.kind, 'row', value.label ?? undefined),
+        )
+        .join(' · ') ?? t('metric.noData')
+    );
+  });
   const tooltip = $derived.by(() => {
+    void currentLocale;
     if (!metric) return undefined;
     if (metric.expiriesAt.length && !showsResetDetail) {
       const sorted = [...metric.expiriesAt].sort();
@@ -40,12 +49,13 @@
         );
         return `${index + 1}. ${formatted}`;
       });
-      return [resetDisplay === 'countdown' ? 'Resets expire in:' : 'Resets expire:', ...lines].join(
-        '\n',
-      );
+      return [
+        resetDisplay === 'countdown' ? t('metric.resetsExpireIn') : t('metric.resetsExpire'),
+        ...lines,
+      ].join('\n');
     }
     const count = metric.values[0]?.number ?? 0;
-    if (metric.id === 'rateLimitResets' && count > 0) return 'Expiry times unavailable';
+    if (metric.id === 'rateLimitResets' && count > 0) return t('metric.expiryTimesUnavailable');
     if (metric.values.some((value) => Math.abs(value.number) >= 1000)) {
       return metric.values
         .map((value) =>
@@ -138,8 +148,8 @@
       {#if hasEstimatedValue}
         <span
           class="value-estimate"
-          data-tooltip="Estimated locally, so it may differ from billed usage."
-          aria-label="Estimated value"
+          data-tooltip={$tStore('metric.estimatedDiffer')}
+          aria-label={$tStore('metric.estimatedValue')}
           role="img"><Icon name="about" size={11} strokeWidth={1.9} /></span
         >
       {/if}
@@ -150,8 +160,8 @@
       {#if hasEstimatedValue}
         <span
           class="value-estimate"
-          data-tooltip="Estimated locally, so it may differ from billed usage."
-          aria-label="Estimated value"
+          data-tooltip={$tStore('metric.estimatedDiffer')}
+          aria-label={$tStore('metric.estimatedValue')}
           role="img"><Icon name="about" size={11} strokeWidth={1.9} /></span
         >
       {/if}

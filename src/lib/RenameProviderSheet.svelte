@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
+  import { tStore } from './i18n';
 
   interface Props {
     initialValue: string;
@@ -65,19 +66,19 @@
         onRename(draft);
       }}
     >
-      <h1 id="rename-title">Rename Card</h1>
+      <h1 id="rename-title">{$tStore('rename.title')}</h1>
       <input
         bind:this={input}
         bind:value={draft}
         type="text"
         maxlength="48"
-        placeholder="Name"
-        aria-label="Name"
+        placeholder={$tStore('rename.placeholder')}
+        aria-label={$tStore('rename.placeholder')}
       />
-      <p id="rename-message">Leave the name empty to go back to the default.</p>
+      <p id="rename-message">{$tStore('rename.message')}</p>
       <div class="rename-sheet__actions">
-        <button type="button" onclick={onCancel}>Cancel</button>
-        <button class="rename-sheet__confirm" type="submit">Rename</button>
+        <button type="button" onclick={onCancel}>{$tStore('rename.cancel')}</button>
+        <button class="rename-sheet__confirm" type="submit">{$tStore('rename.rename')}</button>
       </div>
     </form>
   </div>

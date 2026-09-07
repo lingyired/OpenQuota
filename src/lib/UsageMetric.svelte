@@ -1,5 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { locale } from 'svelte-i18n';
+  import { t, tStore } from './i18n';
   import Icon from './Icon.svelte';
   import { formatMetricNumber, formatMetricValue } from './metricFormat';
   import ModelUsageDetail from './ModelUsageDetail.svelte';
@@ -10,14 +12,15 @@
     period: UsagePeriod | null;
   }
   let { label, period }: Props = $props();
+  const currentLocale = $derived($locale);
   let open = $state(false);
   let detailTop = $state(8);
   let showTimer: ReturnType<typeof setTimeout> | undefined;
   let hideTimer: ReturnType<typeof setTimeout> | undefined;
 
   function reading(value: UsagePeriod | null) {
-    if (!value) return 'No data';
-    const tokens = formatMetricValue(value.tokens, 'count', 'row', 'tokens');
+    if (!value) return t('metric.noData');
+    const tokens = formatMetricValue(value.tokens, 'count', 'row', t('units.tokens'));
     if (value.estimatedCostUsd === null) return tokens;
     return `${formatMetricNumber(value.estimatedCostUsd, 'dollars', 'row')} · ${tokens}`;
   }
@@ -26,7 +29,7 @@
     if (value.modelBreakdown?.models.length) return undefined;
     const note =
       value.estimatedCostUsd !== null && value.costEstimated
-        ? 'Estimated locally, so it may be off'
+        ? t('metric.estimatedLocally')
         : undefined;
     const abbreviated =
       Math.abs(value.tokens) >= 1000 || Math.abs(value.estimatedCostUsd ?? 0) >= 1000;
@@ -35,14 +38,27 @@
       value.estimatedCostUsd === null
         ? undefined
         : formatMetricNumber(value.estimatedCostUsd, 'dollars', 'full'),
-      formatMetricValue(value.tokens, 'count', 'full', 'tokens'),
+      formatMetricValue(value.tokens, 'count', 'full', t('units.tokens')),
     ].filter(Boolean);
     return [...figures, note].filter(Boolean).join('\n');
   }
   function unknownModelTooltip(models: string[]) {
-    const heading = models.length === 1 ? 'Unknown model found' : 'Unknown models found';
+    const heading =
+      models.length === 1 ? t('metric.unknownModelFound') : t('metric.unknownModelsFound');
     return [heading, ...models.map((model) => `- ${model}`)].join('\n');
   }
+  const readingText = $derived.by(() => {
+    void currentLocale;
+    return reading(period);
+  });
+  const tooltipText = $derived.by(() => {
+    void currentLocale;
+    return valueTooltip(period);
+  });
+  const unknownModelsTooltip = $derived.by(() => {
+    void currentLocale;
+    return unknownModelTooltip(period?.unknownModels ?? []);
+  });
   function scheduleShow(event: Event) {
     if (!period?.modelBreakdown?.models.length || open || showTimer) return;
     if (hideTimer) clearTimeout(hideTimer);
@@ -78,20 +94,20 @@
   <span
     >{label}{#if period?.unknownModels?.length}<i
         class="usage-label-warning"
-        data-tooltip={unknownModelTooltip(period.unknownModels)}
-        aria-label="This period used a model with unknown pricing"
+        data-tooltip={unknownModelsTooltip}
+        aria-label={$tStore('metric.unknownPricing')}
         ><Icon name="warning" size={10} strokeWidth={2.2} /></i
       >{/if}</span
   >
   <button
     type="button"
     class:usage-reading-interactive={period?.modelBreakdown?.models.length}
-    data-tooltip={valueTooltip(period)}
+    data-tooltip={tooltipText}
     disabled={!period?.modelBreakdown?.models.length}
     onmouseenter={scheduleShow}
     onmouseleave={scheduleHide}
     onfocus={scheduleShow}
-    onblur={scheduleHide}>{reading(period)}</button
+    onblur={scheduleHide}>{readingText}</button
   >
 </div>
 

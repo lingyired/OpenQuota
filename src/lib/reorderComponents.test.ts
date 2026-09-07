@@ -10,6 +10,7 @@ afterEach(cleanup);
 const settings: AppSettings = {
   schemaVersion: 8,
   providerNames: {},
+  language: 'en',
   knownProviderIds: ['codex', 'claude', 'antigravity'],
   showTotalSpend: false,
   theme: 'system',
