@@ -60,8 +60,8 @@
   },
   "plugins": {
     "updater": {
-      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDQ1MDJGRUM1QUY2QzgyRDQKUldUVWdteXZ4ZjRDUlFveldMMVAzOHNqcnhJNkdzVVo5YXpnSU5ZWk4zR3VkRUFTQVY3VWV6REgK",
-      "endpoints": ["https://github.com/deviffyy/OpenQuota/releases/latest/download/latest.json"]
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMzNDI1MzU2MTk1Q0RCOEMKUldTTTIxd1pWbE5DTTUyMFY0Yy8zaStwMHd3dE1rZXloNUN1cGtuOFExQWVqSjZCaHBhSVQyamsK",
+      "endpoints": ["https://github.com/lingyired/OpenQuota/releases/latest/download/latest.json"]
     }
   }
 }
