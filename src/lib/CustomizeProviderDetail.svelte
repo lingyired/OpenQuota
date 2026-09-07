@@ -147,10 +147,7 @@
       label: metricDefinition(metric.id)?.label ?? metric.id,
     })),
   );
-  const taskbandSlotOptions = $derived([
-    { value: '', label: 'None' },
-    ...taskbandMetricOptions,
-  ]);
+  const taskbandSlotOptions = $derived([{ value: '', label: 'None' }, ...taskbandMetricOptions]);
   function updateTaskband(value: Partial<TaskbandLayout>) {
     if (!provider) return;
     const existing = taskband ?? {
@@ -183,13 +180,12 @@
     updateTaskband({ [slot]: next || null });
   }
   function updateTaskbandColor(line: 'topColor' | 'bottomColor', value: string) {
-    const color: TaskbandColorStyle | null = value
-      ? { type: 'solid', value }
-      : { type: 'default' };
+    const color: TaskbandColorStyle | null = value ? { type: 'solid', value } : { type: 'default' };
     updateTaskband({ [line]: color });
   }
   function restoreTaskbandDefaults() {
-    const { [providerId]: _removed, ...rest } = settings.taskbandProviders;
+    const rest = { ...settings.taskbandProviders };
+    delete rest[providerId];
     onChange({ ...settings, taskbandProviders: rest });
   }
   function taskbandColor(line: 'top' | 'bottom'): { mode: 'auto' | 'custom'; value: string } {
@@ -307,7 +303,9 @@
         <h2>Taskbar</h2>
         <div class="taskband-row">
           <span class="taskband-row-label"
-            ><b>Show on Taskbar</b><small>Display this monitor as a label on the Windows taskbar.</small></span
+            ><b>Show on Taskbar</b><small
+              >Display this monitor as a label on the Windows taskbar.</small
+            ></span
           >
           <label class="switch"
             ><input
@@ -327,8 +325,7 @@
               { value: 'left', label: 'Left (Start)' },
               { value: 'right', label: 'Right (Tray)' },
             ]}
-            onChange={(value) =>
-              updateTaskband({ side: value ? (value as TaskbandSide) : null })}
+            onChange={(value) => updateTaskband({ side: value ? (value as TaskbandSide) : null })}
           />
         </div>
         <div class="taskband-row">
@@ -406,7 +403,9 @@
               ><input
                 type="checkbox"
                 aria-label={`${label} bold`}
-                checked={line === 'top' ? (taskband?.topBold ?? false) : (taskband?.bottomBold ?? false)}
+                checked={line === 'top'
+                  ? (taskband?.topBold ?? false)
+                  : (taskband?.bottomBold ?? false)}
                 onchange={(event) =>
                   updateTaskband({
                     [line === 'top' ? 'topBold' : 'bottomBold']: event.currentTarget.checked,
@@ -433,7 +432,9 @@
           <div class="taskband-row">
             <span class="taskband-row-label"><b>{label} Alignment</b></span><SelectMenu
               label={`${label} Alignment`}
-              value={String(line === 'top' ? (taskband?.topAlign ?? 0) : (taskband?.bottomAlign ?? 0))}
+              value={String(
+                line === 'top' ? (taskband?.topAlign ?? 0) : (taskband?.bottomAlign ?? 0),
+              )}
               options={[
                 { value: '0', label: 'Left' },
                 { value: '1', label: 'Center' },

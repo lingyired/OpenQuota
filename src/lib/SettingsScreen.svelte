@@ -338,21 +338,19 @@
         />
       </div>
       <div class="setting-row">
-        <span
-          ><b>Label Spacing</b><small>Gap between taskbar labels, in pixels.</small></span
-        ><input
+        <span><b>Label Spacing</b><small>Gap between taskbar labels, in pixels.</small></span><input
           class="number-field"
           type="number"
           min="0"
           max="40"
           value={settings.taskband.margin}
           aria-label="Label spacing"
-          onchange={(event) => patchTaskband({ margin: clampInt(event.currentTarget.value, 0, 40) })}
+          onchange={(event) =>
+            patchTaskband({ margin: clampInt(event.currentTarget.value, 0, 40) })}
         />
       </div>
       <div class="setting-row">
-        <span
-          ><b>Left Edge Margin</b><small>Offset from the left edge of the taskbar.</small></span
+        <span><b>Left Edge Margin</b><small>Offset from the left edge of the taskbar.</small></span
         ><input
           class="number-field"
           type="number"
@@ -382,7 +380,8 @@
   {/if}
 
   <div class="settings-section">
-    <h2>Notifications {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
+    <h2>
+      Notifications {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
     </h2>
     <label class="setting-row"
       ><span
