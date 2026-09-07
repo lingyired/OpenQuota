@@ -2,7 +2,17 @@
   import { onDestroy } from 'svelte';
   import { flip } from 'svelte/animate';
   import type { ProviderCatalogIndex } from './metrics';
-  import type { AppSettings, MetricLayout, MetricSection, ProviderLayout } from './types';
+  import { desktopPlatform } from './platform';
+  import SelectMenu from './SelectMenu.svelte';
+  import type {
+    AppSettings,
+    MetricLayout,
+    MetricSection,
+    ProviderLayout,
+    TaskbandColorStyle,
+    TaskbandLayout,
+    TaskbandSide,
+  } from './types';
   import Icon from './Icon.svelte';
   import ProviderApiKeySection from './ProviderApiKeySection.svelte';
   import ProviderNameSection from './ProviderNameSection.svelte';
@@ -115,6 +125,83 @@
     metrics.splice(insertAt, 0, moved);
     updateProvider({ ...provider, metrics });
   }
+  const platform = desktopPlatform();
+  const trayMetrics = $derived(
+    provider
+      ? provider.metrics.filter((metric) => metric.enabled && metricDefinition(metric.id)?.tray)
+      : [],
+  );
+  const taskband = $derived(settings.taskbandProviders[providerId] ?? null);
+  const taskbandExplicit = $derived(taskband !== null);
+  const defaultSlot = (index: number) => trayMetrics[index]?.id ?? '';
+  const taskbandSlotTop = $derived(taskbandExplicit ? (taskband?.slotTop ?? '') : defaultSlot(0));
+  const taskbandSlotBottom = $derived(
+    taskbandExplicit ? (taskband?.slotBottom ?? '') : defaultSlot(1),
+  );
+  const taskbandSlotBottom2 = $derived(
+    taskbandExplicit ? (taskband?.slotBottom2 ?? '') : defaultSlot(2),
+  );
+  const taskbandMetricOptions = $derived(
+    trayMetrics.map((metric) => ({
+      value: metric.id,
+      label: metricDefinition(metric.id)?.label ?? metric.id,
+    })),
+  );
+  const taskbandSlotOptions = $derived([
+    { value: '', label: 'None' },
+    ...taskbandMetricOptions,
+  ]);
+  function updateTaskband(value: Partial<TaskbandLayout>) {
+    if (!provider) return;
+    const existing = taskband ?? {
+      enabled: true,
+      side: null,
+      slotTop: defaultSlot(0) || null,
+      slotBottom: defaultSlot(1) || null,
+      slotBottom2: defaultSlot(2) || null,
+      showLabels: true,
+      topColor: null,
+      bottomColor: null,
+      topBold: false,
+      bottomBold: false,
+      topSize: 9,
+      bottomSize: 9,
+      topAlign: 0,
+      bottomAlign: 0,
+      paddingLeft: 4,
+      paddingRight: 4,
+    };
+    onChange({
+      ...settings,
+      taskbandProviders: {
+        ...settings.taskbandProviders,
+        [providerId]: { ...existing, ...value },
+      },
+    });
+  }
+  function updateTaskbandSlot(slot: 'slotTop' | 'slotBottom' | 'slotBottom2', next: string) {
+    updateTaskband({ [slot]: next || null });
+  }
+  function updateTaskbandColor(line: 'topColor' | 'bottomColor', value: string) {
+    const color: TaskbandColorStyle | null = value
+      ? { type: 'solid', value }
+      : { type: 'default' };
+    updateTaskband({ [line]: color });
+  }
+  function restoreTaskbandDefaults() {
+    const { [providerId]: _removed, ...rest } = settings.taskbandProviders;
+    onChange({ ...settings, taskbandProviders: rest });
+  }
+  function taskbandColor(line: 'top' | 'bottom'): { mode: 'auto' | 'custom'; value: string } {
+    const color = line === 'top' ? taskband?.topColor : taskband?.bottomColor;
+    if (color?.type === 'solid') return { mode: 'custom', value: color.value };
+    return { mode: 'auto', value: '#3b82f6' };
+  }
+  function clampInt(value: string, min: number, max: number) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) return min;
+    return Math.min(max, Math.max(min, parsed));
+  }
 </script>
 
 {#if provider}
@@ -215,6 +302,186 @@
         </div>
       </div>
     {/each}
+    {#if platform === 'windows'}
+      <div class="taskband-section" role="group" aria-label="Taskbar">
+        <h2>Taskbar</h2>
+        <div class="taskband-row">
+          <span class="taskband-row-label"
+            ><b>Show on Taskbar</b><small>Display this monitor as a label on the Windows taskbar.</small></span
+          >
+          <label class="switch"
+            ><input
+              type="checkbox"
+              aria-label="Show on taskbar"
+              checked={taskband?.enabled ?? true}
+              onchange={(event) => updateTaskband({ enabled: event.currentTarget.checked })}
+            /><span></span></label
+          >
+        </div>
+        <div class="taskband-row">
+          <span class="taskband-row-label"><b>Position</b></span><SelectMenu
+            label="Taskbar Position"
+            value={taskband?.side ?? ''}
+            options={[
+              { value: '', label: 'Follow Default' },
+              { value: 'left', label: 'Left (Start)' },
+              { value: 'right', label: 'Right (Tray)' },
+            ]}
+            onChange={(value) =>
+              updateTaskband({ side: value ? (value as TaskbandSide) : null })}
+          />
+        </div>
+        <div class="taskband-row">
+          <span class="taskband-row-label"><b>First Line</b></span><SelectMenu
+            label="First Line Content"
+            value={taskbandSlotTop}
+            options={taskbandSlotOptions}
+            onChange={(value) => updateTaskbandSlot('slotTop', value)}
+          />
+        </div>
+        <div class="taskband-row">
+          <span class="taskband-row-label"><b>Second Line Left</b></span><SelectMenu
+            label="Second Line Left Content"
+            value={taskbandSlotBottom}
+            options={taskbandSlotOptions}
+            onChange={(value) => updateTaskbandSlot('slotBottom', value)}
+          />
+        </div>
+        <div class="taskband-row">
+          <span class="taskband-row-label"><b>Second Line Right</b></span><SelectMenu
+            label="Second Line Right Content"
+            value={taskbandSlotBottom2}
+            options={taskbandSlotOptions}
+            onChange={(value) => updateTaskbandSlot('slotBottom2', value)}
+          />
+        </div>
+        <div class="taskband-row">
+          <span class="taskband-row-label"
+            ><b>Show Short Labels</b><small
+              >Prefix second-line values with short labels (e.g. "W 80%").</small
+            ></span
+          >
+          <label class="switch"
+            ><input
+              type="checkbox"
+              aria-label="Show short labels"
+              checked={taskband?.showLabels ?? true}
+              onchange={(event) => updateTaskband({ showLabels: event.currentTarget.checked })}
+            /><span></span></label
+          >
+        </div>
+        {#snippet taskbandLineStyle(label: string, line: 'top' | 'bottom')}
+          <div class="taskband-row">
+            <span class="taskband-row-label"><b>{label} Color</b></span>
+            <div class="taskband-color-control">
+              <SelectMenu
+                label={`${label} Color`}
+                value={taskbandColor(line).mode}
+                options={[
+                  { value: 'auto', label: 'Auto' },
+                  { value: 'custom', label: 'Custom' },
+                ]}
+                onChange={(value) =>
+                  updateTaskbandColor(
+                    line === 'top' ? 'topColor' : 'bottomColor',
+                    value === 'auto' ? '' : taskbandColor(line).value,
+                  )}
+              />
+              {#if taskbandColor(line).mode === 'custom'}<input
+                  class="taskband-color-input"
+                  type="color"
+                  value={taskbandColor(line).value}
+                  aria-label={`${label} color`}
+                  onchange={(event) =>
+                    updateTaskbandColor(
+                      line === 'top' ? 'topColor' : 'bottomColor',
+                      event.currentTarget.value,
+                    )}
+                />{/if}
+            </div>
+          </div>
+          <div class="taskband-row">
+            <span class="taskband-row-label"><b>{label} Bold</b></span>
+            <label class="switch"
+              ><input
+                type="checkbox"
+                aria-label={`${label} bold`}
+                checked={line === 'top' ? (taskband?.topBold ?? false) : (taskband?.bottomBold ?? false)}
+                onchange={(event) =>
+                  updateTaskband({
+                    [line === 'top' ? 'topBold' : 'bottomBold']: event.currentTarget.checked,
+                  })}
+              /><span></span></label
+            >
+          </div>
+          <div class="taskband-row">
+            <span class="taskband-row-label"><b>{label} Size</b></span>
+            <input
+              class="number-field"
+              type="number"
+              min="7"
+              max="16"
+              step="0.5"
+              value={line === 'top' ? (taskband?.topSize ?? 9) : (taskband?.bottomSize ?? 9)}
+              aria-label={`${label} size`}
+              onchange={(event) =>
+                updateTaskband({
+                  [line === 'top' ? 'topSize' : 'bottomSize']: Number(event.currentTarget.value),
+                })}
+            />
+          </div>
+          <div class="taskband-row">
+            <span class="taskband-row-label"><b>{label} Alignment</b></span><SelectMenu
+              label={`${label} Alignment`}
+              value={String(line === 'top' ? (taskband?.topAlign ?? 0) : (taskband?.bottomAlign ?? 0))}
+              options={[
+                { value: '0', label: 'Left' },
+                { value: '1', label: 'Center' },
+                { value: '2', label: 'Right' },
+              ]}
+              onChange={(value) =>
+                updateTaskband({
+                  [line === 'top' ? 'topAlign' : 'bottomAlign']: Number(value),
+                })}
+            />
+          </div>
+        {/snippet}
+        {@render taskbandLineStyle('First Line', 'top')}
+        {@render taskbandLineStyle('Second Line', 'bottom')}
+        <div class="taskband-row">
+          <span class="taskband-row-label"
+            ><b>Padding</b><small>Left and right padding inside the label, in pixels.</small></span
+          >
+          <div class="taskband-pad-controls">
+            <input
+              class="number-field"
+              type="number"
+              min="0"
+              max="40"
+              value={taskband?.paddingLeft ?? 4}
+              aria-label="Padding left"
+              onchange={(event) =>
+                updateTaskband({ paddingLeft: clampInt(event.currentTarget.value, 0, 40) })}
+            />
+            <input
+              class="number-field"
+              type="number"
+              min="0"
+              max="40"
+              value={taskband?.paddingRight ?? 4}
+              aria-label="Padding right"
+              onchange={(event) =>
+                updateTaskband({ paddingRight: clampInt(event.currentTarget.value, 0, 40) })}
+            />
+          </div>
+        </div>
+        <div class="taskband-row taskband-row--button">
+          <button class="taskband-restore" type="button" onclick={restoreTaskbandDefaults}
+            >Restore Defaults</button
+          >
+        </div>
+      </div>
+    {/if}
     <ProviderApiKeySection
       providerId={provider.id}
       providerName={providerDisplayName(provider.id)}
@@ -332,6 +599,87 @@
 
     .customization-pill.denied .symbol-icon {
       color: var(--warning);
+    }
+
+    .taskband-section {
+      margin-top: 0;
+      margin-bottom: 14px;
+    }
+
+    .taskband-row {
+      display: flex;
+      min-height: 42px;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 8px 12px;
+      border-top: 1px solid var(--separator);
+      background: var(--card);
+      font-size: 12px;
+    }
+
+    .taskband-row:first-of-type {
+      border-top: 0;
+      border-radius: 12px 12px 0 0;
+    }
+
+    .taskband-row--button:last-child {
+      border-radius: 0 0 12px 12px;
+    }
+
+    .taskband-row-label {
+      display: flex;
+      min-width: 0;
+      flex-direction: column;
+      gap: 1px;
+    }
+
+    .taskband-row-label b {
+      font-weight: 550;
+    }
+
+    .taskband-row-label small {
+      color: var(--secondary);
+      font-size: 9px;
+      line-height: 12px;
+    }
+
+    .taskband-color-control {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .taskband-color-input {
+      width: 30px;
+      height: 26px;
+      padding: 1px;
+      border: 1px solid var(--separator);
+      border-radius: 6px;
+      background: var(--card);
+      cursor: pointer;
+    }
+
+    .taskband-pad-controls {
+      display: flex;
+      flex: 0 0 auto;
+      align-items: center;
+      gap: 5px;
+    }
+
+    .taskband-restore {
+      width: 100%;
+      min-height: 28px;
+      border: 1px solid var(--separator);
+      border-radius: 6px;
+      color: var(--text);
+      background: var(--tray);
+      font-size: 12px;
+    }
+
+    .taskband-restore:hover {
+      background: var(--button-hover);
     }
   }
 </style>

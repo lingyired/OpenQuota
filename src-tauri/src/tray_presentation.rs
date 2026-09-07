@@ -1,5 +1,7 @@
 use tauri::{image::Image, AppHandle};
 
+#[cfg(any(target_os = "windows", test))]
+use crate::models::ProviderLayout;
 #[cfg(not(target_os = "macos"))]
 use crate::tray_icon;
 use crate::{
@@ -18,6 +20,15 @@ struct TrayMetric {
     value: String,
     detail: String,
     gauge: Option<TrayGauge>,
+}
+
+/// 供 taskband 使用的指标解析结果：指标 id、tray 短标签与短值。
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct ResolvedTrayMetric {
+    pub id: String,
+    pub short_label: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -54,6 +65,9 @@ pub fn update(
     settings: &AppSettings,
     registry: &ProviderRegistry,
 ) {
+    #[cfg(target_os = "windows")]
+    crate::taskband::update(app, state, settings, registry);
+
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
     };
@@ -238,6 +252,39 @@ fn resolved_groups(
                 #[cfg(any(target_os = "macos", test))]
                 provider_id: definition.id.clone(),
                 metrics,
+            })
+        })
+        .collect()
+}
+
+/// 解析某个 provider 全部启用（且带 tray 定义）的指标为短值，供 taskband
+/// 按指标 id 取用。无快照时返回空列表。
+#[cfg(any(target_os = "windows", test))]
+pub(crate) fn resolved_provider_metrics(
+    state: &UsageViewState,
+    provider: &ProviderLayout,
+    settings: &AppSettings,
+    registry: &ProviderRegistry,
+) -> Vec<ResolvedTrayMetric> {
+    let Some(snapshot) = state
+        .providers
+        .get(&provider.id)
+        .and_then(|state| state.snapshot.as_ref())
+    else {
+        return Vec::new();
+    };
+    provider
+        .metrics
+        .iter()
+        .filter(|metric| metric.enabled)
+        .filter_map(|metric| {
+            let definition = registry.metric(&metric.id)?;
+            let tray = definition.tray.as_ref()?;
+            let resolved = tray_metric(definition, snapshot, settings.usage_display)?;
+            Some(ResolvedTrayMetric {
+                id: metric.id.clone(),
+                short_label: tray.short_label.clone(),
+                value: resolved.value,
             })
         })
         .collect()

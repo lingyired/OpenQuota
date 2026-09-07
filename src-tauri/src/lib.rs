@@ -17,6 +17,8 @@ mod refresh_loop;
 mod service;
 mod settings;
 mod storage;
+#[cfg(any(target_os = "windows", test))]
+mod taskband;
 #[cfg(any(not(target_os = "macos"), test))]
 mod tray_icon;
 mod tray_presentation;
@@ -332,7 +334,7 @@ pub fn run() {
         window::activate_existing_instance(app);
     }));
 
-    builder
+    let builder = builder
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
         .plugin(tauri_plugin_opener::init())
@@ -342,7 +344,12 @@ pub fn run() {
             None,
         ))
         .manage(PopupDismissGuard::default())
-        .manage(updates::UpdateCoordinator::default())
+        .manage(updates::UpdateCoordinator::default());
+    #[cfg(target_os = "windows")]
+    let builder = builder.plugin(tauri_plugin_multiline_taskband::init());
+    #[cfg(target_os = "windows")]
+    let builder = builder.manage(taskband::TaskbandState::default());
+    builder
         .setup(|app| {
             logging::init(logging::default_log_path(), models::LogLevel::Info);
 

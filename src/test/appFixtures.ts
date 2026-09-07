@@ -343,7 +343,7 @@ export const settingsState: SettingsViewState = {
   trayAvailable: true,
   platformSummary: null,
   settings: {
-    schemaVersion: 7,
+    schemaVersion: 8,
     providerNames: {},
     knownProviderIds: ['claude', 'codex', 'antigravity'],
     showTotalSpend: true,
@@ -366,6 +366,14 @@ export const settingsState: SettingsViewState = {
     totalSpendMetric: 'cost',
     totalSpendPeriod: 'today',
     detectionNoticeDismissed: true,
+    taskband: {
+      enabled: true,
+      defaultSide: 'right',
+      margin: 4,
+      edgeMarginLeft: 0,
+      edgeMarginRight: 0,
+    },
+    taskbandProviders: {},
     providers: [
       {
         id: 'codex',

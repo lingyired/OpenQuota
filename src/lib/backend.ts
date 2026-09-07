@@ -177,6 +177,10 @@ export function onOpenScreen(handler: PayloadHandler<string>) {
   return onEvent('open-screen', handler);
 }
 
+export function onTaskbandOpen(handler: PayloadHandler<string>) {
+  return onEvent('taskband-open', handler);
+}
+
 export function onMainWindowHidden(handler: PayloadHandler<void>) {
   return onEvent('main-window-hidden', handler);
 }

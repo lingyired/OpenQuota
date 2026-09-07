@@ -8,7 +8,7 @@ import type { AppSettings } from './types';
 afterEach(cleanup);
 
 const settings: AppSettings = {
-  schemaVersion: 7,
+  schemaVersion: 8,
   providerNames: {},
   knownProviderIds: ['codex', 'claude', 'antigravity'],
   showTotalSpend: false,
@@ -31,6 +31,14 @@ const settings: AppSettings = {
   totalSpendMetric: 'cost',
   totalSpendPeriod: 'today',
   detectionNoticeDismissed: true,
+  taskband: {
+    enabled: true,
+    defaultSide: 'right',
+    margin: 4,
+    edgeMarginLeft: 0,
+    edgeMarginRight: 0,
+  },
+  taskbandProviders: {},
   providers: [
     {
       id: 'codex',

@@ -23,7 +23,7 @@ function settingsView(
     trayAvailable: true,
     platformSummary: null,
     settings: {
-      schemaVersion: 7,
+      schemaVersion: 8,
       providerNames: {},
       providers: [],
       knownProviderIds: [],
@@ -47,6 +47,14 @@ function settingsView(
       totalSpendMetric: 'cost',
       totalSpendPeriod: 'today',
       detectionNoticeDismissed: false,
+      taskband: {
+        enabled: true,
+        defaultSide: 'right',
+        margin: 4,
+        edgeMarginLeft: 0,
+        edgeMarginRight: 0,
+      },
+      taskbandProviders: {},
     },
   };
 }

@@ -7,6 +7,8 @@
     AppSettings,
     NotificationPreferences,
     SettingsViewState,
+    TaskbandPreferences,
+    TaskbandSide,
     UpdateFailure,
   } from './types';
 
@@ -64,9 +66,17 @@
   function patch(value: Partial<AppSettings>) {
     onChange({ ...settings, ...value });
   }
+  function patchTaskband(value: Partial<TaskbandPreferences>) {
+    patch({ taskband: { ...settings.taskband, ...value } });
+  }
   function patchNotification(key: keyof NotificationPreferences, enabled: boolean) {
     patch({ notifications: { ...settings.notifications, [key]: enabled } });
     if (enabled && settingsView.notificationPermission === 'prompt') onRequestNotifications();
+  }
+  function clampInt(value: string, min: number, max: number) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isNaN(parsed)) return min;
+    return Math.min(max, Math.max(min, parsed));
   }
   async function copyLogPath() {
     try {
@@ -302,9 +312,77 @@
     >
   </div>
 
+  {#if platform === 'windows'}
+    <div class="settings-section">
+      <h2>Taskbar</h2>
+      <label class="setting-row"
+        ><span
+          ><b>Show Monitors on the Taskbar</b><small
+            >Display each enabled monitor as a two-line label on the Windows taskbar.</small
+          ></span
+        ><input
+          type="checkbox"
+          checked={settings.taskband.enabled}
+          onchange={(event) => patchTaskband({ enabled: event.currentTarget.checked })}
+        /></label
+      >
+      <div class="setting-row">
+        <span><b>Default Position</b></span><SelectMenu
+          label="Default Position"
+          value={settings.taskband.defaultSide}
+          options={[
+            { value: 'left', label: 'Left (Start)' },
+            { value: 'right', label: 'Right (Tray)' },
+          ]}
+          onChange={(value) => patchTaskband({ defaultSide: value as TaskbandSide })}
+        />
+      </div>
+      <div class="setting-row">
+        <span
+          ><b>Label Spacing</b><small>Gap between taskbar labels, in pixels.</small></span
+        ><input
+          class="number-field"
+          type="number"
+          min="0"
+          max="40"
+          value={settings.taskband.margin}
+          aria-label="Label spacing"
+          onchange={(event) => patchTaskband({ margin: clampInt(event.currentTarget.value, 0, 40) })}
+        />
+      </div>
+      <div class="setting-row">
+        <span
+          ><b>Left Edge Margin</b><small>Offset from the left edge of the taskbar.</small></span
+        ><input
+          class="number-field"
+          type="number"
+          min="0"
+          max="400"
+          value={settings.taskband.edgeMarginLeft}
+          aria-label="Left edge margin"
+          onchange={(event) =>
+            patchTaskband({ edgeMarginLeft: clampInt(event.currentTarget.value, 0, 400) })}
+        />
+      </div>
+      <div class="setting-row">
+        <span
+          ><b>Right Edge Margin</b><small>Offset from the right edge of the taskbar.</small></span
+        ><input
+          class="number-field"
+          type="number"
+          min="0"
+          max="400"
+          value={settings.taskband.edgeMarginRight}
+          aria-label="Right edge margin"
+          onchange={(event) =>
+            patchTaskband({ edgeMarginRight: clampInt(event.currentTarget.value, 0, 400) })}
+        />
+      </div>
+    </div>
+  {/if}
+
   <div class="settings-section">
-    <h2>
-      Notifications {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
+    <h2>Notifications {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
     </h2>
     <label class="setting-row"
       ><span
@@ -517,6 +595,23 @@
     .shortcut-field button.recording {
       border-color: var(--meter-fill);
       color: var(--text);
+    }
+
+    .number-field {
+      width: 56px;
+      min-height: 26px;
+      padding: 3px 6px;
+      border: 1px solid var(--separator);
+      border-radius: 6px;
+      color: var(--text);
+      background: var(--card);
+      font-size: 12px;
+      text-align: right;
+    }
+
+    .number-field:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--meter-fill) 55%, transparent);
+      outline-offset: 1px;
     }
 
     .shortcut-field button[aria-label='Clear global shortcut'] {

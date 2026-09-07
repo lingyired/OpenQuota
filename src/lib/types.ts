@@ -201,6 +201,37 @@ export interface NotificationPreferences {
   willRunOut: boolean;
 }
 
+export type TaskbandSide = 'left' | 'right';
+
+export type TaskbandColorStyle = { type: 'default' } | { type: 'solid'; value: string };
+
+export interface TaskbandLayout {
+  enabled: boolean;
+  side: TaskbandSide | null;
+  slotTop: string | null;
+  slotBottom: string | null;
+  slotBottom2: string | null;
+  showLabels: boolean;
+  topColor: TaskbandColorStyle | null;
+  bottomColor: TaskbandColorStyle | null;
+  topBold: boolean;
+  bottomBold: boolean;
+  topSize: number;
+  bottomSize: number;
+  topAlign: number;
+  bottomAlign: number;
+  paddingLeft: number;
+  paddingRight: number;
+}
+
+export interface TaskbandPreferences {
+  enabled: boolean;
+  defaultSide: TaskbandSide;
+  margin: number;
+  edgeMarginLeft: number;
+  edgeMarginRight: number;
+}
+
 export interface AppSettings {
   schemaVersion: number;
   providers: ProviderLayout[];
@@ -226,6 +257,8 @@ export interface AppSettings {
   totalSpendMetric: 'cost' | 'costPerMillion' | 'tokens';
   totalSpendPeriod: 'today' | 'yesterday' | 'last30Days';
   detectionNoticeDismissed: boolean;
+  taskband: TaskbandPreferences;
+  taskbandProviders: Record<string, TaskbandLayout>;
 }
 
 export interface UpdateStatus {

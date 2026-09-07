@@ -12,6 +12,7 @@
     onOpenScreen,
     onMainWindowHidden,
     onSettingsState,
+    onTaskbandOpen,
     onUpdateProgress,
     onUsageState,
     openProviderLink as openProviderLinkCommand,
@@ -187,6 +188,14 @@
     if (!focusBack) return;
     await tick();
     document.querySelector<HTMLButtonElement>('.screen-header button[aria-label="Back"]')?.focus();
+  }
+  async function scrollToProvider(providerId: string) {
+    navigate('dashboard');
+    await tick();
+    const section = document.querySelector<HTMLElement>(
+      `.provider-section[data-provider-id="${providerId}"]`,
+    );
+    section?.scrollIntoView({ block: 'start' });
   }
   function back() {
     if (screen.startsWith('provider:')) navigate('customize');
@@ -736,6 +745,7 @@
     listeners.add(
       onOpenScreen((target) => navigate(target === 'settings' ? 'settings' : 'customize')),
     );
+    listeners.add(onTaskbandOpen((providerId) => void scrollToProvider(providerId)));
     listeners.add(
       onMainWindowHidden(() => {
         resetTransientUi();

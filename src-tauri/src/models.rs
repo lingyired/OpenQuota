@@ -682,6 +682,87 @@ pub enum WindowMode {
     Popup,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TaskbandSide {
+    Left,
+    #[default]
+    Right,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type", rename_all = "lowercase")]
+pub enum TaskbandColorStyle {
+    Default,
+    Solid { value: String },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TaskbandLayout {
+    pub enabled: bool,
+    pub side: Option<TaskbandSide>,
+    pub slot_top: Option<String>,
+    pub slot_bottom: Option<String>,
+    pub slot_bottom_2: Option<String>,
+    pub show_labels: bool,
+    pub top_color: Option<TaskbandColorStyle>,
+    pub bottom_color: Option<TaskbandColorStyle>,
+    pub top_bold: bool,
+    pub bottom_bold: bool,
+    pub top_size: f64,
+    pub bottom_size: f64,
+    pub top_align: i32,
+    pub bottom_align: i32,
+    pub padding_left: i32,
+    pub padding_right: i32,
+}
+
+impl Default for TaskbandLayout {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            side: None,
+            slot_top: None,
+            slot_bottom: None,
+            slot_bottom_2: None,
+            show_labels: true,
+            top_color: None,
+            bottom_color: None,
+            top_bold: false,
+            bottom_bold: false,
+            top_size: 9.0,
+            bottom_size: 9.0,
+            top_align: 0,
+            bottom_align: 0,
+            padding_left: 4,
+            padding_right: 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct TaskbandPreferences {
+    pub enabled: bool,
+    pub default_side: TaskbandSide,
+    pub margin: i32,
+    pub edge_margin_left: i32,
+    pub edge_margin_right: i32,
+}
+
+impl Default for TaskbandPreferences {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            default_side: TaskbandSide::Right,
+            margin: 4,
+            edge_margin_left: 0,
+            edge_margin_right: 0,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct NotificationPreferences {
@@ -690,7 +771,7 @@ pub struct NotificationPreferences {
     pub will_run_out: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase", default)]
 pub struct AppSettings {
     pub schema_version: u32,
@@ -717,12 +798,16 @@ pub struct AppSettings {
     pub total_spend_metric: TotalSpendMetric,
     pub total_spend_period: UsagePeriodSelection,
     pub detection_notice_dismissed: bool,
+    #[serde(default)]
+    pub taskband: TaskbandPreferences,
+    #[serde(default)]
+    pub taskband_providers: BTreeMap<String, TaskbandLayout>,
 }
 
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            schema_version: 7,
+            schema_version: 8,
             providers: Vec::new(),
             known_provider_ids: Vec::new(),
             provider_names: BTreeMap::new(),
@@ -746,6 +831,8 @@ impl Default for AppSettings {
             total_spend_metric: TotalSpendMetric::Cost,
             total_spend_period: UsagePeriodSelection::Today,
             detection_notice_dismissed: false,
+            taskband: TaskbandPreferences::default(),
+            taskband_providers: BTreeMap::new(),
         }
     }
 }
@@ -759,7 +846,7 @@ impl AppSettings {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct SettingsViewState {
     pub settings: AppSettings,

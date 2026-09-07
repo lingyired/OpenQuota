@@ -2839,7 +2839,7 @@ dependencies = [
 
 [[package]]
 name = "openquota"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "base64 0.23.1",
  "chrono",
@@ -2859,6 +2859,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-autostart",
  "tauri-plugin-global-shortcut",
+ "tauri-plugin-multiline-taskband",
  "tauri-plugin-notification",
  "tauri-plugin-opener",
  "tauri-plugin-positioner",
@@ -4441,6 +4442,19 @@ dependencies = [
  "tauri",
  "tauri-plugin",
  "thiserror 2.0.20",
+]
+
+[[package]]
+name = "tauri-plugin-multiline-taskband"
+version = "1.0.0"
+source = "git+https://github.com/lingyired/tauri-plugin-multiline-taskband?branch=main#bc9d5e27bb749bc2a5ba71643f0234df7794e04d"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.20",
+ "windows-sys 0.52.0",
 ]
 
 [[package]]

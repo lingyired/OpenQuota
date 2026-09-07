@@ -714,7 +714,7 @@ fn normalize_with_persisted_accounts(
 ) {
     let catalog = registry.catalog();
     let migrating_to_multi_provider = settings.schema_version < 3;
-    settings.schema_version = 7;
+    settings.schema_version = 8;
     settings.dismissed_update_version = settings
         .dismissed_update_version
         .take()
@@ -2031,7 +2031,7 @@ mod tests {
             &mut settings,
             &HashSet::from(["codex".to_owned(), "antigravity".to_owned()]),
         );
-        assert_eq!(settings.schema_version, 7);
+        assert_eq!(settings.schema_version, 8);
         assert_eq!(
             settings
                 .providers
