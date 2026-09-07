@@ -9,7 +9,7 @@
 
 use crate::models::TaskbandLayout;
 #[cfg(target_os = "windows")]
-use crate::models::{TaskbandColorStyle, TaskbandPreferences, TaskbandSide};
+use crate::models::{AppSettings, TaskbandColorStyle, TaskbandPreferences, TaskbandSide};
 #[cfg(target_os = "windows")]
 use crate::providers::ProviderRegistry;
 #[cfg(target_os = "windows")]
