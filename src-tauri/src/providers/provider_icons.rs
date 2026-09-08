@@ -7,7 +7,11 @@
 
 macro_rules! brand_icon {
     ($name:literal) => {
-        include_str!(concat!("../../../src/assets/provider-icons/", $name, ".svg"))
+        include_str!(concat!(
+            "../../../src/assets/provider-icons/",
+            $name,
+            ".svg"
+        ))
     };
 }
 

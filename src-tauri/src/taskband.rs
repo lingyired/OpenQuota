@@ -8,7 +8,9 @@
 //! 均以 `#[cfg(target_os = "windows")]` 隔离，非 Windows 零影响。
 
 #[cfg(target_os = "windows")]
-use crate::models::{AppSettings, TaskbandColorStyle, TaskbandLayout, TaskbandPreferences, TaskbandSide};
+use crate::models::{
+    AppSettings, TaskbandColorStyle, TaskbandLayout, TaskbandPreferences, TaskbandSide,
+};
 #[cfg(target_os = "windows")]
 use crate::providers::ProviderRegistry;
 #[cfg(target_os = "windows")]
@@ -452,11 +454,9 @@ mod tests {
 
     /// 用真实 provider 定义解析全部启用指标，验证「自动取前 2 个」的能力。
     fn resolved_opencode() -> Vec<ResolvedTrayMetric> {
-        let catalog = ProviderRegistry::from_definitions(vec![
-            opencode::definition(),
-            codex::definition(),
-        ])
-        .unwrap();
+        let catalog =
+            ProviderRegistry::from_definitions(vec![opencode::definition(), codex::definition()])
+                .unwrap();
         let mut catalog_settings =
             default_settings(&catalog, &HashSet::from(["opencode".to_owned()]));
         catalog_settings.usage_display = crate::models::UsageDisplay::Used;
