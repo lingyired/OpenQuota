@@ -136,37 +136,12 @@
     updateProvider({ ...provider, metrics });
   }
   const platform = desktopPlatform();
-  const trayMetrics = $derived(
-    provider
-      ? provider.metrics.filter((metric) => metric.enabled && metricDefinition(metric.id)?.tray)
-      : [],
-  );
   const taskband = $derived(settings.taskbandProviders[providerId] ?? null);
-  const taskbandExplicit = $derived(taskband !== null);
-  const defaultSlot = (index: number) => trayMetrics[index]?.id ?? '';
-  const taskbandSlotTop = $derived(taskbandExplicit ? (taskband?.slotTop ?? '') : defaultSlot(0));
-  const taskbandSlotBottom = $derived(
-    taskbandExplicit ? (taskband?.slotBottom ?? '') : defaultSlot(1),
-  );
-  const taskbandSlotBottom2 = $derived(
-    taskbandExplicit ? (taskband?.slotBottom2 ?? '') : defaultSlot(2),
-  );
-  const taskbandMetricOptions = $derived(
-    trayMetrics.map((metric) => ({
-      value: metric.id,
-      label: metricLabel(metric.id),
-    })),
-  );
-  const taskbandSlotOptions = $derived([{ value: '', label: 'None' }, ...taskbandMetricOptions]);
   function updateTaskband(value: Partial<TaskbandLayout>) {
     if (!provider) return;
     const existing = taskband ?? {
       enabled: true,
       side: null,
-      slotTop: defaultSlot(0) || null,
-      slotBottom: defaultSlot(1) || null,
-      slotBottom2: defaultSlot(2) || null,
-      showLabels: true,
       topColor: null,
       bottomColor: null,
       topBold: false,
@@ -185,9 +160,6 @@
         [providerId]: { ...existing, ...value },
       },
     });
-  }
-  function updateTaskbandSlot(slot: 'slotTop' | 'slotBottom' | 'slotBottom2', next: string) {
-    updateTaskband({ [slot]: next || null });
   }
   function updateTaskbandColor(line: 'topColor' | 'bottomColor', value: string) {
     const color: TaskbandColorStyle | null = value ? { type: 'solid', value } : { type: 'default' };
@@ -344,47 +316,6 @@
             ]}
             onChange={(value) => updateTaskband({ side: value ? (value as TaskbandSide) : null })}
           />
-        </div>
-        <div class="taskband-row">
-          <span class="taskband-row-label"><b>{$tStore('customize.firstLine')}</b></span><SelectMenu
-            label="First Line Content"
-            value={taskbandSlotTop}
-            options={taskbandSlotOptions}
-            onChange={(value) => updateTaskbandSlot('slotTop', value)}
-          />
-        </div>
-        <div class="taskband-row">
-          <span class="taskband-row-label"><b>{$tStore('customize.secondLineLeft')}</b></span
-          ><SelectMenu
-            label="Second Line Left Content"
-            value={taskbandSlotBottom}
-            options={taskbandSlotOptions}
-            onChange={(value) => updateTaskbandSlot('slotBottom', value)}
-          />
-        </div>
-        <div class="taskband-row">
-          <span class="taskband-row-label"><b>{$tStore('customize.secondLineRight')}</b></span
-          ><SelectMenu
-            label="Second Line Right Content"
-            value={taskbandSlotBottom2}
-            options={taskbandSlotOptions}
-            onChange={(value) => updateTaskbandSlot('slotBottom2', value)}
-          />
-        </div>
-        <div class="taskband-row">
-          <span class="taskband-row-label"
-            ><b>{$tStore('customize.showShortLabels')}</b><small
-              >{$tStore('customize.showShortLabelsDesc')}</small
-            ></span
-          >
-          <label class="switch"
-            ><input
-              type="checkbox"
-              aria-label={$tStore('customize.showShortLabels')}
-              checked={taskband?.showLabels ?? true}
-              onchange={(event) => updateTaskband({ showLabels: event.currentTarget.checked })}
-            /><span></span></label
-          >
         </div>
         {#snippet taskbandLineStyle(label: string, line: 'top' | 'bottom')}
           <div class="taskband-row">

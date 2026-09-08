@@ -702,10 +702,6 @@ pub enum TaskbandColorStyle {
 pub struct TaskbandLayout {
     pub enabled: bool,
     pub side: Option<TaskbandSide>,
-    pub slot_top: Option<String>,
-    pub slot_bottom: Option<String>,
-    pub slot_bottom_2: Option<String>,
-    pub show_labels: bool,
     pub top_color: Option<TaskbandColorStyle>,
     pub bottom_color: Option<TaskbandColorStyle>,
     pub top_bold: bool,
@@ -723,10 +719,6 @@ impl Default for TaskbandLayout {
         Self {
             enabled: true,
             side: None,
-            slot_top: None,
-            slot_bottom: None,
-            slot_bottom_2: None,
-            show_labels: true,
             top_color: None,
             bottom_color: None,
             top_bold: false,

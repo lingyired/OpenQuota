@@ -7,9 +7,8 @@
 //! 文本组装逻辑为纯函数（可在任意平台单测），所有调用插件的代码
 //! 均以 `#[cfg(target_os = "windows")]` 隔离，非 Windows 零影响。
 
-use crate::models::TaskbandLayout;
 #[cfg(target_os = "windows")]
-use crate::models::{AppSettings, TaskbandColorStyle, TaskbandPreferences, TaskbandSide};
+use crate::models::{AppSettings, TaskbandColorStyle, TaskbandLayout, TaskbandPreferences, TaskbandSide};
 #[cfg(target_os = "windows")]
 use crate::providers::ProviderRegistry;
 #[cfg(target_os = "windows")]
@@ -27,7 +26,7 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Emitter, EventId, Listener, Manager};
 
 #[cfg(target_os = "windows")]
-use tauri_plugin_multiline_taskband::{ColorStyle, MultilineTaskbandExt, Side};
+use tauri_plugin_multiline_taskband::{ColorStyle, IconSpec, MultilineTaskbandExt, Side};
 
 /// 与前端 `providerIconPaths.ts` 保持一致的品牌色表。无品牌色的 provider
 /// 自动使用系统任务栏文字色（`Default`）。
@@ -47,60 +46,18 @@ fn brand_color(provider_id: &str) -> Option<&'static str> {
         .map(|(_, color)| *color)
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub(crate) struct TaskbandPresentation {
-    pub top_line: String,
-    pub bottom_line: String,
-    pub bottom_visible: bool,
-}
-
-/// 组装单个 provider 的两行任务栏文本。
-///
-/// - 第一行：`{short_name} {槽位1值}`（无值则只显示缩写图标）。
-/// - 第二行：`{短标签} {槽位2值} · {短标签} {槽位3值}`（`show_labels` 控制
-///   是否带短标签；槽位缺失自动跳过；两个槽位都为空则隐藏第二行）。
-///
-/// `explicit` 表示该 provider 是否在 `taskband_providers` 中显式配置：
-/// - 显式配置：`slot` 为 `None` 或空串表示"不显示"，`Some(id)` 为指定指标。
-/// - 未配置：自动取第 1/2/3 个候选指标（无 `slot` 概念）。
-pub(crate) fn assemble_taskband_text(
-    short_name: &str,
-    layout: &TaskbandLayout,
-    metrics: &[ResolvedTrayMetric],
-    explicit: bool,
-) -> TaskbandPresentation {
-    let resolve = |slot: &Option<String>, fallback: usize| -> Option<&ResolvedTrayMetric> {
-        match (explicit, slot) {
-            (true, Some(id)) if !id.is_empty() => metrics.iter().find(|metric| &metric.id == id),
-            (true, _) => None,
-            (false, _) => metrics.get(fallback),
-        }
-    };
-    let top_value = resolve(&layout.slot_top, 0).map(|metric| metric.value.as_str());
-    let top_line = match top_value {
-        Some(value) => format!("{short_name} {value}"),
-        None => short_name.to_owned(),
-    };
-
-    let bottom_parts: Vec<String> = [
-        resolve(&layout.slot_bottom, 1),
-        resolve(&layout.slot_bottom_2, 2),
-    ]
-    .into_iter()
-    .flatten()
-    .map(|metric| {
-        if layout.show_labels {
-            format!("{} {}", metric.short_label, metric.value)
-        } else {
-            metric.value.clone()
-        }
-    })
-    .collect();
-    TaskbandPresentation {
-        top_line,
-        bottom_line: bottom_parts.join(" · "),
-        bottom_visible: !bottom_parts.is_empty(),
-    }
+/// 组装指标实例的两行任务栏文本，与 mac menubar 对齐：最多取前 2 个指标
+/// 值（无标签前缀）。返回 `（第一行值，第二行值，是否显示第二行）`。
+pub(crate) fn metric_lines(metrics: &[ResolvedTrayMetric]) -> (String, String, bool) {
+    let top = metrics
+        .first()
+        .map(|metric| metric.value.clone())
+        .unwrap_or_default();
+    let bottom = metrics
+        .get(1)
+        .map(|metric| metric.value.clone())
+        .unwrap_or_default();
+    (top, bottom, metrics.get(1).is_some())
 }
 
 /// 每个已创建 taskband 实例上次应用的配置，用于 diff 避免重复调用 set_*。
@@ -111,6 +68,7 @@ struct AppliedConfig {
     order: u64,
     text: (String, String),
     lines_visible: (bool, bool),
+    top_icon: Option<&'static str>,
     top_color: TaskbandColorStyle,
     bottom_color: TaskbandColorStyle,
     top_bold: bool,
@@ -194,6 +152,7 @@ impl TaskbandState {
                 let _ = tb.set_font_sizes(id.to_string(), config.top_size, config.bottom_size);
                 let _ = tb.set_alignment(id.to_string(), config.top_align, config.bottom_align);
                 let _ = tb.set_padding(id.to_string(), config.padding.0, config.padding.1);
+                let _ = tb.set_icon(id.to_string(), to_icon(config.top_icon), None);
                 let _ = tb.set_visible(id.to_string(), config.visible);
             }
             Some(previous) => {
@@ -217,6 +176,9 @@ impl TaskbandState {
                         config.lines_visible.0,
                         config.lines_visible.1,
                     );
+                }
+                if previous.top_icon != config.top_icon {
+                    let _ = tb.set_icon(id.to_string(), to_icon(config.top_icon), None);
                 }
                 if previous.top_color != config.top_color
                     || previous.bottom_color != config.bottom_color
@@ -283,16 +245,18 @@ impl TaskbandState {
         *self.global.lock().unwrap_or_else(|e| e.into_inner()) = None;
     }
 
-    fn register_click_listener(&self, app: &AppHandle, id: &str) {
+    /// 为某个实例注册左键点击监听；点击统一归属到其所属 provider
+    /// （`provider_id`），用于打开主窗口并滚动到对应监控。
+    fn register_click_listener(&self, app: &AppHandle, instance_id: &str, provider_id: &str) {
         let mut registered = self
             .click_listeners
             .lock()
             .unwrap_or_else(|e| e.into_inner());
-        if registered.contains_key(id) {
+        if registered.contains_key(instance_id) {
             return;
         }
-        let event = format!("multiline-taskband://{id}//click");
-        let listen_id = id.to_string();
+        let event = format!("multiline-taskband://{instance_id}//click");
+        let emit_id = provider_id.to_string();
         let listener_app = app.clone();
         let listener_id = app.listen(event, move |event| {
             let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
@@ -301,17 +265,12 @@ impl TaskbandState {
             if payload.get("button").and_then(|b| b.as_str()) != Some("left") {
                 return;
             }
-            let provider_id = payload
-                .get("id")
-                .and_then(|id| id.as_str())
-                .unwrap_or(&listen_id)
-                .to_owned();
             if let Some(window) = listener_app.get_webview_window(MAIN_WINDOW) {
                 crate::window::show_main_window(&window);
             }
-            let _ = listener_app.emit("taskband-open", provider_id);
+            let _ = listener_app.emit("taskband-open", emit_id.clone());
         });
-        registered.insert(id.to_string(), listener_id);
+        registered.insert(instance_id.to_string(), listener_id);
     }
 }
 
@@ -330,6 +289,53 @@ fn to_plugin_color(color: &TaskbandColorStyle, fallback_brand_provider: &str) ->
                 ColorStyle::Default
             }
         }
+    }
+}
+
+/// 将捆绑的品牌图标 SVG 源转换为插件的 `IconSpec`。用 `tint: true` 让图标
+/// 跟随该行 `set_colors` 的上色（缺省为品牌色 / 系统任务栏文字色）。
+#[cfg(target_os = "windows")]
+fn to_icon(svg: Option<&'static str>) -> Option<IconSpec> {
+    svg.map(|svg| IconSpec {
+        path: None,
+        data: Some(svg.to_owned()),
+        tint: true,
+    })
+}
+
+/// 由共有的布局配置构造一个实例的 `AppliedConfig`。
+#[cfg(target_os = "windows")]
+fn instance_config(
+    side: TaskbandSide,
+    order: u64,
+    text: (String, String),
+    lines_visible: (bool, bool),
+    top_icon: Option<&'static str>,
+    layout: &TaskbandLayout,
+    visible: bool,
+) -> AppliedConfig {
+    AppliedConfig {
+        side,
+        order,
+        text,
+        lines_visible,
+        top_icon,
+        top_color: layout
+            .top_color
+            .clone()
+            .unwrap_or(TaskbandColorStyle::Default),
+        bottom_color: layout
+            .bottom_color
+            .clone()
+            .unwrap_or(TaskbandColorStyle::Default),
+        top_bold: layout.top_bold,
+        bottom_bold: layout.bottom_bold,
+        top_size: layout.top_size,
+        bottom_size: layout.bottom_size,
+        top_align: layout.top_align,
+        bottom_align: layout.bottom_align,
+        padding: (layout.padding_left, layout.padding_right),
+        visible,
     }
 }
 
@@ -355,9 +361,9 @@ pub(crate) fn update(
         if !provider.enabled {
             continue;
         }
-        let Some(definition) = registry.definition(&provider.id) else {
+        if registry.definition(&provider.id).is_none() {
             continue;
-        };
+        }
         let layout = settings
             .taskband_providers
             .get(&provider.id)
@@ -366,44 +372,48 @@ pub(crate) fn update(
         if !layout.enabled {
             continue;
         }
-        let explicit = settings.taskband_providers.contains_key(&provider.id);
         let side = layout.side.unwrap_or(prefs.default_side);
         let metrics = resolved_provider_metrics(state, provider, settings, registry);
-        let presentation =
-            assemble_taskband_text(&definition.short_name, &layout, &metrics, explicit);
+        let icon_svg = crate::providers::provider_icon_svg(&provider.id);
         let has_snapshot = state
             .providers
             .get(&provider.id)
             .and_then(|p| p.snapshot.as_ref())
             .is_some();
-        let config = AppliedConfig {
+        let base_order = (index as u64) * 2;
+        let (top_value, bottom_value, bottom_visible) = metric_lines(&metrics);
+
+        // 仅图标 logo 实例：顶部行渲染品牌图标，底部行隐藏。
+        if let Some(svg) = icon_svg {
+            let logo_id = format!("{}.logo", provider.id);
+            let logo_config = instance_config(
+                side,
+                base_order,
+                (String::new(), String::new()),
+                (true, false),
+                Some(svg),
+                &layout,
+                has_snapshot,
+            );
+            taskband.apply_instance(app, &logo_id, logo_config);
+            taskband.register_click_listener(app, &logo_id, &provider.id);
+            desired_ids.insert(logo_id);
+        }
+
+        // 指标实例：最多显示前 2 个指标值（对齐 mac menubar）。
+        let metrics_id = provider.id.clone();
+        let metrics_config = instance_config(
             side,
-            order: index as u64,
-            text: (
-                presentation.top_line.clone(),
-                presentation.bottom_line.clone(),
-            ),
-            lines_visible: (true, presentation.bottom_visible),
-            top_color: layout
-                .top_color
-                .clone()
-                .unwrap_or(TaskbandColorStyle::Default),
-            bottom_color: layout
-                .bottom_color
-                .clone()
-                .unwrap_or(TaskbandColorStyle::Default),
-            top_bold: layout.top_bold,
-            bottom_bold: layout.bottom_bold,
-            top_size: layout.top_size,
-            bottom_size: layout.bottom_size,
-            top_align: layout.top_align,
-            bottom_align: layout.bottom_align,
-            padding: (layout.padding_left, layout.padding_right),
-            visible: has_snapshot,
-        };
-        taskband.apply_instance(app, &provider.id, config);
-        taskband.register_click_listener(app, &provider.id);
-        desired_ids.insert(provider.id.clone());
+            base_order + 1,
+            (top_value, bottom_value),
+            (true, bottom_visible),
+            None,
+            &layout,
+            has_snapshot,
+        );
+        taskband.apply_instance(app, &metrics_id, metrics_config);
+        taskband.register_click_listener(app, &metrics_id, &provider.id);
+        desired_ids.insert(metrics_id);
     }
 
     let stale = taskband
@@ -427,39 +437,44 @@ mod tests {
         models::{QuotaFormat, QuotaWindow, SnapshotSource},
         providers::{codex, opencode, ProviderRegistry},
         settings::default_settings,
-        tray_presentation::ResolvedTrayMetric,
+        tray_presentation::{resolved_provider_metrics, ResolvedTrayMetric},
     };
 
-    use super::{assemble_taskband_text, TaskbandLayout};
+    use super::metric_lines;
 
-    fn layout() -> TaskbandLayout {
-        TaskbandLayout::default()
+    fn metric(id: &str, value: &str) -> ResolvedTrayMetric {
+        ResolvedTrayMetric {
+            id: id.into(),
+            short_label: String::new(),
+            value: value.into(),
+        }
     }
 
-    fn resolved(
-        registry: &ProviderRegistry,
-        provider_id: &str,
-        quotas: &[(&str, f64)],
-    ) -> Vec<ResolvedTrayMetric> {
-        use crate::tray_presentation::resolved_provider_metrics;
+    /// 用真实 provider 定义解析全部启用指标，验证「自动取前 2 个」的能力。
+    fn resolved_opencode() -> Vec<ResolvedTrayMetric> {
+        let catalog = ProviderRegistry::from_definitions(vec![
+            opencode::definition(),
+            codex::definition(),
+        ])
+        .unwrap();
         let mut catalog_settings =
-            default_settings(registry, &HashSet::from([provider_id.to_owned()]));
+            default_settings(&catalog, &HashSet::from(["opencode".to_owned()]));
         catalog_settings.usage_display = crate::models::UsageDisplay::Used;
         let provider = catalog_settings
             .providers
             .iter()
-            .find(|p| p.id == provider_id)
+            .find(|p| p.id == "opencode")
             .unwrap()
             .clone();
         let snapshot = crate::models::ProviderSnapshot {
-            provider_id: provider_id.into(),
+            provider_id: "opencode".into(),
             plan: None,
-            quotas: quotas
-                .iter()
+            quotas: [("session", 75.0), ("weekly", 80.0), ("monthly", 40.0)]
+                .into_iter()
                 .map(|(id, percent)| QuotaWindow {
-                    id: (*id).into(),
-                    label: (*id).into(),
-                    used_percent: *percent,
+                    id: id.into(),
+                    label: id.into(),
+                    used_percent: percent,
                     resets_at: None,
                     period_seconds: 0,
                     format: QuotaFormat::Percent,
@@ -479,7 +494,7 @@ mod tests {
         };
         let state = crate::service::UsageViewState {
             providers: [(
-                provider_id.to_owned(),
+                "opencode".to_owned(),
                 crate::models::ProviderViewState {
                     snapshot: Some(snapshot),
                     source: SnapshotSource::Live,
@@ -490,78 +505,44 @@ mod tests {
             .collect(),
             last_full_refresh_at: None,
         };
-        resolved_provider_metrics(&state, &provider, &catalog_settings, registry)
+        resolved_provider_metrics(&state, &provider, &catalog_settings, &catalog)
     }
 
     #[test]
-    fn opencode_defaults_use_the_first_three_tray_metrics() {
-        let catalog =
-            ProviderRegistry::from_definitions(vec![opencode::definition(), codex::definition()])
-                .unwrap();
-        let metrics = resolved(
-            &catalog,
-            "opencode",
-            &[("session", 75.0), ("weekly", 80.0), ("monthly", 40.0)],
-        );
-        let presentation = assemble_taskband_text("OC", &layout(), &metrics, false);
-        assert_eq!(presentation.top_line, "OC 75%");
-        assert_eq!(presentation.bottom_line, "W 80% · M 40%");
-        assert!(presentation.bottom_visible);
+    fn first_two_metrics_are_displayed() {
+        let (top, bottom, bottom_visible) = metric_lines(&resolved_opencode());
+        assert_eq!(top, "75%");
+        assert_eq!(bottom, "80%");
+        assert!(bottom_visible);
     }
 
     #[test]
-    fn codex_without_monthly_omits_the_third_slot() {
-        let catalog =
-            ProviderRegistry::from_definitions(vec![opencode::definition(), codex::definition()])
-                .unwrap();
-        let metrics = resolved(&catalog, "codex", &[("session", 25.0), ("weekly", 60.0)]);
-        let presentation = assemble_taskband_text("Cx", &layout(), &metrics, false);
-        assert_eq!(presentation.top_line, "Cx 25%");
-        assert_eq!(presentation.bottom_line, "W 60%");
-        assert!(presentation.bottom_visible);
+    fn metric_lines_uses_the_first_two_values() {
+        let metrics = vec![
+            metric("session", "75%"),
+            metric("weekly", "80%"),
+            metric("monthly", "40%"),
+        ];
+        let (top, bottom, bottom_visible) = metric_lines(&metrics);
+        assert_eq!(top, "75%");
+        assert_eq!(bottom, "80%");
+        assert!(bottom_visible);
     }
 
     #[test]
-    fn explicit_slots_can_reorder_and_hide_lines() {
-        let catalog =
-            ProviderRegistry::from_definitions(vec![opencode::definition(), codex::definition()])
-                .unwrap();
-        let metrics = resolved(
-            &catalog,
-            "opencode",
-            &[("session", 75.0), ("weekly", 80.0), ("monthly", 40.0)],
-        );
-        let mut layout = layout();
-        layout.slot_top = None;
-        layout.slot_bottom = Some("opencode.monthly".into());
-        layout.slot_bottom_2 = None;
-        layout.show_labels = false;
-        let presentation = assemble_taskband_text("OC", &layout, &metrics, true);
-        assert_eq!(presentation.top_line, "OC");
-        assert_eq!(presentation.bottom_line, "40%");
-        assert!(presentation.bottom_visible);
+    fn metric_lines_hides_bottom_with_a_single_metric() {
+        let metrics = vec![metric("session", "75%")];
+        let (top, bottom, bottom_visible) = metric_lines(&metrics);
+        assert_eq!(top, "75%");
+        assert_eq!(bottom, "");
+        assert!(!bottom_visible);
     }
 
     #[test]
-    fn no_snapshot_leaves_only_the_short_name() {
-        let presentation = assemble_taskband_text("OC", &layout(), &[], false);
-        assert_eq!(presentation.top_line, "OC");
-        assert_eq!(presentation.bottom_line, "");
-        assert!(!presentation.bottom_visible);
-    }
-
-    #[test]
-    fn explicit_slot_falls_back_to_a_value_metric() {
-        let mut layout = layout();
-        layout.slot_top = None;
-        layout.slot_bottom = Some("opencode.credits".into());
-        let metrics = vec![ResolvedTrayMetric {
-            id: "opencode.credits".into(),
-            short_label: "E".into(),
-            value: "$4".into(),
-        }];
-        let presentation = assemble_taskband_text("OC", &layout, &metrics, true);
-        assert_eq!(presentation.top_line, "OC");
-        assert_eq!(presentation.bottom_line, "E $4");
+    fn metric_lines_is_empty_without_metrics() {
+        let (top, bottom, bottom_visible) = metric_lines(&[]);
+        assert_eq!(top, "");
+        assert_eq!(bottom, "");
+        assert!(!bottom_visible);
     }
 }

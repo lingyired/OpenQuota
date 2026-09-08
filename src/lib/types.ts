@@ -210,10 +210,6 @@ export type TaskbandColorStyle = { type: 'default' } | { type: 'solid'; value: s
 export interface TaskbandLayout {
   enabled: boolean;
   side: TaskbandSide | null;
-  slotTop: string | null;
-  slotBottom: string | null;
-  slotBottom2: string | null;
-  showLabels: boolean;
   topColor: TaskbandColorStyle | null;
   bottomColor: TaskbandColorStyle | null;
   topBold: boolean;
