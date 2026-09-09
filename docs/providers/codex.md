@@ -6,7 +6,7 @@ OpenQuota tracks Codex subscription limits and usage recorded by the Codex CLI.
 
 | Metric                           | Meaning                                                      |
 | -------------------------------- | ------------------------------------------------------------ |
-| Session                          | Usage remaining in the current session window                |
+| Session (5h)                     | Usage remaining in the current session window                |
 | Weekly                           | Usage remaining in the weekly window                         |
 | Spark / Spark Weekly             | Model-specific limits when they are reported for the account |
 | Extra Usage                      | Additional usage credits reported by Codex                   |

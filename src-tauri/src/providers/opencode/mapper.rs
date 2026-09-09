@@ -30,7 +30,7 @@ pub(super) fn map_go_usage(response: UsageResponse) -> Result<Vec<QuotaWindow>, 
         quota(
             usage.get("rolling"),
             "session",
-            "Session",
+            "Session (5h)",
             ROLLING_PERIOD_SECONDS,
         ),
         quota(
@@ -107,6 +107,7 @@ mod tests {
         let quotas = map_go_usage(response).unwrap();
         assert_eq!(quotas.len(), 3);
         assert_eq!(quotas[0].id, "session");
+        assert_eq!(quotas[0].label, "Session (5h)");
         assert_eq!(quotas[0].period_seconds, 5 * 60 * 60);
         assert_eq!(quotas[1].period_seconds, 7 * 24 * 60 * 60);
         assert_eq!(quotas[2].period_seconds, 30 * 24 * 60 * 60);

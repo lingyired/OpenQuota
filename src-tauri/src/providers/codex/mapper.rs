@@ -227,6 +227,11 @@ fn map_window(
         .and_then(|window| number(window.get("limit_window_seconds")))
         .map(|value| value.max(0.0) as u64)
         .unwrap_or(default_period);
+    let label = if label == "Session" && period_seconds == SESSION_PERIOD_SECONDS {
+        "Session (5h)"
+    } else {
+        label
+    };
     Some(QuotaWindow {
         id: id.to_owned(),
         label: label.to_owned(),
@@ -435,6 +440,7 @@ mod tests {
         assert_eq!(mapped.quotas[0].used_percent, 10.0);
         assert_eq!(mapped.quotas[1].used_percent, 20.0);
         assert_eq!(mapped.quotas[0].period_seconds, SESSION_PERIOD_SECONDS);
+        assert_eq!(mapped.quotas[0].label, "Session (5h)");
     }
 
     #[test]
@@ -544,7 +550,7 @@ mod tests {
             now,
         );
         assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].metric, "Session");
+        assert_eq!(alerts[0].metric, "Session (5h)");
         assert_eq!(alerts[0].milestone, Milestone::WillRunOut);
     }
 

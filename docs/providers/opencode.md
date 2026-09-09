@@ -6,7 +6,7 @@ OpenQuota combines OpenCode Go quota information with usage recorded by local Op
 
 | Metric                           | Meaning                                           |
 | -------------------------------- | ------------------------------------------------- |
-| Session                          | OpenCode Go rolling-window usage                  |
+| Session (5h)                     | OpenCode Go rolling-window usage                  |
 | Weekly                           | OpenCode Go weekly usage                           |
 | Monthly                          | OpenCode Go monthly usage                          |
 | Today / Yesterday / Last 30 Days | Local hosted usage and spend recorded by OpenCode |

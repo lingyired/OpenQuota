@@ -6,7 +6,7 @@ OpenQuota tracks Claude subscription limits and local Claude usage history.
 
 | Metric                           | Meaning                                                      |
 | -------------------------------- | ------------------------------------------------------------ |
-| Session                          | Usage remaining in the current session window                |
+| Session (5h)                     | Usage remaining in the current session window                |
 | Weekly                           | Usage remaining in the weekly window                         |
 | Sonnet / Fable                   | Model-specific limits when they are reported for the account |
 | Extra Usage                      | Extra-usage allowance or spending reported by Claude         |

@@ -143,6 +143,9 @@ fn percent_quota(
         .ok_or(ZaiError::InvalidResponse)?
         .clamp(0.0, 100.0);
     let (id, label) = match window.kind {
+        TokenWindowKind::Session if window.period_seconds == 5 * 60 * 60 => {
+            ("session", "Session (5h)")
+        }
         TokenWindowKind::Session => ("session", "Session"),
         TokenWindowKind::Weekly => ("weekly", "Weekly"),
     };
@@ -242,6 +245,7 @@ mod tests {
         let session = &mapped.quotas[0];
         assert_eq!(session.used_percent, 17.0);
         assert_eq!(session.period_seconds, 5 * 60 * 60);
+        assert_eq!(session.label, "Session (5h)");
         assert_eq!(
             session.resets_at,
             Utc.timestamp_millis_opt(1_782_724_971_179).single()

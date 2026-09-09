@@ -24,7 +24,7 @@ pub struct ModelConfig {
 }
 
 const BUCKETS: [(&str, &str, &str, u64); 4] = [
-    ("gemini-5h", "geminiPro", "Session", 5 * 60 * 60),
+    ("gemini-5h", "geminiPro", "Session (5h)", 5 * 60 * 60),
     ("gemini-weekly", "geminiWeekly", "Weekly", 7 * 24 * 60 * 60),
     ("3p-5h", "claude", "Claude", 5 * 60 * 60),
     (
@@ -196,7 +196,7 @@ pub fn build_legacy_quotas(configs: Vec<ModelConfig>) -> Vec<QuotaWindow> {
         }
     }
     [
-        ("geminiPro", "Session", gemini),
+        ("geminiPro", "Session (5h)", gemini),
         ("claude", "Claude", claude),
     ]
     .into_iter()

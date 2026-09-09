@@ -109,6 +109,11 @@ fn quota_from_model(model: &Value, window: Window) -> Result<Option<QuotaWindow>
         _ => default_period,
     };
     let resets_at = end.and_then(millis_time);
+    let label = if label == "Session" && period_seconds == DEFAULT_INTERVAL_PERIOD_SECONDS {
+        "Session (5h)"
+    } else {
+        label
+    };
 
     Ok(Some(QuotaWindow {
         id: id.into(),
@@ -212,6 +217,7 @@ mod tests {
             Utc.timestamp_millis_opt(1_786_078_800_000).single()
         );
         assert_eq!(session.period_seconds, 5 * 60 * 60);
+        assert_eq!(session.label, "Session (5h)");
     }
 
     #[test]

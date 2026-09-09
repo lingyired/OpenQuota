@@ -29,7 +29,7 @@ pub fn map_usage(
     append_window(
         &mut quotas,
         "session",
-        "Session",
+        "Session (5h)",
         object.get("five_hour"),
         5 * 60 * 60,
     );

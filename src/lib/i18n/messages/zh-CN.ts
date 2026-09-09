@@ -351,6 +351,7 @@ export const zhCn = {
     thisWeek: '本周',
     thisMonth: '本月',
     session: '会话',
+    session5h: '会话 (5h)',
     weekly: '每周',
     monthly: '每月',
     balance: '余额',

@@ -359,6 +359,7 @@ export const en = {
     thisWeek: 'This Week',
     thisMonth: 'This Month',
     session: 'Session',
+    session5h: 'Session (5h)',
     weekly: 'Weekly',
     monthly: 'Monthly',
     balance: 'Balance',

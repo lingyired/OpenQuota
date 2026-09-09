@@ -23,6 +23,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Usage Trend': 'metric.usageTrend',
   'Last 30 Days': 'metric.last30Days',
   Session: 'metric.session',
+  'Session (5h)': 'metric.session5h',
   Weekly: 'metric.weekly',
   Monthly: 'metric.monthly',
   Credits: 'metric.credits',

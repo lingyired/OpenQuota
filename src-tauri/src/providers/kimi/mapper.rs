@@ -132,7 +132,7 @@ fn session_quota(body: &Value) -> Result<Option<QuotaWindow>, KimiError> {
 
     Ok(Some(QuotaWindow {
         id: "session".into(),
-        label: "Session".into(),
+        label: "Session (5h)".into(),
         used_percent,
         resets_at: iso_time(detail.get("resetTime")),
         period_seconds,

@@ -6,7 +6,7 @@ OpenQuota tracks the Session and Weekly quotas of a MiniMax Token Plan.
 
 | Metric  | Meaning                                      |
 | ------- | -------------------------------------------- |
-| Session | Usage remaining in the rolling 5-hour window |
+| Session (5h) | Usage remaining in the rolling 5-hour window |
 | Weekly  | Usage remaining in the rolling 7-day window  |
 
 ## Setup

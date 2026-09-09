@@ -6,7 +6,7 @@ OpenQuota tracks the shared Gemini and Claude quota pools reported by Antigravit
 
 | Metric        | Meaning                                             |
 | ------------- | --------------------------------------------------- |
-| Session       | Shared Gemini pool in the rolling 5-hour window     |
+| Session (5h)  | Shared Gemini pool in the rolling 5-hour window     |
 | Weekly        | Shared Gemini pool in the weekly window             |
 | Claude        | Shared non-Gemini pool in the rolling 5-hour window |
 | Claude Weekly | Shared non-Gemini pool in the weekly window         |
