@@ -63,6 +63,40 @@ describe('translation helpers', () => {
     expect(tBackend('Usage Today')).toBe('Usage Today');
   });
 
+  it('translates provider catalog labels and plan names in Chinese', async () => {
+    await switchLocale('zh-CN');
+    expect(tBackend('Spark')).toBe('Spark 配额');
+    expect(tBackend('Spark Weekly')).toBe('Spark 周配额');
+    expect(tBackend('Extra Usage')).toBe('额外用量');
+    expect(tBackend('Auto usage')).toBe('自动用量');
+    expect(tBackend('API usage')).toBe('API 用量');
+    expect(tBackend('On-demand')).toBe('按需用量');
+    expect(tBackend('requests')).toBe('次请求');
+    expect(tBackend('searches')).toBe('次搜索');
+    expect(tBackend('Rate Limit Resets')).toBe('速率限制重置');
+    expect(tBackend('Today')).toBe('今日');
+    expect(tBackend('Free')).toBe('免费');
+    expect(tBackend('available')).toBe('可用');
+    expect(tBackend('Could not reach Kimi. Check your internet connection.')).toBe(
+      '无法访问 Kimi。请检查你的网络连接。',
+    );
+    expect(tBackend('Cursor usage request failed (HTTP 429).')).toBe(
+      'Cursor 用量请求失败（HTTP 429）。',
+    );
+    expect(tBackend('Not logged in. Run `codex` to authenticate.')).toBe(
+      '尚未登录。请运行 `codex` 进行身份验证。',
+    );
+    expect(tBackend('Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/openquota/zai.json.')).toBe(
+      '在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/openquota/zai.json。',
+    );
+    expect(tBackend('MiniMax request failed (HTTP 500).')).toBe(
+      'MiniMax 请求失败（HTTP 500）。',
+    );
+    expect(tBackend('OpenCode local usage data is temporarily unavailable.')).toBe(
+      'OpenCode 本地用量数据暂时不可用。',
+    );
+  });
+
   it('tBackend falls back to the raw string when unknown', () => {
     expect(tBackend('Some brand-new backend string')).toBe('Some brand-new backend string');
   });

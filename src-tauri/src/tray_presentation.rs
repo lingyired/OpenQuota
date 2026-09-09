@@ -238,8 +238,10 @@ fn resolved_groups(
                 .filter(|metric| metric.pinned)
                 .filter_map(|metric| {
                     let metric_definition = registry.metric(&metric.id)?;
+                    metric_definition.tray.as_ref()?;
                     let mut resolved =
-                        tray_metric(metric_definition, snapshot, settings.usage_display)?;
+                        tray_metric(metric_definition, snapshot, settings.usage_display)
+                            .unwrap_or_else(|| tray_metric_unavailable(metric_definition));
                     resolved.detail = format!(
                         "{} {}",
                         settings.provider_display_name(definition),
@@ -257,10 +259,10 @@ fn resolved_groups(
         .collect()
 }
 
-/// 解析某个 provider 全部启用（且带 tray 定义）的指标为短值，供 taskband
-/// 按指标 id 取用。无快照时返回空列表。
+/// 解析某个 provider 固定的（pinned，且带 tray 定义）指标为短值，供 taskband
+/// 取用 —— 与 mac menubar 同一套选择规则。无快照或无固定指标时返回空列表。
 #[cfg(any(target_os = "windows", test))]
-pub(crate) fn resolved_provider_metrics(
+pub(crate) fn pinned_provider_metrics(
     state: &UsageViewState,
     provider: &ProviderLayout,
     settings: &AppSettings,
@@ -276,18 +278,30 @@ pub(crate) fn resolved_provider_metrics(
     provider
         .metrics
         .iter()
-        .filter(|metric| metric.enabled)
+        .filter(|metric| metric.pinned)
         .filter_map(|metric| {
             let definition = registry.metric(&metric.id)?;
             let tray = definition.tray.as_ref()?;
-            let resolved = tray_metric(definition, snapshot, settings.usage_display)?;
+            let value = tray_metric(definition, snapshot, settings.usage_display)
+                .map(|resolved| resolved.value)
+                .unwrap_or_else(|| "NA".to_owned());
             Some(ResolvedTrayMetric {
                 id: metric.id.clone(),
                 short_label: tray.short_label.clone(),
-                value: resolved.value,
+                value,
             })
         })
         .collect()
+}
+
+/// 某个 pinned 指标在快照中暂时没有数据时的占位显示：值显示 NA，
+/// 让 menubar / taskband 仍保留用户固定出的行位（例如第二行 NA）。
+fn tray_metric_unavailable(definition: &MetricDefinition) -> TrayMetric {
+    TrayMetric {
+        value: "NA".to_owned(),
+        detail: format!("{} NA", definition.label),
+        gauge: None,
+    }
 }
 
 fn tray_metric(
@@ -486,8 +500,9 @@ mod tests {
     };
 
     use super::{
-        bar_fractions, format_tokens, mac_menu_bar_presentation, primary_gauge, resolved_groups,
-        text_groups, MacMenuBarIcon, MacMenuBarPresentation, TrayGauge, TrayGroup, TrayMetric,
+        bar_fractions, format_tokens, mac_menu_bar_presentation, pinned_provider_metrics,
+        primary_gauge, resolved_groups, text_groups, MacMenuBarIcon, MacMenuBarPresentation,
+        TrayGauge, TrayGroup, TrayMetric,
     };
     use crate::service::UsageViewState;
 
@@ -769,6 +784,63 @@ mod tests {
                 remaining_fraction: 0.75,
             })
         );
+    }
+
+    #[test]
+    fn unavailable_pinned_metrics_fall_back_to_na_instead_of_disappearing() {
+        // Codex defaults pin session + weekly, but the snapshot only carries
+        // weekly this round: session must stay visible as NA on both the mac
+        // menubar path and the Windows taskband path instead of being dropped.
+        let snapshot = ProviderSnapshot {
+            provider_id: "codex".into(),
+            plan: None,
+            quotas: vec![QuotaWindow {
+                id: "weekly".into(),
+                label: "Weekly".into(),
+                used_percent: 60.0,
+                resets_at: None,
+                period_seconds: 604_800,
+                format: crate::models::QuotaFormat::Percent,
+                used_value: None,
+                limit_value: None,
+                unit: None,
+                estimated: false,
+                source_note: None,
+            }],
+            value_metrics: Vec::new(),
+            status_metrics: Vec::new(),
+            notices: Vec::new(),
+            usage: UsageHistory::default(),
+            warnings: Vec::new(),
+            refreshed_at: Utc::now(),
+        };
+        let provider_state = ProviderViewState {
+            snapshot: Some(snapshot),
+            source: SnapshotSource::Live,
+            ..ProviderViewState::default()
+        };
+        let state = UsageViewState {
+            providers: [("codex".into(), provider_state)].into_iter().collect(),
+            last_full_refresh_at: None,
+        };
+        let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
+        let settings = default_settings(&catalog, &HashSet::from(["codex".to_owned()]));
+
+        let groups = resolved_groups(&state, &settings, &catalog);
+        assert_eq!(groups[0].metrics.len(), 2);
+        assert_eq!(groups[0].metrics[0].value, "NA");
+        assert_eq!(groups[0].metrics[1].value, "40%");
+
+        let provider = settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == "codex")
+            .unwrap()
+            .clone();
+        let pinned = pinned_provider_metrics(&state, &provider, &settings, &catalog);
+        assert_eq!(pinned.len(), 2);
+        assert_eq!(pinned[0].value, "NA");
+        assert_eq!(pinned[1].value, "40%");
     }
 
     #[test]

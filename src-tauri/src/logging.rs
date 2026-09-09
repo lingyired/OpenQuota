@@ -26,13 +26,40 @@ pub fn init(path: PathBuf, level: LogLevel) {
     if LOGGER.get().is_some() {
         return;
     }
-    let mut sink = LogFile::new(path, DEFAULT_MAX_BYTES);
+    let mut sink = LogFile::new(path.clone(), DEFAULT_MAX_BYTES);
     if let Err(error) = sink.open() {
         eprintln!("OpenQuota file log disabled: {error}");
     }
     let _ = LOGGER.set(AppLogger {
         sink: Mutex::new(sink),
     });
+
+    // 托盘应用无控制台，panic 默认会静默退出且不留痕。挂一个 hook 把崩溃信息
+    // 追加到同一个日志文件，便于定位 Windows 上的启动崩溃。
+    install_panic_hook(path);
+}
+
+/// 把 panic 消息（含触发位置）原样追加到日志文件，避免无控制台时崩溃无迹可寻。
+fn install_panic_hook(log_path: PathBuf) {
+    let shared = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = if let Some(s) = info.payload().downcast_ref::<&str>() {
+            (*s).into()
+        } else if let Some(s) = info.payload().downcast_ref::<String>() {
+            s.clone()
+        } else {
+            format!("{:?}", info.payload())
+        };
+        let location = info
+            .location()
+            .map(|l| format!("{}:{}", l.file(), l.line()))
+            .unwrap_or_else(|| "unknown".into());
+        let line = format!("PANIC at {location} — {payload}\n");
+        if let Ok(mut f) = OpenOptions::new().create(true).append(true).open(&log_path) {
+            let _ = f.write_all(line.as_bytes());
+        }
+        shared(info);
+    }))
 }
 
 pub fn set_level(level: LogLevel) {

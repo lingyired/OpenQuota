@@ -2,7 +2,8 @@
 //!
 //! 职责：根据 `AppSettings` + `UsageViewState` 对账每个已启用监控在任务栏上
 //! 的两行文本标签实例 —— 创建 / 更新 / 隐藏 / 移除，并监听实例点击事件
-//! （左键 → 打开主窗口 popup 并滚动到对应监控）。
+//! （左键 → 在点击实例上方打开主窗口 popup 并只聚焦该 agent；右键 →
+//! 显示隐藏 / 刷新 / 退出的原生上下文菜单）。
 //!
 //! 文本组装逻辑为纯函数（可在任意平台单测），所有调用插件的代码
 //! 均以 `#[cfg(target_os = "windows")]` 隔离，非 Windows 零影响。
@@ -12,23 +13,29 @@ use crate::models::{
     AppSettings, TaskbandColorStyle, TaskbandLayout, TaskbandPreferences, TaskbandSide,
 };
 #[cfg(target_os = "windows")]
+use crate::pacing::NotificationEvaluator;
+#[cfg(target_os = "windows")]
 use crate::providers::ProviderRegistry;
 #[cfg(target_os = "windows")]
-use crate::service::UsageViewState;
+use crate::service::{ProviderService, UsageViewState};
 #[cfg(target_os = "windows")]
-use crate::tray_presentation::resolved_provider_metrics;
+use crate::settings::SettingsService;
+#[cfg(target_os = "windows")]
+use crate::tray_presentation::pinned_provider_metrics;
 use crate::tray_presentation::ResolvedTrayMetric;
 #[cfg(target_os = "windows")]
-use crate::window::MAIN_WINDOW;
+use crate::window::{TaskbandAnchor, MAIN_WINDOW};
 #[cfg(target_os = "windows")]
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 #[cfg(target_os = "windows")]
 use tauri::{AppHandle, Emitter, EventId, Listener, Manager};
 
 #[cfg(target_os = "windows")]
-use tauri_plugin_multiline_taskband::{ColorStyle, IconSpec, MultilineTaskbandExt, Side};
+use tauri_plugin_multiline_taskband::{
+    ColorStyle, IconSpec, MenuItemDescriptor, MultilineTaskbandExt, Side,
+};
 
 /// 与前端 `providerIconPaths.ts` 保持一致的品牌色表。无品牌色的 provider
 /// 自动使用系统任务栏文字色（`Default`）。
@@ -94,7 +101,12 @@ struct GlobalConfig {
 #[cfg(target_os = "windows")]
 pub(crate) struct TaskbandState {
     created: Mutex<HashMap<String, AppliedConfig>>,
+    /// 实例 id -> provider id：logo 与指标实例归属同一个 provider。
+    owners: Mutex<HashMap<String, String>>,
     click_listeners: Mutex<HashMap<String, EventId>>,
+    menu_listeners: Mutex<HashMap<String, EventId>>,
+    /// 已附加的右键菜单签名，语言 / provider 名变化时才重建。
+    menu_signatures: Mutex<HashMap<String, String>>,
     global: Mutex<Option<GlobalConfig>>,
 }
 
@@ -103,7 +115,10 @@ impl Default for TaskbandState {
     fn default() -> Self {
         Self {
             created: Mutex::new(HashMap::new()),
+            owners: Mutex::new(HashMap::new()),
             click_listeners: Mutex::new(HashMap::new()),
+            menu_listeners: Mutex::new(HashMap::new()),
+            menu_signatures: Mutex::new(HashMap::new()),
             global: Mutex::new(None),
         }
     }
@@ -219,6 +234,7 @@ impl TaskbandState {
 
     fn remove_instance(&self, app: &AppHandle, id: &str) {
         let _ = app.multiline_taskband().remove(id.to_string());
+        let _ = app.multiline_taskband().set_menu(id.to_string(), None);
         self.created
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -231,6 +247,22 @@ impl TaskbandState {
         {
             app.unlisten(listener_id);
         }
+        if let Some(listener_id) = self
+            .menu_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id)
+        {
+            app.unlisten(listener_id);
+        }
+        self.owners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
+        self.menu_signatures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(id);
     }
 
     fn remove_all(&self, app: &AppHandle) {
@@ -248,8 +280,13 @@ impl TaskbandState {
     }
 
     /// 为某个实例注册左键点击监听；点击统一归属到其所属 provider
-    /// （`provider_id`），用于打开主窗口并滚动到对应监控。
+    /// （`provider_id`）：在被点击实例上方打开主窗口 popup（横向跟随鼠标），
+    /// 并让前端只显示该 provider。
     fn register_click_listener(&self, app: &AppHandle, instance_id: &str, provider_id: &str) {
+        self.owners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(instance_id.to_string(), provider_id.to_string());
         let mut registered = self
             .click_listeners
             .lock()
@@ -267,10 +304,77 @@ impl TaskbandState {
             if payload.get("button").and_then(|b| b.as_str()) != Some("left") {
                 return;
             }
+            let anchor = taskband_click_anchor(&payload);
             if let Some(window) = listener_app.get_webview_window(MAIN_WINDOW) {
-                crate::window::show_main_window(&window);
+                match anchor {
+                    Some(anchor) => crate::window::show_main_window_anchored(&window, anchor),
+                    None => crate::window::show_main_window(&window),
+                }
             }
             let _ = listener_app.emit("taskband-open", emit_id.clone());
+        });
+        registered.insert(instance_id.to_string(), listener_id);
+    }
+
+    /// 为某个实例绑定右键上下文菜单（隐藏 agent / 刷新数据 / 退出应用），
+    /// 并注册菜单选择监听。菜单文案随语言与 provider 名变化而重建。
+    fn register_context_menu(
+        &self,
+        app: &AppHandle,
+        instance_id: &str,
+        provider_id: &str,
+        provider_name: &str,
+        locale: crate::i18n::Locale,
+    ) {
+        self.owners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(instance_id.to_string(), provider_id.to_string());
+        let (items, signature) = context_menu_items(locale, provider_name);
+        let tb = app.multiline_taskband();
+        let mut signatures = self
+            .menu_signatures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if signatures.get(instance_id).map(String::as_str) != Some(signature.as_str()) {
+            let _ = tb.set_menu(instance_id.to_string(), Some(items));
+            signatures.insert(instance_id.to_string(), signature);
+        }
+        drop(signatures);
+        self.register_menu_listener(app, instance_id);
+    }
+
+    fn register_menu_listener(&self, app: &AppHandle, instance_id: &str) {
+        let mut registered = self
+            .menu_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if registered.contains_key(instance_id) {
+            return;
+        }
+        let event = format!("multiline-taskband://{instance_id}//menu");
+        let listener_app = app.clone();
+        let listener_id = app.listen(event, move |event| {
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+                return;
+            };
+            let Some(instance_id) = payload.get("id").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let Some(action) = payload.get("itemId").and_then(|v| v.as_str()) else {
+                return;
+            };
+            let Some(provider_id) = listener_app
+                .state::<TaskbandState>()
+                .owners
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .get(instance_id)
+                .cloned()
+            else {
+                return;
+            };
+            dispatch_context_menu_action(&listener_app, &provider_id, action);
         });
         registered.insert(instance_id.to_string(), listener_id);
     }
@@ -358,6 +462,7 @@ pub(crate) fn update(
     }
     taskband.apply_global(app, prefs);
 
+    let locale = crate::i18n::resolve(settings.language);
     let mut desired_ids = HashSet::new();
     for (index, provider) in settings.providers.iter().enumerate() {
         if !provider.enabled {
@@ -375,30 +480,44 @@ pub(crate) fn update(
             continue;
         }
         let side = layout.side.unwrap_or(prefs.default_side);
-        let metrics = resolved_provider_metrics(state, provider, settings, registry);
+        // 与 mac menubar 一致：只展示用户固定的（pinned）指标。
+        let metrics = pinned_provider_metrics(state, provider, settings, registry);
+        if metrics.is_empty() {
+            continue;
+        }
         let icon_svg = crate::providers::provider_icon_svg(&provider.id);
-        let has_snapshot = state
-            .providers
-            .get(&provider.id)
-            .and_then(|p| p.snapshot.as_ref())
-            .is_some();
+        let provider_name = registry
+            .definition(&provider.id)
+            .map(|definition| settings.provider_display_name(definition))
+            .unwrap_or(&provider.id)
+            .to_owned();
         let base_order = (index as u64) * 2;
+        // 插件同侧实例按 order 升序从边缘向里排列：Left 从 Start 向右排，
+        // Right 从托盘向左排。为保证任何一侧都呈现「图标在左、数据在右」，
+        // 右边缘需把指标实例放在更靠近边缘的位置（order 更小）。
+        let (logo_order, metrics_order) = match side {
+            TaskbandSide::Left => (base_order, base_order + 1),
+            TaskbandSide::Right => (base_order + 1, base_order),
+        };
         let (top_value, bottom_value, bottom_visible) = metric_lines(&metrics);
 
         // 仅图标 logo 实例：顶部行渲染品牌图标，底部行隐藏。
+        // 注意：实例 id 会拼进 clicked 事件名，Tauri 事件名不允许 "."，
+        // 因此后缀用 "-logo"（连字符合法）而非 ".logo"。
         if let Some(svg) = icon_svg {
-            let logo_id = format!("{}.logo", provider.id);
+            let logo_id = format!("{}-logo", provider.id);
             let logo_config = instance_config(
                 side,
-                base_order,
+                logo_order,
                 (String::new(), String::new()),
                 (true, false),
                 Some(svg),
                 &layout,
-                has_snapshot,
+                true,
             );
             taskband.apply_instance(app, &logo_id, logo_config);
             taskband.register_click_listener(app, &logo_id, &provider.id);
+            taskband.register_context_menu(app, &logo_id, &provider.id, &provider_name, locale);
             desired_ids.insert(logo_id);
         }
 
@@ -406,15 +525,16 @@ pub(crate) fn update(
         let metrics_id = provider.id.clone();
         let metrics_config = instance_config(
             side,
-            base_order + 1,
+            metrics_order,
             (top_value, bottom_value),
             (true, bottom_visible),
             None,
             &layout,
-            has_snapshot,
+            true,
         );
         taskband.apply_instance(app, &metrics_id, metrics_config);
         taskband.register_click_listener(app, &metrics_id, &provider.id);
+        taskband.register_context_menu(app, &metrics_id, &provider.id, &provider_name, locale);
         desired_ids.insert(metrics_id);
     }
 
@@ -423,12 +543,166 @@ pub(crate) fn update(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .keys()
+        .filter(|id| !desired_ids.contains(*id))
         .cloned()
-        .filter(|id| !desired_ids.contains(id))
         .collect::<Vec<_>>();
     for id in stale {
         taskband.remove_instance(app, &id);
     }
+}
+
+#[cfg(target_os = "windows")]
+const MENU_ACTION_HIDE: &str = "hide";
+#[cfg(target_os = "windows")]
+const MENU_ACTION_REFRESH: &str = "refresh";
+#[cfg(target_os = "windows")]
+const MENU_ACTION_QUIT: &str = "quit";
+
+/// 组装某个 provider 实例的右键菜单项及其签名。菜单项 id 由插件拼上实例 id
+/// 前缀后回传，因此这里只需在单个菜单内唯一即可。
+#[cfg(target_os = "windows")]
+fn context_menu_items(
+    locale: crate::i18n::Locale,
+    provider_name: &str,
+) -> (Vec<MenuItemDescriptor>, String) {
+    let item = |id: &'static str, text: String| MenuItemDescriptor::Item {
+        id: id.to_owned(),
+        text,
+        accelerator: None,
+        enabled: Some(true),
+    };
+    let items = vec![
+        item(
+            MENU_ACTION_HIDE,
+            crate::i18n::taskband_action_label(locale, MENU_ACTION_HIDE, provider_name),
+        ),
+        item(
+            MENU_ACTION_REFRESH,
+            crate::i18n::taskband_action_label(locale, MENU_ACTION_REFRESH, provider_name),
+        ),
+        MenuItemDescriptor::Separator,
+        item(
+            MENU_ACTION_QUIT,
+            crate::i18n::taskband_action_label(locale, MENU_ACTION_QUIT, provider_name),
+        ),
+    ];
+    let locale_code = match locale {
+        crate::i18n::Locale::En => "en",
+        crate::i18n::Locale::ZhCn => "zh-CN",
+    };
+    let signature = format!(
+        "locale:{locale_code}\u{1}\u{1}hide:{provider_name}\u{1}refresh:{provider_name}\u{1}quit"
+    );
+    (items, signature)
+}
+
+/// 从插件 click 事件载荷中提取「点击点 + 实例屏幕矩形」（物理像素），用于把
+/// popup 锚定到被点击实例上方。旧版插件载荷缺字段时返回 `None`，调用方回退
+/// 到默认（托盘居中）定位。
+#[cfg(target_os = "windows")]
+fn taskband_click_anchor(payload: &serde_json::Value) -> Option<TaskbandAnchor> {
+    let position = payload.get("position")?;
+    let rect = payload.get("rect")?;
+    Some(TaskbandAnchor {
+        click_x: position.get("x")?.as_f64()?,
+        rect_x: rect.get("x")?.as_f64()?,
+        rect_y: rect.get("y")?.as_f64()?,
+        rect_width: rect.get("width")?.as_f64()?,
+        rect_height: rect.get("height")?.as_f64()?,
+    })
+}
+
+/// 分发右键菜单选择到对应动作。
+#[cfg(target_os = "windows")]
+fn dispatch_context_menu_action(app: &AppHandle, provider_id: &str, action: &str) {
+    match action {
+        MENU_ACTION_HIDE => hide_agent(app, provider_id),
+        MENU_ACTION_REFRESH => refresh_agent(app, provider_id),
+        MENU_ACTION_QUIT => quit_from_taskband(app),
+        _ => crate::app_warn!("taskband", "ignored context menu action {action}"),
+    }
+}
+
+/// 「隐藏这个 agent」：与主窗口里 Hide provider 一致，把该 provider 设为
+/// 未启用，随后对账会移除它的全部 taskband 实例与右键菜单。
+#[cfg(target_os = "windows")]
+fn hide_agent(app: &AppHandle, provider_id: &str) {
+    let settings_service = app.state::<Arc<SettingsService>>();
+    let service = app.state::<Arc<ProviderService>>();
+    let current = settings_service.get();
+    if !current
+        .providers
+        .iter()
+        .any(|provider| provider.id == provider_id && provider.enabled)
+    {
+        return;
+    }
+    let mut next = current.clone();
+    for provider in &mut next.providers {
+        if provider.id == provider_id {
+            provider.enabled = false;
+            break;
+        }
+    }
+    let expected_settings = settings_service.settings_revision();
+    let expected_account = settings_service.account_revision();
+    match settings_service.update_from_view(next, expected_settings, expected_account) {
+        Ok(updated) => {
+            crate::tray_presentation::update(
+                app,
+                &service.state(),
+                &updated,
+                settings_service.registry(),
+            );
+            let _ = app.emit(
+                "settings-state",
+                crate::commands::settings::settings_view_state(
+                    app,
+                    settings_service.inner().as_ref(),
+                ),
+            );
+            crate::app_info!(
+                "taskband",
+                "hidden agent {provider_id} from its context menu"
+            );
+        }
+        Err(error) => crate::app_warn!(
+            "taskband",
+            "could not hide agent {provider_id} from its context menu: {error}"
+        ),
+    }
+}
+
+/// 「刷新数据」：强制刷新该 provider 并更新托盘 / taskband 展示。
+#[cfg(target_os = "windows")]
+fn refresh_agent(app: &AppHandle, provider_id: &str) {
+    let service = app.state::<Arc<ProviderService>>().inner().clone();
+    let settings_service = app.state::<Arc<SettingsService>>().inner().clone();
+    let notifications = app.state::<Arc<NotificationEvaluator>>().inner().clone();
+    let task_app = app.clone();
+    let provider_id = provider_id.to_owned();
+    tauri::async_runtime::spawn(async move {
+        if !settings_service
+            .enabled_provider_ids()
+            .iter()
+            .any(|id| id == &provider_id)
+        {
+            return;
+        }
+        service.refresh(&provider_id, true).await;
+        let state = service.state();
+        let _ = task_app.emit("usage-state", &state);
+        crate::notifications::finish_refresh(&task_app, &state, &settings_service, &notifications);
+    });
+}
+
+/// 「退出应用」：结束 native 面板拖拽状态后退出进程。
+#[cfg(target_os = "windows")]
+fn quit_from_taskband(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        crate::window::finish_native_panel_resize(&window);
+    }
+    app.exit(0);
 }
 
 #[cfg(test)]
@@ -439,7 +713,7 @@ mod tests {
         models::{QuotaFormat, QuotaWindow, SnapshotSource},
         providers::{codex, opencode, ProviderRegistry},
         settings::default_settings,
-        tray_presentation::{resolved_provider_metrics, ResolvedTrayMetric},
+        tray_presentation::{pinned_provider_metrics, ResolvedTrayMetric},
     };
 
     use super::metric_lines;
@@ -452,14 +726,24 @@ mod tests {
         }
     }
 
-    /// 用真实 provider 定义解析全部启用指标，验证「自动取前 2 个」的能力。
-    fn resolved_opencode() -> Vec<ResolvedTrayMetric> {
+    /// 用真实 provider 定义解析指标，验证 taskband 与 mac menubar 使用同一套
+    /// pinned 选择规则。`pin_first_two` 模拟用户固定了前两个 quota 指标。
+    fn opencode_metrics(pin_first_two: bool) -> Vec<ResolvedTrayMetric> {
         let catalog =
             ProviderRegistry::from_definitions(vec![opencode::definition(), codex::definition()])
                 .unwrap();
         let mut catalog_settings =
             default_settings(&catalog, &HashSet::from(["opencode".to_owned()]));
         catalog_settings.usage_display = crate::models::UsageDisplay::Used;
+        if pin_first_two {
+            for item in &mut catalog_settings.providers {
+                if item.id == "opencode" {
+                    for (index, metric) in item.metrics.iter_mut().enumerate() {
+                        metric.pinned = index < 2;
+                    }
+                }
+            }
+        }
         let provider = catalog_settings
             .providers
             .iter()
@@ -505,7 +789,11 @@ mod tests {
             .collect(),
             last_full_refresh_at: None,
         };
-        resolved_provider_metrics(&state, &provider, &catalog_settings, &catalog)
+        pinned_provider_metrics(&state, &provider, &catalog_settings, &catalog)
+    }
+
+    fn resolved_opencode() -> Vec<ResolvedTrayMetric> {
+        opencode_metrics(true)
     }
 
     #[test]
@@ -514,6 +802,11 @@ mod tests {
         assert_eq!(top, "75%");
         assert_eq!(bottom, "80%");
         assert!(bottom_visible);
+    }
+
+    #[test]
+    fn unpinned_metrics_stay_hidden_like_macos() {
+        assert!(opencode_metrics(false).is_empty());
     }
 
     #[test]

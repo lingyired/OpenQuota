@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
   import { locale } from 'svelte-i18n';
-  import { t, tStore } from './i18n';
+  import { t, tBackend, tStore } from './i18n';
   import { formatMetricValue } from './metricFormat';
   import { formatReset } from './pacing';
   import Icon from './Icon.svelte';
@@ -32,7 +32,12 @@
     return (
       metric?.values
         .map((value) =>
-          formatMetricValue(value.number, value.kind, 'row', value.label ?? undefined),
+          formatMetricValue(
+            value.number,
+            value.kind,
+            'row',
+            value.label ? tBackend(value.label) : undefined,
+          ),
         )
         .join(' · ') ?? t('metric.noData')
     );
@@ -59,7 +64,12 @@
     if (metric.values.some((value) => Math.abs(value.number) >= 1000)) {
       return metric.values
         .map((value) =>
-          formatMetricValue(value.number, value.kind, 'full', value.label ?? undefined),
+          formatMetricValue(
+            value.number,
+            value.kind,
+            'full',
+            value.label ? tBackend(value.label) : undefined,
+          ),
         )
         .join(' · ');
     }

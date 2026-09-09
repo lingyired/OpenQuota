@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onDestroy, tick } from 'svelte';
+  import { locale } from 'svelte-i18n';
   import { flip } from 'svelte/animate';
   import { scale, slide } from 'svelte/transition';
   import { reorderFlip, springMotion } from './motion';
@@ -24,7 +25,7 @@
     UsageViewState,
     UpdateStatus,
   } from './types';
-  import { tStore, tBackendStore } from './i18n';
+  import { tBackend, tStore, tBackendStore } from './i18n';
 
   interface Props {
     viewState: UsageViewState;
@@ -51,6 +52,8 @@
     updateError: UpdateFailure | null;
     onInstallUpdate: () => void;
     onOpenUpdatePage: () => void;
+    /** When set (Windows taskband click), only this agent is shown. */
+    focusedProviderId?: string | null;
   }
   let {
     viewState,
@@ -77,8 +80,14 @@
     updateError,
     onInstallUpdate,
     onOpenUpdatePage,
+    focusedProviderId = null,
   }: Props = $props();
   const metricDefinition = (id: string) => catalog.metric(id);
+  const currentLocale = $derived($locale);
+  const metricDisplayLabel = (id: string) => {
+    void currentLocale;
+    return tBackend(metricDefinition(id)?.label ?? id);
+  };
   const providerDisplayName = (id: string) => catalog.displayName(id, settings.providerNames);
   const providerSupportsSpend = (id: string) => catalog.supportsSpend(id);
   const emptyUsage: UsageHistory = {
@@ -134,6 +143,11 @@
         links: catalog.provider(provider.id)?.links ?? [],
       };
     }),
+  );
+  const displayProviders = $derived(
+    focusedProviderId
+      ? dashboardProviders.filter(({ provider }) => provider.id === focusedProviderId)
+      : dashboardProviders,
   );
   const providerUsage = $derived(
     enabledProviders
@@ -423,7 +437,7 @@
   </section>
 {/if}
 
-{#if settings.showTotalSpend && providerUsage.length > 0}
+{#if settings.showTotalSpend && providerUsage.length > 0 && !focusedProviderId}
   <TotalSpend
     providers={providerUsage}
     {settings}
@@ -433,7 +447,7 @@
   />
 {/if}
 
-{#each dashboardProviders as { provider, state, snapshot, alwaysMetrics, demandMetrics, links } (provider.id)}
+{#each displayProviders as { provider, state, snapshot, alwaysMetrics, demandMetrics, links } (provider.id)}
   <div
     class="provider-reorder-shell"
     class:provider-reorder-shell--content-morph={demandMorphing}
@@ -482,7 +496,7 @@
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"><Icon name="grip-dots" size={13} /></span
         >
         <h1>{providerDisplayName(provider.id)}</h1>
-        {#if snapshot.plan}<span class="plan">{snapshot.plan}</span>{/if}
+        {#if snapshot.plan}<span class="plan">{$tBackendStore(snapshot.plan)}</span>{/if}
         {#if state?.snapshot && state.stale}<span
             class="status-badge"
             data-tooltip={$tStore(...stalenessTooltipArgs(snapshot.refreshedAt))}
@@ -508,10 +522,10 @@
             <span
               class="provider-warning"
               role="status"
-              data-tooltip={snapshot.warnings.join('\n')}
-              aria-label={snapshot.warnings.join(' ')}
+              data-tooltip={snapshot.warnings.map((warning) => $tBackendStore(warning)).join('\n')}
+              aria-label={snapshot.warnings.map((warning) => $tBackendStore(warning)).join(' ')}
               ><Icon name="warning" size={12} strokeWidth={2} /><span class="sr-only"
-                >{snapshot.warnings.join(' ')}</span
+                >{snapshot.warnings.map((warning) => $tBackendStore(warning)).join(' ')}</span
               ></span
             >
           {/if}
@@ -568,12 +582,12 @@
             data-reorder-id={metric.id}
             role="group"
             aria-label={$tStore('dashboard.metricOptions', {
-              label: metricDefinition(metric.id)?.label ?? metric.id,
+              label: metricDisplayLabel(metric.id),
             })}
             use:pointerReorder={{
               id: metric.id,
               group: `dashboard-metrics:${provider.id}`,
-              label: metricDefinition(metric.id)?.label ?? metric.id,
+              label: metricDisplayLabel(metric.id),
               touchGripOnly: true,
               onReorder: (targetId) => reorderMetricToTarget(metric.id, provider.id, targetId),
               onStart: onReorderStart,
@@ -588,7 +602,7 @@
               data-reorder-touch-handle
               type="button"
               aria-label={$tStore('dashboard.moveMetric', {
-                label: metricDefinition(metric.id)?.label ?? metric.id,
+                label: metricDisplayLabel(metric.id),
               })}
               aria-describedby="reorder-instructions"
               aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
@@ -630,12 +644,12 @@
                   data-reorder-id={metric.id}
                   role="group"
                   aria-label={$tStore('dashboard.metricOptions', {
-                    label: metricDefinition(metric.id)?.label ?? metric.id,
+                    label: metricDisplayLabel(metric.id),
                   })}
                   use:pointerReorder={{
                     id: metric.id,
                     group: `dashboard-metrics:${provider.id}`,
-                    label: metricDefinition(metric.id)?.label ?? metric.id,
+                    label: metricDisplayLabel(metric.id),
                     touchGripOnly: true,
                     onReorder: (targetId) =>
                       reorderMetricToTarget(metric.id, provider.id, targetId),
@@ -651,7 +665,7 @@
                     data-reorder-touch-handle
                     type="button"
                     aria-label={$tStore('dashboard.moveMetric', {
-                      label: metricDefinition(metric.id)?.label ?? metric.id,
+                      label: metricDisplayLabel(metric.id),
                     })}
                     aria-describedby="reorder-instructions"
                     aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"

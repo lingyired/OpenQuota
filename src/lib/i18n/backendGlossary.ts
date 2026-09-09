@@ -31,12 +31,51 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   Daily: 'metric.daily',
   Requests: 'metric.requests',
   Status: 'metric.status',
+  Dashboard: 'metric.dashboard',
+  Activity: 'metric.activity',
+  'API Keys': 'metric.apiKeys',
   'Rate Limit Resets': 'metric.rateLimitResets',
+  Today: 'metric.today',
+  Yesterday: 'metric.yesterday',
+  'This Week': 'metric.thisWeek',
+  'This Month': 'metric.thisMonth',
+  Balance: 'metric.balance',
+  'Extra Balance': 'metric.extraBalance',
+  'Org Credits': 'metric.orgCredits',
+  'Org Spend': 'metric.orgSpend',
+  'Key Limit': 'metric.keyLimit',
+  Chat: 'metric.chat',
+  Completions: 'metric.completions',
+  'API Usage': 'metric.apiUsage',
+  'API usage': 'metric.apiUsage',
+  'Auto Usage': 'metric.autoUsage',
+  'Auto usage': 'metric.autoUsage',
+  'On-demand': 'metric.onDemand',
+  'Total Usage': 'metric.totalUsage',
+  Claude: 'metric.claude',
+  'Claude Weekly': 'metric.claudeWeekly',
+  Fable: 'metric.fable',
+  Sonnet: 'metric.sonnet',
+  credits: 'metric.creditsLower',
+  available: 'metric.available',
+  spent: 'time.spent',
+  resets: 'time.resets',
   'Pay as you go': 'metric.payAsYouGo',
   'Extra Usage Balance': 'metric.extraUsageBalance',
   Spark: 'metric.spark',
   'Spark Weekly': 'metric.sparkWeekly',
+  requests: 'units.requests',
+  searches: 'units.searches',
   Disabled: 'metric.disabled',
+  Free: 'plan.free',
+  Plus: 'plan.plus',
+  Pro: 'plan.pro',
+  'Pro 5x': 'plan.pro5x',
+  'Pro 20x': 'plan.pro20x',
+  Business: 'plan.business',
+  Enterprise: 'plan.enterprise',
+  Ultra: 'plan.ultra',
+  'Token Plan': 'plan.tokenPlan',
   // Notices
   'Live usage paused': 'metric.liveUsagePaused',
   'Ready to retry': 'metric.readyToRetry',
@@ -71,6 +110,139 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'metric.warnClaudeRelogin',
   'Claude live usage is rate limited; showing the last successful limits.':
     'metric.warnClaudeRateLimitedShowingStale',
+  // Provider errors
+  'Not logged in. Run `codex` to authenticate.': [
+    'providerError.notLoggedInRunCmd',
+    { cmd: 'codex' },
+  ],
+  'Not logged in. Run `claude` to authenticate.': [
+    'providerError.notLoggedInRunCmd',
+    { cmd: 'claude' },
+  ],
+  'Claude Desktop login found, but its macOS-only encrypted session cannot be reused safely. Run `claude` in a terminal and sign in once.':
+    'providerError.claudeDesktopAppOnly',
+  'Subscription usage is unavailable for API-key-only logins. Sign in to Codex with ChatGPT.':
+    'providerError.codexApiKeyOnly',
+  'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/openquota/zai.json.':
+    'providerError.addZaiApiKey',
+  'Add a Kimi API key in Customize or set KIMI_API_KEY.': 'providerError.addKimiApiKey',
+  'Add a MiniMax API key in Customize or set MINIMAX_API_KEY.':
+    'providerError.addMiniMaxApiKey',
+  'Add an OpenRouter API key in Customize to view usage.':
+    'providerError.addOpenRouterApiKey',
+  'The Kimi API key is invalid. Check it in the Kimi Code console.':
+    'providerError.apiKeyInvalidInConsole',
+  'The MiniMax API key is invalid. Check it at minimax.io.': [
+    'providerError.apiKeyInvalid',
+    { provider: 'MiniMax', url: 'minimax.io' },
+  ],
+  'The OpenRouter API key is invalid. Check it at openrouter.ai/keys.': [
+    'providerError.apiKeyInvalid',
+    { provider: 'OpenRouter', url: 'openrouter.ai/keys' },
+  ],
+  'The Z.ai API key is invalid. Check it at z.ai/manage-apikey/apikey-list.': [
+    'providerError.apiKeyInvalid',
+    { provider: 'Z.ai', url: 'z.ai/manage-apikey/apikey-list' },
+  ],
+  'OpenCode local usage data is temporarily unavailable.':
+    'providerError.openCodeLocalUsageUnavailable',
+  'Usage request failed after refresh. Try again.': 'providerError.usageRequestFailedAfterRefresh',
+  'Total usage limit missing from API response.': 'providerError.totalUsageLimitMissing',
+  'OpenQuota cache is unavailable.': 'providerError.cacheUnavailable',
+  'Enterprise usage data unavailable. Try again later.':
+    'providerError.cursorEnterpriseUsageUnavailable',
+  'Team request-based usage data unavailable. Try again later.':
+    'providerError.cursorTeamRequestBasedUsageUnavailable',
+  'Cursor request-based usage data unavailable. Try again later.':
+    'providerError.cursorRequestBasedUsageUnavailable',
+  'The refreshed Cursor login could not be saved.': 'providerError.cursorRefreshNotSaved',
+  'The refreshed Claude credentials could not be saved.': [
+    'providerError.refreshedCredentialsNotSaved',
+    { provider: 'Claude' },
+  ],
+  'The refreshed Codex credentials could not be saved.': [
+    'providerError.refreshedCredentialsNotSaved',
+    { provider: 'Codex' },
+  ],
+  'The refreshed Grok credentials could not be saved.': [
+    'providerError.refreshedCredentialsNotSaved',
+    { provider: 'Grok' },
+  ],
+  'No active Cursor subscription.': 'providerError.noActiveCursorSubscription',
+  'No active GLM Coding Plan. Subscribe at z.ai/subscribe to view usage.':
+    'providerError.noActiveGlmPlan',
+  'No active MiniMax token plan. Subscribe at minimax.io to view usage.':
+    'providerError.noActiveMiniMaxPlan',
+  'OpenCode Go subscription required.': 'providerError.openCodeGoSubscriptionRequired',
+  'OpenCode was not detected. Sign in to OpenCode Go or use OpenCode locally first.':
+    'providerError.openCodeNotDetected',
+  'OpenCode login data could not be read. Sign in to OpenCode Go again.':
+    'providerError.openCodeLoginUnreadable',
+  'The OpenCode data directory could not be read.': 'providerError.openCodeDataDirUnreadable',
+  'OpenCode Go login data is invalid or expired. Sign in to OpenCode Go again.':
+    'providerError.openCodeGoLoginInvalid',
+  'Start Antigravity or run `agy` and try again.': 'providerError.antigravityStartRequired',
+  'Antigravity sign-in expired. Open Antigravity or run `agy` to refresh.':
+    'providerError.antigravitySignInExpired',
+  'Antigravity credentials could not be read from secure storage.':
+    'providerError.antigravityCredentialsUnreadable',
+  'Antigravity credentials are invalid. Sign in again in Antigravity or `agy`.':
+    'providerError.antigravityCredentialsInvalid',
+  'Antigravity usage is temporarily unavailable. Try again shortly.':
+    'providerError.antigravityTemporarilyUnavailable',
+  'Not logged in. Sign in via Cursor app or run `agent login`.':
+    'providerError.notLoggedInCursor',
+  'Session expired. Sign in via Cursor app or run `agent login`.':
+    'providerError.sessionExpiredCursor',
+  'Token expired. Sign in via Cursor app or run `agent login`.':
+    'providerError.tokenExpiredCursor',
+  'Grok is not logged in. Run `grok login`.': 'providerError.grokNotLoggedIn',
+  'Grok login expired. Run `grok login` again.': 'providerError.grokLoginExpired',
+  'Grok login data is invalid. Run `grok login` again.': 'providerError.grokLoginInvalid',
+  'Devin is not logged in. Run `devin auth login` or sign in to the Devin app.':
+    'providerError.devinNotLoggedIn',
+  'Devin login expired. Run `devin auth login` or sign in to the Devin app.':
+    'providerError.devinLoginExpired',
+  'Devin quota data is unavailable for this account.': 'providerError.devinQuotaUnavailable',
+  'Sign in to GitHub Copilot in your editor, or run `gh auth login`, and try again.':
+    'providerError.copilotSignInRequired',
+  'Your GitHub token is invalid or expired. Run `gh auth login` and try again.':
+    'providerError.githubTokenInvalid',
+  'Copilot usage data is unavailable for this account.': 'providerError.copilotUsageUnavailable',
+  'Your Codex session expired. Run `codex` to sign in again.': 'providerError.codexSessionExpired',
+  'Your Codex access token expired. Run `codex` to sign in again.':
+    'providerError.codexTokenExpired',
+  'Your Codex session was revoked. Run `codex` to sign in again.':
+    'providerError.codexSessionRevoked',
+  'Codex credentials changed while refreshing. Run `codex` to sign in again.':
+    'providerError.codexCredentialsChanged',
+  'Codex auth data is invalid. Run `codex` to sign in again.': 'providerError.codexAuthInvalid',
+  'The Codex account changed while usage was refreshing. Refresh again.':
+    'providerError.codexAccountChanged',
+  'Your Claude session expired. Run `claude` to sign in again.':
+    'providerError.claudeSessionExpired',
+  'Your Claude token expired. Run `claude` to sign in again.': 'providerError.claudeTokenExpired',
+  'Claude login changed during refresh. Refresh again.': 'providerError.claudeLoginChanged',
+  'The Claude account changed while OpenQuota was running. Restart OpenQuota to reconnect it safely.':
+    'providerError.claudeAccountChanged',
+  'Claude OAuth settings contain an invalid URL.': 'providerError.claudeOAuthInvalidUrl',
+  'Claude account settings could not be loaded.': 'providerError.claudeAccountSettingsUnavailable',
+  'The Kimi API key could not be read or updated.': [
+    'providerError.apiKeyUnreadable',
+    { provider: 'Kimi' },
+  ],
+  'The MiniMax API key could not be read or updated.': [
+    'providerError.apiKeyUnreadable',
+    { provider: 'MiniMax' },
+  ],
+  'The OpenRouter API key could not be read or updated.': [
+    'providerError.apiKeyUnreadable',
+    { provider: 'OpenRouter' },
+  ],
+  'The Z.ai API key could not be read or updated.': [
+    'providerError.apiKeyUnreadable',
+    { provider: 'Z.ai' },
+  ],
   // Settings command errors surfaced through settingsController
   'Notification permission could not be requested.': 'app.errors.notificationPermission',
   'OpenQuota settings are temporarily unavailable.': 'settings.temporarilyUnavailable',
@@ -92,6 +264,68 @@ export interface BackendPattern {
 }
 
 export const backendPatterns: BackendPattern[] = [
+  // Provider errors returned by the Rust providers. Keep the more specific
+  // usage/billing variants before the generic request variant.
+  {
+    pattern: /^Could not connect to (.+)\. Check your internet connection\.$/,
+    key: 'providerError.couldNotConnect',
+    params: ['provider'],
+  },
+  {
+    pattern: /^Could not reach (.+)\. Check your internet connection\.$/,
+    key: 'providerError.couldNotReach',
+    params: ['provider'],
+  },
+  {
+    pattern: /^(.+) usage request failed \(HTTP (\d+)\)\.$/,
+    key: 'providerError.usageRequestFailedHttp',
+    params: ['provider', 'code'],
+  },
+  {
+    pattern: /^(.+) billing request failed \(HTTP (\d+)\)\.$/,
+    key: 'providerError.billingRequestFailedHttp',
+    params: ['provider', 'code'],
+  },
+  {
+    pattern: /^(.+) request failed \(HTTP (\d+)\)\.$/,
+    key: 'providerError.requestFailedHttp',
+    params: ['provider', 'code'],
+  },
+  {
+    pattern: /^(.+) usage data is temporarily unavailable\.$/,
+    key: 'providerError.dataTemporarilyUnavailable',
+    params: ['provider'],
+  },
+  {
+    pattern: /^Local (.+) usage logs could not be processed\.$/,
+    key: 'providerError.localLogsUnprocessable',
+    params: ['provider'],
+  },
+  {
+    pattern: /^Refreshed (.+) credentials could not be saved\.$/,
+    key: 'providerError.refreshedCredentialsNotSaved',
+    params: ['provider'],
+  },
+  {
+    pattern: /^(.+) returned an invalid usage response\.$/,
+    key: 'providerError.invalidUsageResponse',
+    params: ['provider'],
+  },
+  {
+    pattern: /^(.+) returned an invalid billing response\.$/,
+    key: 'providerError.invalidBillingResponse',
+    params: ['provider'],
+  },
+  {
+    pattern: /^The (.+) API key is invalid\. Check it at (.+)\.$/,
+    key: 'providerError.apiKeyInvalid',
+    params: ['provider', 'url'],
+  },
+  {
+    pattern: /^The (.+) API key could not be read or updated\.$/,
+    key: 'providerError.apiKeyUnreadable',
+    params: ['provider'],
+  },
   { pattern: /^(\S+) cap$/, key: 'metric.cap', params: ['value'] },
   {
     pattern: /^Retrying in about (\d+) minutes?$/,

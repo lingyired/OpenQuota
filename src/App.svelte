@@ -65,6 +65,9 @@
 
   let viewState = $state<UsageViewState>(emptyView);
   let catalog = $state<ProviderCatalogIndex>(emptyProviderCatalog);
+  // Set by a Windows taskband click: while the popup is open, the dashboard
+  // shows only this agent (other agents stay hidden).
+  let focusedProviderId = $state<string | null>(null);
   let screen = $state<Screen>('dashboard');
   let now = $state(Date.now());
   let settingsError = $state<string | null>(null);
@@ -142,6 +145,12 @@
   });
 
   $effect(() => {
+    if (!settingsState || !focusedProviderId) return;
+    const provider = settingsState.settings.providers.find((item) => item.id === focusedProviderId);
+    if (!provider || !provider.enabled) focusedProviderId = null;
+  });
+
+  $effect(() => {
     if (!automaticUpdatesReady || !settingsState?.settings.autoCheckUpdates) return;
     const delay = automaticUpdateDelay(settingsState.settings.lastUpdateCheckAt);
     let interval: ReturnType<typeof setInterval> | undefined;
@@ -203,13 +212,13 @@
       .querySelector<HTMLButtonElement>(`.screen-header button[aria-label="${t('app.back')}"]`)
       ?.focus();
   }
-  async function scrollToProvider(providerId: string) {
+  async function focusTaskbandProvider(providerId: string) {
     navigate('dashboard');
+    focusedProviderId = providerId;
     await tick();
-    const section = document.querySelector<HTMLElement>(
-      `.provider-section[data-provider-id="${providerId}"]`,
-    );
-    section?.scrollIntoView({ block: 'start' });
+    const content = document.querySelector<HTMLElement>('.content');
+    if (content && typeof content.scrollTo === 'function') content.scrollTo({ top: 0 });
+    else if (content) content.scrollTop = 0;
   }
   function back() {
     if (screen.startsWith('provider:')) navigate('customize');
@@ -764,10 +773,11 @@
     listeners.add(
       onOpenScreen((target) => navigate(target === 'settings' ? 'settings' : 'customize')),
     );
-    listeners.add(onTaskbandOpen((providerId) => void scrollToProvider(providerId)));
+    listeners.add(onTaskbandOpen((providerId) => void focusTaskbandProvider(providerId)));
     listeners.add(
       onMainWindowHidden(() => {
         resetTransientUi();
+        focusedProviderId = null;
         navigate('dashboard');
       }),
     );
@@ -918,6 +928,7 @@
                 updateError={updates.error}
                 onInstallUpdate={() => updates.install()}
                 onOpenUpdatePage={() => updates.openDownloadPage()}
+                {focusedProviderId}
               />
             {:else if screen === 'settings'}
               <SettingsScreen

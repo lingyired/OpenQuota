@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { tStore } from './i18n';
+  import { locale } from 'svelte-i18n';
+  import { tBackend, tStore } from './i18n';
   import { usageSourceNote, type ProviderCatalogIndex } from './metrics';
   import QuotaMetric from './QuotaMetric.svelte';
   import StatusMetric from './StatusMetric.svelte';
@@ -18,6 +19,11 @@
   }
   let { layout, snapshot, settings, now, catalog, onSettingsChange }: Props = $props();
   const definition = $derived(catalog.metric(layout.id));
+  const currentLocale = $derived($locale);
+  const localizedLabel = $derived.by(() => {
+    void currentLocale;
+    return definition ? tBackend(definition.label) : '';
+  });
   const quota = $derived.by(() => {
     const source = definition?.source;
     if (source?.kind !== 'quota' && source?.kind !== 'quotaOrValue') return undefined;
@@ -68,7 +74,7 @@
   />
 {:else if definition?.source.kind === 'quotaOrValue' && valueMetric}
   <ValueMetric
-    label={definition.label}
+    label={localizedLabel}
     metric={valueMetric}
     {now}
     resetDisplay={settings.resetDisplay}
@@ -77,14 +83,14 @@
 {:else if definition?.source.kind === 'quota' || definition?.source.kind === 'quotaOrValue'}
   <section
     class="metric metric--no-data"
-    aria-label={$tStore('metric.quotaLabel', { label: definition.label })}
+    aria-label={$tStore('metric.quotaLabel', { label: localizedLabel })}
   >
-    <div class="metric__heading"><h2>{definition.label}</h2></div>
+    <div class="metric__heading"><h2>{localizedLabel}</h2></div>
     <div class="meter-shell">
       <div
         class="meter"
         role="progressbar"
-        aria-label={$tStore('metric.labelUsed', { label: definition.label })}
+        aria-label={$tStore('metric.labelUsed', { label: localizedLabel })}
         aria-valuemin="0"
         aria-valuemax="100"
         aria-valuenow="0"
@@ -97,12 +103,12 @@
 {:else if definition?.source.kind === 'trend'}
   <UsageTrend daily={snapshot.usage.daily} sourceNote={resolvedUsageSourceNote} />
 {:else if definition?.source.kind === 'status'}
-  <StatusMetric label={definition.label} metric={statusMetric} />
+  <StatusMetric label={localizedLabel} metric={statusMetric} />
 {:else if definition?.source.kind === 'usage'}
-  <UsageMetric label={definition.label} {period} />
+  <UsageMetric label={localizedLabel} {period} />
 {:else if definition?.source.kind === 'value'}
   <ValueMetric
-    label={definition.label}
+    label={localizedLabel}
     metric={valueMetric}
     {now}
     resetDisplay={settings.resetDisplay}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tBackendStore, tStore } from './i18n';
   import Icon from './Icon.svelte';
   import type { ProviderLink } from './types';
 
@@ -13,12 +14,13 @@
 
 <div class="provider-links" style={`--provider-link-columns: ${columns}`}>
   {#each links as link, linkIndex (`${link.label}:${link.url}`)}
+    {@const localizedLabel = $tBackendStore(link.label)}
     <button
       type="button"
-      aria-label={`${link.label}, opens in browser`}
+      aria-label={$tStore('provider.opensInBrowser', { label: localizedLabel })}
       onclick={() => onOpen(linkIndex)}
     >
-      <span>{link.label}</span><Icon name="external-link" size={10} strokeWidth={1.8} />
+      <span>{localizedLabel}</span><Icon name="external-link" size={10} strokeWidth={1.8} />
     </button>
   {/each}
 </div>

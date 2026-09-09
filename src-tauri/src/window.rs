@@ -31,6 +31,22 @@ const PANEL_RESIZE_SAVE_DELAY: Duration = Duration::from_millis(120);
 const LIGHT_PANEL_SURFACE: Color = Color(0xff, 0xff, 0xff, 0xff);
 const DARK_PANEL_SURFACE: Color = Color(0x1d, 0x1d, 0x1f, 0xff);
 
+/// Anchor captured from a Windows taskband instance click (physical pixels):
+/// the mouse click point plus the on-screen rectangle of the clicked label.
+/// Used to open the main popup just above the clicked taskband item while its
+/// horizontal position follows the mouse.
+#[cfg(any(target_os = "windows", test))]
+#[derive(Debug, Clone, Copy)]
+pub struct TaskbandAnchor {
+    /// Physical screen x of the click; the popup is centred on it horizontally.
+    pub click_x: f64,
+    /// Physical screen rectangle of the clicked taskband label.
+    pub rect_x: f64,
+    pub rect_y: f64,
+    pub rect_width: f64,
+    pub rect_height: f64,
+}
+
 #[derive(Clone, Copy)]
 struct PendingPanelHeight {
     generation: u64,
@@ -298,6 +314,101 @@ fn position_popup(window: &WebviewWindow) {
             .window()
             .move_window_constrained(Position::TrayCenter);
     }
+}
+
+/// Compute the popup's top-left (physical px) for a taskband anchor: vertically
+/// above the clicked item (below it when the taskbar is at the top of the
+/// screen), horizontally centred on the click and clamped to the work area.
+#[cfg(any(target_os = "windows", test))]
+fn anchored_taskband_position(
+    anchor: &TaskbandAnchor,
+    work_x: i32,
+    work_y: i32,
+    work_width: u32,
+    work_height: u32,
+    window_width: u32,
+    window_height: u32,
+) -> (i32, i32) {
+    let left = i64::from(work_x);
+    let top = i64::from(work_y);
+    let right = left + i64::from(work_width);
+    let bottom = top + i64::from(work_height);
+    let width = i64::from(window_width);
+    let height = i64::from(window_height);
+    let rect_top = anchor.rect_y.round() as i64;
+    let rect_bottom = rect_top + anchor.rect_height.round() as i64;
+    let max_y = (bottom - height).max(top);
+    let above_top = rect_top.saturating_sub(height);
+    let y = if above_top >= top {
+        above_top.clamp(top, max_y)
+    } else {
+        rect_bottom.clamp(top, max_y)
+    };
+    let max_x = (right - width).max(left);
+    let x = (anchor.click_x.round() as i64 - width / 2).clamp(left, max_x);
+    (x as i32, y as i32)
+}
+
+/// Position the popup just above the clicked taskband item, with its horizontal
+/// centre under the mouse click. Falls back to the window's current monitor.
+#[cfg(target_os = "windows")]
+fn position_popup_above(window: &WebviewWindow, anchor: &TaskbandAnchor) {
+    let app = window.app_handle();
+    let center_x = anchor.rect_x + anchor.rect_width / 2.0;
+    let center_y = anchor.rect_y + anchor.rect_height / 2.0;
+    let monitor = app
+        .available_monitors()
+        .ok()
+        .and_then(|monitors| {
+            monitors.into_iter().find(|monitor| {
+                let work = monitor.work_area();
+                let right = f64::from(work.position.x) + f64::from(work.size.width);
+                let bottom = f64::from(work.position.y) + f64::from(work.size.height);
+                center_x >= f64::from(work.position.x)
+                    && center_x <= right
+                    && center_y >= f64::from(work.position.y)
+                    && center_y <= bottom
+            })
+        })
+        .or_else(|| window.current_monitor().ok().flatten());
+    let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) else {
+        return;
+    };
+    if size.width == 0 || size.height == 0 {
+        return;
+    }
+    let work = monitor.work_area();
+    let (x, y) = anchored_taskband_position(
+        anchor,
+        work.position.x,
+        work.position.y,
+        work.size.width,
+        work.size.height,
+        size.width,
+        size.height,
+    );
+    let _ = window.set_position(tauri::PhysicalPosition::new(x, y));
+}
+
+/// Like [`show_main_window`] but anchored above a clicked Windows taskband
+/// instance instead of the tray icon. In floating mode the anchor is ignored.
+#[cfg(target_os = "windows")]
+pub fn show_main_window_anchored(window: &WebviewWindow, anchor: TaskbandAnchor) {
+    finish_native_panel_resize(window);
+    crate::webview_memory::set_inactive(window, false);
+    if window
+        .app_handle()
+        .state::<DesktopIntegration>()
+        .is_floating()
+    {
+        let _ = window.unminimize();
+        let _ = restore_manual_panel_height(window);
+    } else {
+        position_popup_above(window, &anchor);
+        let _ = restore_manual_panel_height(window);
+    }
+    let _ = window.show();
+    let _ = window.set_focus();
 }
 
 pub fn show_main_window(window: &WebviewWindow) {
@@ -830,9 +941,9 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        anchored_vertical_frame, panel_resize_edge_for_context, panel_resize_edge_for_frames,
-        panel_surface_color, PanelHeightMode, PanelResizeEdge, PanelResizeSession, VerticalFrame,
-        DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
+        anchored_taskband_position, anchored_vertical_frame, panel_resize_edge_for_context,
+        panel_resize_edge_for_frames, panel_surface_color, PanelHeightMode, PanelResizeEdge,
+        PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
     };
     use crate::models::ThemePreference;
     use crate::storage::Storage;
@@ -999,5 +1110,40 @@ mod tests {
                 height: 200
             }
         );
+    }
+
+    fn anchor(rect_y: f64, rect_height: f64, click_x: f64) -> TaskbandAnchor {
+        TaskbandAnchor {
+            click_x,
+            rect_x: 500.0,
+            rect_y,
+            rect_width: 40.0,
+            rect_height,
+        }
+    }
+
+    #[test]
+    fn bottom_taskbar_places_the_popup_above_the_clicked_item() {
+        // Work area 0..1080; item sits on the taskbar at y=1080.
+        let item = anchor(1080.0, 40.0, 400.0);
+        assert_eq!((item.rect_x, item.rect_width), (500.0, 40.0));
+        let (x, y) = anchored_taskband_position(&item, 0, 0, 1920, 1080, 640, 800);
+        assert_eq!((x, y), (80, 280));
+        assert_eq!(y + 800, 1080); // bottom edge flush with the item top
+    }
+
+    #[test]
+    fn top_taskbar_places_the_popup_below_the_clicked_item() {
+        let (_, y) =
+            anchored_taskband_position(&anchor(0.0, 40.0, 400.0), 0, 0, 1920, 1040, 640, 800);
+        assert_eq!(y, 40);
+    }
+
+    #[test]
+    fn popup_centres_on_the_mouse_and_clamps_to_the_work_area() {
+        // Mouse at far right edge -> clamp inside the work area.
+        let (x, _) =
+            anchored_taskband_position(&anchor(1080.0, 40.0, 1900.0), 0, 0, 1920, 1080, 640, 800);
+        assert_eq!(x, 1920 - 640);
     }
 }

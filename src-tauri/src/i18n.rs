@@ -62,6 +62,22 @@ pub fn tr(locale: Locale, key: &'static str) -> &'static str {
     }
 }
 
+/// Localize one of the Windows taskband right-click context-menu actions.
+/// `agent_name` is the provider's display name, which is embedded in the
+/// hide/refresh labels so the menu reads naturally for whichever agent it was
+/// opened on.
+#[cfg(target_os = "windows")]
+pub fn taskband_action_label(locale: Locale, action: &str, agent_name: &str) -> String {
+    match (locale, action) {
+        (Locale::En, "hide") => format!("Hide {agent_name}"),
+        (Locale::ZhCn, "hide") => format!("隐藏 {agent_name}"),
+        (Locale::En, "refresh") => format!("Refresh {agent_name}"),
+        (Locale::ZhCn, "refresh") => format!("刷新 {agent_name}"),
+        (Locale::En, "quit") | (Locale::ZhCn, "quit") => tr(locale, "menu.quit").to_owned(),
+        (_, other) => other.to_owned(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{tr, Locale};
@@ -78,5 +94,31 @@ mod tests {
     #[test]
     fn unknown_key_renders_itself() {
         assert_eq!(tr(Locale::ZhCn, "menu.unknown"), "menu.unknown");
+    }
+
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn taskband_context_menu_labels_use_the_agent_name() {
+        assert_eq!(
+            taskband_action_label(Locale::En, "hide", "Claude"),
+            "Hide Claude"
+        );
+        assert_eq!(
+            taskband_action_label(Locale::ZhCn, "hide", "Claude"),
+            "隐藏 Claude"
+        );
+        assert_eq!(
+            taskband_action_label(Locale::En, "refresh", "Codex"),
+            "Refresh Codex"
+        );
+        assert_eq!(
+            taskband_action_label(Locale::ZhCn, "refresh", "Codex"),
+            "刷新 Codex"
+        );
+        assert_eq!(
+            taskband_action_label(Locale::ZhCn, "quit", "Codex"),
+            "退出 OpenQuota"
+        );
+        assert_eq!(taskband_action_label(Locale::En, "other", "Codex"), "other");
     }
 }

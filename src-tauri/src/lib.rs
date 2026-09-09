@@ -508,12 +508,21 @@ pub fn run() {
             #[cfg(not(target_os = "linux"))]
             let _ = tray_installed;
 
-            tray_presentation::update(
-                app.handle(),
-                &service.state(),
-                &settings.get(),
-                settings.registry(),
-            );
+            // Windows 任务栏对账执行第三方插件代码，其内部 panic 会静默杀死进程。
+            // 用 catch_unwind 捕获（写入日志）并让启动继续，避免「托盘出现即消失」。
+            if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                tray_presentation::update(
+                    app.handle(),
+                    &service.state(),
+                    &settings.get(),
+                    settings.registry(),
+                );
+            })) {
+                app_error!(
+                    "lifecycle",
+                    "tray/taskband presentation update panicked: {payload:?}"
+                );
+            }
             spawn_startup_credential_detection(
                 app.handle().clone(),
                 registry,

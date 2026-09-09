@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { tStore } from './i18n';
+  import { tBackendStore, tStore } from './i18n';
   import type { StatusMetric as StatusMetricValue } from './types';
 
   interface Props {
@@ -15,9 +15,9 @@
   {#if metric}
     <span
       class="status-badge status-badge--{metric.tone}"
-      data-tooltip={metric.subtitle ?? undefined}
+      data-tooltip={metric.subtitle ? $tBackendStore(metric.subtitle) : undefined}
     >
-      {metric.text}
+      {$tBackendStore(metric.text)}
     </span>
   {:else}
     <span class="status-reading">{$tStore('metric.noData')}</span>

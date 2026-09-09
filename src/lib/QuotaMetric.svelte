@@ -42,7 +42,7 @@
     const unit = quota.unit?.trim();
     if (!unit) return t('metric.requests');
     if (unit === 'tokens') return t('units.tokens');
-    return unit;
+    return tBackend(unit);
   });
   const estimateNote = $derived.by(() => {
     void currentLocale;

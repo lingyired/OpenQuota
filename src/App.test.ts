@@ -1782,3 +1782,84 @@ describe('OpenQuota dashboard', () => {
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
   });
 });
+
+describe('OpenQuota Windows taskband focus', () => {
+  const eventHandlers = new Map<string, (payload: unknown) => void>();
+
+  beforeEach(() => {
+    mocks.currentMonitor.mockResolvedValue({
+      scaleFactor: 1,
+      workArea: { size: { width: 1280, height: 700 } },
+    });
+    mocks.listen
+      .mockReset()
+      .mockImplementation((event: string, handler: (payload: unknown) => void) => {
+        eventHandlers.set(event, handler);
+        return Promise.resolve(vi.fn());
+      });
+    mocks.startDragging.mockReset().mockResolvedValue(undefined);
+    mocks.startResizeDragging.mockReset().mockResolvedValue(undefined);
+    eventHandlers.clear();
+    mocks.invoke.mockReset();
+  });
+  afterEach(cleanup);
+
+  it('hides other agents and keeps only the clicked agent when a taskband item is opened', async () => {
+    const multiUsage: UsageViewState = {
+      providers: { claude: claudeState, codex: codexState },
+    };
+    const multiSettings: SettingsViewState = {
+      ...settingsState,
+      settings: {
+        ...settingsState.settings,
+        providers: [
+          {
+            id: 'claude',
+            enabled: true,
+            detected: true,
+            expanded: false,
+            metrics: [
+              { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          },
+          settingsState.settings.providers[0],
+        ],
+      },
+    };
+    mockInvoke((command: string) => {
+      if (
+        command === 'get_usage_state' ||
+        command === 'refresh_usage' ||
+        command === 'refresh_provider_usage'
+      )
+        return Promise.resolve(multiUsage);
+      if (command === 'get_app_settings') return Promise.resolve(multiSettings);
+      if (command === 'check_for_updates')
+        return Promise.resolve({
+          available: false,
+          currentVersion: '0.1.0',
+          version: null,
+          body: null,
+          installable: true,
+          releaseUrl: 'https://github.com/deviffyy/OpenQuota/releases/latest',
+        });
+      if (command === 'fit_panel_to_content') return Promise.resolve(true);
+      if (command === 'dismiss_main_window') return Promise.resolve();
+      return Promise.resolve();
+    });
+
+    render(App);
+    await screen.findByRole('group', { name: 'Codex provider' });
+    expect(screen.getByRole('group', { name: 'Claude provider' })).toBeInTheDocument();
+
+    const openTaskband = eventHandlers.get('taskband-open');
+    expect(openTaskband).toBeDefined();
+    openTaskband?.({ payload: 'codex' });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
+    });
+    expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
+  });
+});

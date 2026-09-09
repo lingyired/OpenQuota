@@ -1,6 +1,6 @@
 {
   "name": "openquota",
-  "version": "0.7.0",
+  "version": "0.7.3",
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.11.0",
@@ -9,6 +9,7 @@
     "build": "vite build",
     "build:installer": "tauri build --bundles nsis",
     "build:linux": "tauri build --bundles deb,appimage",
+    "build:release": "node scripts/build-release.mjs",
     "check": "svelte-check --tsconfig ./tsconfig.app.json",
     "test": "vitest run",
     "test:watch": "vitest",
