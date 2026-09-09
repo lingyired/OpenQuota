@@ -20,6 +20,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   // Metric labels
   'Usage Today': 'metric.usageToday',
   'Usage Yesterday': 'metric.usageYesterday',
+  'Usage Trend': 'metric.usageTrend',
   'Last 30 Days': 'metric.last30Days',
   Session: 'metric.session',
   Weekly: 'metric.weekly',

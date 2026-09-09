@@ -72,6 +72,7 @@ describe('translation helpers', () => {
     expect(tBackend('API usage')).toBe('API 用量');
     expect(tBackend('On-demand')).toBe('按需用量');
     expect(tBackend('requests')).toBe('次请求');
+    expect(tBackend('Usage Trend')).toBe('用量趋势');
     expect(tBackend('searches')).toBe('次搜索');
     expect(tBackend('Rate Limit Resets')).toBe('速率限制重置');
     expect(tBackend('Today')).toBe('今日');
