@@ -126,10 +126,8 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/openquota/zai.json.':
     'providerError.addZaiApiKey',
   'Add a Kimi API key in Customize or set KIMI_API_KEY.': 'providerError.addKimiApiKey',
-  'Add a MiniMax API key in Customize or set MINIMAX_API_KEY.':
-    'providerError.addMiniMaxApiKey',
-  'Add an OpenRouter API key in Customize to view usage.':
-    'providerError.addOpenRouterApiKey',
+  'Add a MiniMax API key in Customize or set MINIMAX_API_KEY.': 'providerError.addMiniMaxApiKey',
+  'Add an OpenRouter API key in Customize to view usage.': 'providerError.addOpenRouterApiKey',
   'The Kimi API key is invalid. Check it in the Kimi Code console.':
     'providerError.apiKeyInvalidInConsole',
   'The MiniMax API key is invalid. Check it at minimax.io.': [
@@ -190,12 +188,10 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.antigravityCredentialsInvalid',
   'Antigravity usage is temporarily unavailable. Try again shortly.':
     'providerError.antigravityTemporarilyUnavailable',
-  'Not logged in. Sign in via Cursor app or run `agent login`.':
-    'providerError.notLoggedInCursor',
+  'Not logged in. Sign in via Cursor app or run `agent login`.': 'providerError.notLoggedInCursor',
   'Session expired. Sign in via Cursor app or run `agent login`.':
     'providerError.sessionExpiredCursor',
-  'Token expired. Sign in via Cursor app or run `agent login`.':
-    'providerError.tokenExpiredCursor',
+  'Token expired. Sign in via Cursor app or run `agent login`.': 'providerError.tokenExpiredCursor',
   'Grok is not logged in. Run `grok login`.': 'providerError.grokNotLoggedIn',
   'Grok login expired. Run `grok login` again.': 'providerError.grokLoginExpired',
   'Grok login data is invalid. Run `grok login` again.': 'providerError.grokLoginInvalid',
@@ -255,6 +251,44 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Provider settings are unavailable.': 'settings.providerUnavailable',
   'Settings could not be saved.': 'settings.genericSaveError',
   'Settings could not be saved or reloaded.': 'settings.saveOrReloadError',
+  // Pacing / deadline fallbacks emitted by pacing.ts and rendered via tBackend
+  'Limit reached': 'metric.limitReached',
+  'Reset unavailable': 'metric.resetUnavailable',
+  // Service-level refresh state errors shown on provider cards
+  'Provider refresh is temporarily unavailable.': 'providerError.refreshTemporarilyUnavailable',
+  'Provider refresh stopped unexpectedly.': 'providerError.refreshStoppedUnexpectedly',
+  'Provider refresh timed out.': 'providerError.refreshTimedOut',
+  'The refreshed account state could not be saved.': 'providerError.accountStateCouldNotSave',
+  'Usage refreshed, but the last successful snapshot could not be cached.':
+    'providerError.snapshotCacheFailed',
+  'The API key was saved securely, but OpenQuota could not finish updating provider status. Restart OpenQuota or try again.':
+    'providerError.apiKeySaveIncomplete',
+  'The API key was removed, but OpenQuota could not finish updating provider status. Restart OpenQuota or try again.':
+    'providerError.apiKeyRemoveIncomplete',
+  // Settings integration errors shown in the Settings notice
+  'Launch at login status could not be read.': 'settings.launchAtLoginStatusUnavailable',
+  'The saved global shortcut is currently unavailable.': 'settings.shortcutCurrentlyUnavailable',
+  // Update failures returned by updates.rs (message/action pairs)
+  'Another update operation is already running.': 'update.busy',
+  'Wait for it to finish, then try again.': 'update.busyAction',
+  'Automatic updates are not configured in this build.': 'update.notConfigured',
+  'Download the latest version from the release page.': 'update.notConfiguredAction',
+  'This Linux package cannot update itself.': 'update.manualInstallRequired',
+  'Download the new package from the release page and install it normally.':
+    'update.manualInstallAction',
+  'OpenQuota is already up to date.': 'update.alreadyUpToDate',
+  'No action is needed.': 'update.noActionNeeded',
+  'GitHub refused the update download.': 'update.githubRefused',
+  'Try again. If it still fails, download the verified installer from the release page.':
+    'update.githubRefusedAction',
+  'GitHub temporarily limited update requests.': 'update.githubRateLimited',
+  'Wait a few minutes, then try again.': 'update.githubRateLimitedAction',
+  'The downloaded update failed its security check.': 'update.signatureInvalid',
+  'Do not install this download. Open the release page or try again later.':
+    'update.signatureInvalidAction',
+  'Check your connection or proxy, then try again.': 'update.networkFailedAction',
+  'Try again or use the release page to download the installer manually.':
+    'update.genericFailedAction',
 };
 
 export interface BackendPattern {
@@ -369,5 +403,22 @@ export const backendPatterns: BackendPattern[] = [
     pattern: /^~(\d+)% over limit at reset$/,
     key: 'time.percentOverLimit',
     params: ['value'],
+  },
+  // Update failures returned by updates.rs (dynamic operation strings)
+  {
+    pattern:
+      /^OpenQuota could not (?:check for updates|install the signed update) because the network request failed\.$/,
+    key: 'update.networkFailed',
+    params: [],
+  },
+  {
+    pattern: /^OpenQuota could not (?:check for updates|install the signed update)\.$/,
+    key: 'update.genericFailed',
+    params: [],
+  },
+  {
+    pattern: /^The OpenQuota download page could not be opened: .+$/,
+    key: 'update.downloadPageError',
+    params: [],
   },
 ];

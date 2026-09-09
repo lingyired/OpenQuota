@@ -199,6 +199,7 @@
             : (settings.globalShortcut ?? $tStore('settings.recordShortcut'))}</button
         >{#if settings.globalShortcut}<button
             type="button"
+            class="shortcut-clear"
             aria-label={$tStore('settings.clearGlobalShortcut')}
             onclick={() => patch({ globalShortcut: null })}
             ><Icon name="close" size={10} strokeWidth={2.2} /></button
@@ -543,7 +544,9 @@
       >
     </div>
     {#if updateError}<div class="settings-update-error" role="alert">
-        <b>{updateError.message}</b><small>{updateError.action}</small>
+        <b>{$tBackendStore(updateError.message)}</b><small
+          >{$tBackendStore(updateError.action)}</small
+        >
       </div>{/if}
   </div>
 
@@ -657,7 +660,7 @@
       outline-offset: 1px;
     }
 
-    .shortcut-field button[aria-label='Clear global shortcut'] {
+    .shortcut-field .shortcut-clear {
       display: grid;
       width: 24px;
       height: 24px;
@@ -667,8 +670,8 @@
       place-items: center;
     }
 
-    .shortcut-field button[aria-label='Clear global shortcut']:hover,
-    .shortcut-field button[aria-label='Clear global shortcut']:focus-visible {
+    .shortcut-field .shortcut-clear:hover,
+    .shortcut-field .shortcut-clear:focus-visible {
       outline: none;
       color: var(--text);
       background: var(--button-hover);

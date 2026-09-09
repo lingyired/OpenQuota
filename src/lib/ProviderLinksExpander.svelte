@@ -1,6 +1,7 @@
 <script lang="ts">
   import { slide } from 'svelte/transition';
   import Icon from './Icon.svelte';
+  import { tStore } from './i18n';
   import { springMotion } from './motion';
   import ProviderLinks from './ProviderLinks.svelte';
   import type { ProviderLink } from './types';
@@ -24,7 +25,7 @@
     data-reorder-id="section:onDemand"
     type="button"
     aria-expanded={expanded}
-    aria-label={expanded ? 'Show less' : 'Show more'}
+    aria-label={$tStore(expanded ? 'dashboard.showLess' : 'dashboard.showMore')}
     onclick={onToggle}
   >
     <Icon name={expanded ? 'chevron-up' : 'chevron-down'} size={10} strokeWidth={2.2} />

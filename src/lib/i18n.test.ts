@@ -86,12 +86,12 @@ describe('translation helpers', () => {
     expect(tBackend('Not logged in. Run `codex` to authenticate.')).toBe(
       '尚未登录。请运行 `codex` 进行身份验证。',
     );
-    expect(tBackend('Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/openquota/zai.json.')).toBe(
-      '在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/openquota/zai.json。',
-    );
-    expect(tBackend('MiniMax request failed (HTTP 500).')).toBe(
-      'MiniMax 请求失败（HTTP 500）。',
-    );
+    expect(
+      tBackend(
+        'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/openquota/zai.json.',
+      ),
+    ).toBe('在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/openquota/zai.json。');
+    expect(tBackend('MiniMax request failed (HTTP 500).')).toBe('MiniMax 请求失败（HTTP 500）。');
     expect(tBackend('OpenCode local usage data is temporarily unavailable.')).toBe(
       'OpenCode 本地用量数据暂时不可用。',
     );
@@ -103,6 +103,28 @@ describe('translation helpers', () => {
 
   it('tBackend resolves parameterized patterns', () => {
     expect(tBackend('Retrying in about 5 minutes')).toBe('Retrying in about 5 minutes');
+  });
+
+  it('tBackend translates refresh-state, settings, and update failures', async () => {
+    await switchLocale('zh-CN');
+    expect(tBackend('Limit reached')).toBe('已达上限');
+    expect(tBackend('Reset unavailable')).toBe('重置时间不可用');
+    expect(tBackend('Provider refresh timed out.')).toBe('提供方刷新超时。');
+    expect(tBackend('The saved global shortcut is currently unavailable.')).toBe(
+      '已保存的全局快捷键当前不可用。',
+    );
+    expect(tBackend('GitHub refused the update download.')).toBe('GitHub 拒绝了更新下载。');
+    expect(tBackend('Wait for it to finish, then try again.')).toBe('请等待其完成，然后重试。');
+    expect(
+      tBackend('OpenQuota could not check for updates because the network request failed.'),
+    ).toBe('OpenQuota 无法完成该操作，因为网络请求失败。');
+
+    await switchLocale('en');
+    expect(tBackend('Limit reached')).toBe('Limit reached');
+    expect(tBackend('Provider refresh timed out.')).toBe('Provider refresh timed out.');
+    expect(tBackend('GitHub refused the update download.')).toBe(
+      'GitHub refused the update download.',
+    );
   });
 });
 

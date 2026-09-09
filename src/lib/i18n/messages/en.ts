@@ -236,6 +236,8 @@ export const en = {
     saveOrReloadError: 'Settings could not be saved or reloaded.',
     linuxHeader: 'Linux',
     desktopIntegration: 'Desktop Integration',
+    launchAtLoginStatusUnavailable: 'Launch at login status could not be read.',
+    shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
     title: 'Customize',
@@ -279,6 +281,10 @@ export const en = {
     padding: 'Padding',
     paddingDesc: 'Left and right padding inside the label, in pixels.',
     restoreDefaults: 'Restore Defaults',
+    taskbarPosition: 'Taskbar Position',
+    secondLine: 'Second Line',
+    paddingLeft: 'Padding left',
+    paddingRight: 'Padding right',
   },
   rename: {
     title: 'Rename Card',
@@ -514,6 +520,15 @@ export const en = {
     pricingStateInvalidJson: 'Pricing state is invalid JSON.',
     pricingSupplementInvalidJson: 'Pricing supplement is invalid JSON.',
     localLogCacheError: 'parsed local log events could not be cached',
+    refreshTemporarilyUnavailable: 'Provider refresh is temporarily unavailable.',
+    refreshStoppedUnexpectedly: 'Provider refresh stopped unexpectedly.',
+    refreshTimedOut: 'Provider refresh timed out.',
+    accountStateCouldNotSave: 'The refreshed account state could not be saved.',
+    snapshotCacheFailed: 'Usage refreshed, but the last successful snapshot could not be cached.',
+    apiKeySaveIncomplete:
+      'The API key was saved securely, but OpenQuota could not finish updating provider status. Restart OpenQuota or try again.',
+    apiKeyRemoveIncomplete:
+      'The API key was removed, but OpenQuota could not finish updating provider status. Restart OpenQuota or try again.',
   },
   time: {
     resets: 'Resets',
@@ -583,6 +598,26 @@ export const en = {
     upToDate: 'OpenQuota {version} is up to date.',
     available: 'OpenQuota {version} is available.',
     availableNoVersion: 'An OpenQuota update is available.',
+    busy: 'Another update operation is already running.',
+    busyAction: 'Wait for it to finish, then try again.',
+    notConfigured: 'Automatic updates are not configured in this build.',
+    notConfiguredAction: 'Download the latest version from the release page.',
+    manualInstallRequired: 'This Linux package cannot update itself.',
+    manualInstallAction: 'Download the new package from the release page and install it normally.',
+    alreadyUpToDate: 'OpenQuota is already up to date.',
+    noActionNeeded: 'No action is needed.',
+    githubRefused: 'GitHub refused the update download.',
+    githubRefusedAction:
+      'Try again. If it still fails, download the verified installer from the release page.',
+    githubRateLimited: 'GitHub temporarily limited update requests.',
+    githubRateLimitedAction: 'Wait a few minutes, then try again.',
+    signatureInvalid: 'The downloaded update failed its security check.',
+    signatureInvalidAction:
+      'Do not install this download. Open the release page or try again later.',
+    networkFailed: 'OpenQuota could not complete that action because the network request failed.',
+    networkFailedAction: 'Check your connection or proxy, then try again.',
+    genericFailed: 'OpenQuota could not complete that action.',
+    genericFailedAction: 'Try again or use the release page to download the installer manually.',
   },
   resetCredits: {
     useThisReset: 'Use this reset?',

@@ -307,7 +307,7 @@
         </div>
         <div class="taskband-row">
           <span class="taskband-row-label"><b>{$tStore('customize.position')}</b></span><SelectMenu
-            label="Taskbar Position"
+            label={$tStore('customize.taskbarPosition')}
             value={taskband?.side ?? ''}
             options={[
               { value: '', label: $tStore('customize.followDefault') },
@@ -404,7 +404,7 @@
           </div>
         {/snippet}
         {@render taskbandLineStyle($tStore('customize.firstLine'), 'top')}
-        {@render taskbandLineStyle('Second Line', 'bottom')}
+        {@render taskbandLineStyle($tStore('customize.secondLine'), 'bottom')}
         <div class="taskband-row">
           <span class="taskband-row-label"
             ><b>{$tStore('customize.padding')}</b><small>{$tStore('customize.paddingDesc')}</small
@@ -417,7 +417,7 @@
               min="0"
               max="40"
               value={taskband?.paddingLeft ?? 4}
-              aria-label="Padding left"
+              aria-label={$tStore('customize.paddingLeft')}
               onchange={(event) =>
                 updateTaskband({ paddingLeft: clampInt(event.currentTarget.value, 0, 40) })}
             />
@@ -427,7 +427,7 @@
               min="0"
               max="40"
               value={taskband?.paddingRight ?? 4}
-              aria-label="Padding right"
+              aria-label={$tStore('customize.paddingRight')}
               onchange={(event) =>
                 updateTaskband({ paddingRight: clampInt(event.currentTarget.value, 0, 40) })}
             />

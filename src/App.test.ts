@@ -1862,4 +1862,39 @@ describe('OpenQuota Windows taskband focus', () => {
     expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
     expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
   });
+
+  it('opens the provider settings screen when an open-screen event targets a provider', async () => {
+    mockInvoke((command: string) => {
+      if (
+        command === 'get_usage_state' ||
+        command === 'refresh_usage' ||
+        command === 'refresh_provider_usage'
+      )
+        return Promise.resolve(liveState);
+      if (command === 'get_app_settings') return Promise.resolve(settingsState);
+      if (command === 'check_for_updates')
+        return Promise.resolve({
+          available: false,
+          currentVersion: '0.1.0',
+          version: null,
+          body: null,
+          installable: true,
+          releaseUrl: 'https://github.com/deviffyy/OpenQuota/releases/latest',
+        });
+      if (command === 'fit_panel_to_content') return Promise.resolve(true);
+      if (command === 'dismiss_main_window') return Promise.resolve();
+      return Promise.resolve();
+    });
+
+    render(App);
+    await screen.findByRole('group', { name: 'Codex provider' });
+
+    const openScreen = eventHandlers.get('open-screen');
+    expect(openScreen).toBeDefined();
+    openScreen?.({ payload: 'provider:codex' });
+
+    await waitFor(() => {
+      expect(screen.getByRole('group', { name: 'Always Visible metrics' })).toBeInTheDocument();
+    });
+  });
 });

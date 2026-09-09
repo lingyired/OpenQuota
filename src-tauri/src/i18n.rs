@@ -73,6 +73,8 @@ pub fn taskband_action_label(locale: Locale, action: &str, agent_name: &str) -> 
         (Locale::ZhCn, "hide") => format!("隐藏 {agent_name}"),
         (Locale::En, "refresh") => format!("Refresh {agent_name}"),
         (Locale::ZhCn, "refresh") => format!("刷新 {agent_name}"),
+        (Locale::En, "settings") => format!("Settings for {agent_name}…"),
+        (Locale::ZhCn, "settings") => format!("设置 {agent_name}…"),
         (Locale::En, "quit") | (Locale::ZhCn, "quit") => tr(locale, "menu.quit").to_owned(),
         (_, other) => other.to_owned(),
     }
@@ -118,6 +120,14 @@ mod tests {
         assert_eq!(
             taskband_action_label(Locale::ZhCn, "quit", "Codex"),
             "退出 OpenQuota"
+        );
+        assert_eq!(
+            taskband_action_label(Locale::En, "settings", "Claude"),
+            "Settings for Claude…"
+        );
+        assert_eq!(
+            taskband_action_label(Locale::ZhCn, "settings", "Claude"),
+            "设置 Claude…"
         );
         assert_eq!(taskband_action_label(Locale::En, "other", "Codex"), "other");
     }

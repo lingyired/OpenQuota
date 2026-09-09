@@ -771,7 +771,10 @@
       }),
     );
     listeners.add(
-      onOpenScreen((target) => navigate(target === 'settings' ? 'settings' : 'customize')),
+      onOpenScreen((target) => {
+        if (target.startsWith('provider:')) navigate(target as Screen);
+        else navigate(target === 'settings' ? 'settings' : 'customize');
+      }),
     );
     listeners.add(onTaskbandOpen((providerId) => void focusTaskbandProvider(providerId)));
     listeners.add(

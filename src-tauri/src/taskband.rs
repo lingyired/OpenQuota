@@ -3,7 +3,7 @@
 //! 职责：根据 `AppSettings` + `UsageViewState` 对账每个已启用监控在任务栏上
 //! 的两行文本标签实例 —— 创建 / 更新 / 隐藏 / 移除，并监听实例点击事件
 //! （左键 → 在点击实例上方打开主窗口 popup 并只聚焦该 agent；右键 →
-//! 显示隐藏 / 刷新 / 退出的原生上下文菜单）。
+//! 显示隐藏 / 刷新 / 设置该 agent / 退出的原生上下文菜单）。
 //!
 //! 文本组装逻辑为纯函数（可在任意平台单测），所有调用插件的代码
 //! 均以 `#[cfg(target_os = "windows")]` 隔离，非 Windows 零影响。
@@ -24,7 +24,7 @@ use crate::settings::SettingsService;
 use crate::tray_presentation::pinned_provider_metrics;
 use crate::tray_presentation::ResolvedTrayMetric;
 #[cfg(target_os = "windows")]
-use crate::window::{TaskbandAnchor, MAIN_WINDOW};
+use crate::window::{open_screen, TaskbandAnchor, MAIN_WINDOW};
 #[cfg(target_os = "windows")]
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
@@ -316,8 +316,9 @@ impl TaskbandState {
         registered.insert(instance_id.to_string(), listener_id);
     }
 
-    /// 为某个实例绑定右键上下文菜单（隐藏 agent / 刷新数据 / 退出应用），
-    /// 并注册菜单选择监听。菜单文案随语言与 provider 名变化而重建。
+    /// 为某个实例绑定右键上下文菜单（隐藏 agent / 刷新数据 / 打开该
+    /// agent 的设置 / 退出应用），并注册菜单选择监听。菜单文案随语言与
+    /// provider 名变化而重建。
     fn register_context_menu(
         &self,
         app: &AppHandle,
@@ -556,6 +557,8 @@ const MENU_ACTION_HIDE: &str = "hide";
 #[cfg(target_os = "windows")]
 const MENU_ACTION_REFRESH: &str = "refresh";
 #[cfg(target_os = "windows")]
+const MENU_ACTION_SETTINGS: &str = "settings";
+#[cfg(target_os = "windows")]
 const MENU_ACTION_QUIT: &str = "quit";
 
 /// 组装某个 provider 实例的右键菜单项及其签名。菜单项 id 由插件拼上实例 id
@@ -580,6 +583,10 @@ fn context_menu_items(
             MENU_ACTION_REFRESH,
             crate::i18n::taskband_action_label(locale, MENU_ACTION_REFRESH, provider_name),
         ),
+        item(
+            MENU_ACTION_SETTINGS,
+            crate::i18n::taskband_action_label(locale, MENU_ACTION_SETTINGS, provider_name),
+        ),
         MenuItemDescriptor::Separator,
         item(
             MENU_ACTION_QUIT,
@@ -591,7 +598,7 @@ fn context_menu_items(
         crate::i18n::Locale::ZhCn => "zh-CN",
     };
     let signature = format!(
-        "locale:{locale_code}\u{1}\u{1}hide:{provider_name}\u{1}refresh:{provider_name}\u{1}quit"
+        "locale:{locale_code}\u{1}\u{1}hide:{provider_name}\u{1}refresh:{provider_name}\u{1}settings:{provider_name}\u{1}quit"
     );
     (items, signature)
 }
@@ -618,6 +625,7 @@ fn dispatch_context_menu_action(app: &AppHandle, provider_id: &str, action: &str
     match action {
         MENU_ACTION_HIDE => hide_agent(app, provider_id),
         MENU_ACTION_REFRESH => refresh_agent(app, provider_id),
+        MENU_ACTION_SETTINGS => open_provider_settings(app, provider_id),
         MENU_ACTION_QUIT => quit_from_taskband(app),
         _ => crate::app_warn!("taskband", "ignored context menu action {action}"),
     }
@@ -694,6 +702,14 @@ fn refresh_agent(app: &AppHandle, provider_id: &str) {
         let _ = task_app.emit("usage-state", &state);
         crate::notifications::finish_refresh(&task_app, &state, &settings_service, &notifications);
     });
+}
+
+/// 「设置这个 agent」：打开主窗口并直接进入该 provider 的设置页
+/// （前端 `provider:{provider_id}` 屏幕，即 Customize 里的单个 provider
+/// 详情，含该 provider 的任务栏 / 指标等配置）。
+#[cfg(target_os = "windows")]
+fn open_provider_settings(app: &AppHandle, provider_id: &str) {
+    open_screen(app, &format!("provider:{provider_id}"));
 }
 
 /// 「退出应用」：结束 native 面板拖拽状态后退出进程。
