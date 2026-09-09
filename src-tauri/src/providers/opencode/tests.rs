@@ -650,6 +650,9 @@ fn account_usage_endpoint_populates_quotas_without_local_history() {
     assert_eq!(snapshot.plan.as_deref(), Some("Go"));
     assert_eq!(snapshot.quotas[0].used_percent, 31.0);
     assert_eq!(snapshot.quotas[1].used_percent, 100.0);
+    assert_eq!(snapshot.quotas[2].id, "monthly");
+    assert_eq!(snapshot.quotas[2].period_seconds, 30 * 24 * 60 * 60);
+    assert!(snapshot.quotas[2].resets_at.is_some());
     assert!(snapshot.usage.today.is_none());
 }
 

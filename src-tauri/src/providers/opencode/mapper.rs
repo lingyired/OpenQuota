@@ -7,6 +7,7 @@ use super::{client::UsageResponse, OpenCodeError};
 
 const ROLLING_PERIOD_SECONDS: u64 = 5 * 60 * 60;
 const WEEKLY_PERIOD_SECONDS: u64 = 7 * 24 * 60 * 60;
+const MONTH_PERIOD_SECONDS: u64 = 30 * 24 * 60 * 60;
 
 pub(super) fn map_go_usage(response: UsageResponse) -> Result<Vec<QuotaWindow>, OpenCodeError> {
     match response.status.as_u16() {
@@ -38,7 +39,12 @@ pub(super) fn map_go_usage(response: UsageResponse) -> Result<Vec<QuotaWindow>, 
             "Weekly",
             WEEKLY_PERIOD_SECONDS,
         ),
-        quota(usage.get("monthly"), "monthly", "Monthly", 0),
+        quota(
+            usage.get("monthly"),
+            "monthly",
+            "Monthly",
+            MONTH_PERIOD_SECONDS,
+        ),
     ]
     .into_iter()
     .collect()
@@ -103,7 +109,8 @@ mod tests {
         assert_eq!(quotas[0].id, "session");
         assert_eq!(quotas[0].period_seconds, 5 * 60 * 60);
         assert_eq!(quotas[1].period_seconds, 7 * 24 * 60 * 60);
-        assert_eq!(quotas[2].period_seconds, 0);
+        assert_eq!(quotas[2].period_seconds, 30 * 24 * 60 * 60);
+        assert!(quotas[2].resets_at.is_some());
         assert_eq!(quotas[1].used_percent, 100.0);
         assert!(!quotas.iter().any(|quota| quota.estimated));
     }
