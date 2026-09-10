@@ -512,7 +512,8 @@ fn timeout_is_bounded_and_no_credentials_returns_a_login_hint() {
 
 #[test]
 fn definition_matches_the_provider_neutral_layout_contract() {
-    let definition = definition();
+    let mut definition = definition();
+    crate::providers::normalize_default_pins(&mut definition.metrics);
     assert_eq!(definition.id, "devin");
     assert_eq!(definition.display_name, "Devin");
     assert_eq!(
@@ -543,10 +544,10 @@ fn definition_matches_the_provider_neutral_layout_contract() {
         definition.metrics[2].default_section,
         MetricSection::OnDemand
     );
-    assert!(!definition
-        .metrics
+    assert!(definition.metrics[..2]
         .iter()
-        .any(|metric| metric.default_pinned));
+        .all(|metric| metric.default_pinned));
+    assert!(!definition.metrics[2].default_pinned);
 }
 
 fn capture_once(status: u16, body: &str, delay: Duration) -> (String, Receiver<String>) {

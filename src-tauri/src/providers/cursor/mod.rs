@@ -669,7 +669,8 @@ mod tests {
 
     #[test]
     fn definition_matches_cursor_layout_contract() {
-        let definition = definition();
+        let mut definition = definition();
+        crate::providers::normalize_default_pins(&mut definition.metrics);
         assert!(definition.fallback_enabled);
         assert_eq!(
             definition
@@ -690,8 +691,9 @@ mod tests {
                 "cursor.last30",
             ]
         );
+        assert!(definition.metrics[0].default_pinned);
         assert!(definition.metrics[1].default_pinned);
-        assert!(definition.metrics[2].default_pinned);
+        assert!(!definition.metrics[2].default_pinned);
         assert!(!definition.metrics[4].default_enabled);
         assert!(!definition.metrics[5].default_enabled);
     }

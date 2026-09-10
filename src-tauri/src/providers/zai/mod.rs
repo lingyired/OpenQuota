@@ -441,7 +441,8 @@ mod tests {
 
     #[test]
     fn definition_exposes_expected_links_and_default_metric_layout() {
-        let definition = definition();
+        let mut definition = definition();
+        crate::providers::normalize_default_pins(&mut definition.metrics);
         assert_eq!(definition.id, "zai");
         assert_eq!(definition.display_name, "Z.ai");
         assert_eq!(

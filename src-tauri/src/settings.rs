@@ -1099,6 +1099,34 @@ mod tests {
     }
 
     #[test]
+    fn deferred_first_run_applies_canonical_pins_to_a_detected_provider() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
+        let (service, plan) = SettingsService::new_deferred(storage, catalog()).unwrap();
+
+        let outcome = service
+            .apply_credential_detection(&plan, &probe_results(&["openrouter"]))
+            .unwrap();
+        let provider = outcome
+            .settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == "openrouter")
+            .unwrap();
+
+        assert!(provider.enabled);
+        assert_eq!(
+            provider
+                .metrics
+                .iter()
+                .filter(|metric| metric.pinned)
+                .map(|metric| metric.id.as_str())
+                .collect::<Vec<_>>(),
+            ["openrouter.credits", "openrouter.balance"]
+        );
+    }
+
+    #[test]
     fn deferred_first_run_keeps_fallback_when_nothing_is_detected() {
         let directory = tempdir().unwrap();
         let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
@@ -1683,6 +1711,30 @@ mod tests {
             .iter()
             .find(|metric| metric.id.ends_with(".trend"))
             .is_none_or(|metric| !metric.pinned));
+    }
+
+    #[test]
+    fn normalization_preserves_existing_unpinned_metrics_against_new_defaults() {
+        let detected = HashSet::from(["openrouter".to_owned()]);
+        let catalog = catalog();
+        let mut settings = default_settings(&catalog, &detected);
+        let provider = settings
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == "openrouter")
+            .unwrap();
+        for metric in &mut provider.metrics {
+            metric.pinned = false;
+        }
+
+        normalize(&catalog, &mut settings, &detected);
+
+        let provider = settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == "openrouter")
+            .unwrap();
+        assert!(provider.metrics.iter().all(|metric| !metric.pinned));
     }
 
     #[test]

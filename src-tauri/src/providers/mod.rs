@@ -25,6 +25,8 @@ pub mod zai;
 pub use detection::{detect_local_credentials, CredentialProbeResults, CredentialProbeStatus};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) use provider_icons::provider_icon_svg;
+#[cfg(test)]
+pub(crate) use registry::normalize_default_pins;
 pub use registry::ProviderRegistry;
 
 use crate::models::{ApiKeyStatus, ProviderDefinition, ProviderErrorKind, ProviderSnapshot};

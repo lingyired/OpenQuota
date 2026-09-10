@@ -777,7 +777,8 @@ mod tests {
 
     #[test]
     fn account_definition_has_isolated_provider_and_metric_ids() {
-        let definition = definition_for("claude@1234abcd", "Claude — Work", false);
+        let mut definition = definition_for("claude@1234abcd", "Claude — Work", false);
+        crate::providers::normalize_default_pins(&mut definition.metrics);
 
         assert_eq!(definition.id, "claude@1234abcd");
         assert_eq!(definition.display_name, "Claude — Work");
@@ -786,8 +787,10 @@ mod tests {
             .metrics
             .iter()
             .all(|metric| metric.id.starts_with("claude@1234abcd.")));
-        assert!(definition
-            .metrics
+        assert!(definition.metrics[..2]
+            .iter()
+            .all(|metric| metric.default_pinned));
+        assert!(definition.metrics[2..]
             .iter()
             .all(|metric| !metric.default_pinned));
     }

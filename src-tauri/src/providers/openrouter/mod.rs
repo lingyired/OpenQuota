@@ -469,7 +469,8 @@ mod tests {
 
     #[test]
     fn default_layout_matches_the_reference_provider() {
-        let definition = definition();
+        let mut definition = definition();
+        crate::providers::normalize_default_pins(&mut definition.metrics);
         let metric = |id: &str| {
             definition
                 .metrics
@@ -487,7 +488,7 @@ mod tests {
             metric("openrouter.balance").default_section,
             crate::models::MetricSection::AlwaysVisible
         );
-        assert!(!metric("openrouter.balance").default_pinned);
+        assert!(metric("openrouter.balance").default_pinned);
 
         for id in [
             "openrouter.today",

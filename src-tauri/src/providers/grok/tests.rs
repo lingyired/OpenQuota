@@ -68,7 +68,8 @@ fn build_provider(
 
 #[test]
 fn definition_matches_the_complete_default_layout() {
-    let definition = definition();
+    let mut definition = definition();
+    crate::providers::normalize_default_pins(&mut definition.metrics);
     assert_eq!(definition.id, "grok");
     assert_eq!(
         definition.local_usage_source_note.as_deref(),
@@ -94,13 +95,13 @@ fn definition_matches_the_complete_default_layout() {
         weekly.default_section,
         crate::models::MetricSection::AlwaysVisible
     );
-    assert!(!weekly.default_pinned);
+    assert!(weekly.default_pinned);
     let extra = &definition.metrics[1];
     assert_eq!(
         extra.default_section,
         crate::models::MetricSection::OnDemand
     );
-    assert!(!extra.default_pinned);
+    assert!(extra.default_pinned);
 }
 
 #[test]

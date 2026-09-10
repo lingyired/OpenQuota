@@ -153,7 +153,8 @@ fn scan(paths: Vec<PathBuf>) -> super::scanner::OpenCodeUsageScan {
 
 #[test]
 fn definition_exposes_the_complete_metric_contract() {
-    let definition = definition();
+    let mut definition = definition();
+    crate::providers::normalize_default_pins(&mut definition.metrics);
     assert_eq!(definition.id, "opencode");
     assert_eq!(definition.display_name, "OpenCode");
     assert_eq!(
@@ -178,8 +179,10 @@ fn definition_exposes_the_complete_metric_contract() {
     assert!(definition.metrics[4..]
         .iter()
         .all(|metric| metric.default_section == MetricSection::OnDemand));
-    assert!(definition
-        .metrics
+    assert!(definition.metrics[..2]
+        .iter()
+        .all(|metric| metric.default_pinned));
+    assert!(definition.metrics[2..]
         .iter()
         .all(|metric| !metric.default_pinned));
     assert!(definition.metrics[0].source.session_window());

@@ -44,6 +44,7 @@ impl ProviderRegistry {
                 .iter()
                 .filter_map(crate::models::ProviderLink::visible)
                 .collect();
+            normalize_default_pins(&mut definition.metrics);
             if runtimes.contains_key(&definition.id) {
                 return Err(invalid(format!(
                     "duplicate provider id `{}`",
@@ -271,6 +272,17 @@ fn validate_definition(
     Ok(())
 }
 
+pub(crate) fn normalize_default_pins(metrics: &mut [crate::models::MetricDefinition]) {
+    let mut pinned = 0;
+    for metric in metrics {
+        let eligible = metric.pinnable && metric.default_enabled && metric.tray.is_some();
+        metric.default_pinned = eligible && pinned < MAX_DEFAULT_PINS;
+        if metric.default_pinned {
+            pinned += 1;
+        }
+    }
+}
+
 fn invalid(message: impl Into<String>) -> ProviderRegistryError {
     ProviderRegistryError::Invalid(message.into())
 }
@@ -428,13 +440,6 @@ mod tests {
 
     #[test]
     fn registry_rejects_invalid_defaults_and_sources() {
-        let mut invalid_pin = definition("pin");
-        invalid_pin.metrics[0].pinnable = false;
-        assert!(matches!(
-            ProviderRegistry::new(vec![runtime(invalid_pin)]),
-            Err(ProviderRegistryError::Invalid(message)) if message.contains("default pin")
-        ));
-
         let mut hidden = definition("hidden");
         hidden.metrics[0].default_section = MetricSection::OnDemand;
         hidden.metrics[0].default_pinned = false;
@@ -487,20 +492,44 @@ mod tests {
             ProviderRegistry::new(vec![runtime(no_fallback)]),
             Err(ProviderRegistryError::Invalid(message)) if message.contains("no fallback-enabled")
         ));
+    }
 
-        let mut too_many_pins = definition("pins");
-        for suffix in ["weekly", "monthly"] {
-            let mut metric = too_many_pins.metrics[0].clone();
+    #[test]
+    fn registry_normalizes_the_first_two_eligible_metrics_as_default_pins() {
+        let mut provider = definition("pins");
+        provider.metrics[0].default_pinned = false;
+
+        let mut disabled = provider.metrics[0].clone();
+        disabled.id = "pins.disabled".into();
+        disabled.source = MetricSource::Quota {
+            source_id: "disabled".into(),
+            session_window: false,
+        };
+        disabled.default_enabled = false;
+        disabled.default_pinned = true;
+        provider.metrics.push(disabled);
+
+        for suffix in ["monthly", "quarterly"] {
+            let mut metric = provider.metrics[0].clone();
             metric.id = format!("pins.{suffix}");
-            if let MetricSource::Quota { source_id, .. } = &mut metric.source {
-                *source_id = suffix.to_owned();
-            }
-            too_many_pins.metrics.push(metric);
+            metric.source = MetricSource::Quota {
+                source_id: suffix.into(),
+                session_window: false,
+            };
+            provider.metrics.push(metric);
         }
-        assert!(matches!(
-            ProviderRegistry::new(vec![runtime(too_many_pins)]),
-            Err(ProviderRegistryError::Invalid(message)) if message.contains("more than 2 default pins")
-        ));
+
+        let registry = ProviderRegistry::new(vec![runtime(provider)]).unwrap();
+        let metrics = &registry.definition("pins").unwrap().metrics;
+
+        assert_eq!(
+            metrics
+                .iter()
+                .filter(|metric| metric.default_pinned)
+                .map(|metric| metric.id.as_str())
+                .collect::<Vec<_>>(),
+            ["pins.session", "pins.monthly"]
+        );
     }
 
     #[test]
@@ -583,6 +612,27 @@ mod tests {
             .unwrap()
             .source
             .session_window());
+
+        for provider in &catalog.providers {
+            let expected = provider
+                .metrics
+                .iter()
+                .filter(|metric| metric.pinnable && metric.default_enabled && metric.tray.is_some())
+                .take(2)
+                .map(|metric| metric.id.as_str())
+                .collect::<Vec<_>>();
+            let actual = provider
+                .metrics
+                .iter()
+                .filter(|metric| metric.default_pinned)
+                .map(|metric| metric.id.as_str())
+                .collect::<Vec<_>>();
+            assert_eq!(
+                actual, expected,
+                "unexpected default pins for {}",
+                provider.id
+            );
+        }
 
         let serialized = serde_json::to_value(catalog).unwrap();
         assert_eq!(serialized["providers"][1]["displayName"], "Codex");

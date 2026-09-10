@@ -884,7 +884,8 @@ mod tests {
 
     #[test]
     fn definition_matches_the_product_layout_and_links() {
-        let definition = definition();
+        let mut definition = definition();
+        crate::providers::normalize_default_pins(&mut definition.metrics);
         assert_eq!(definition.id, "copilot");
         assert!(!definition.fallback_enabled);
         assert_eq!(
@@ -911,7 +912,7 @@ mod tests {
             definition.metrics[1].default_section,
             MetricSection::AlwaysVisible
         );
-        assert!(!definition.metrics[1].default_pinned);
+        assert!(definition.metrics[1].default_pinned);
         assert!(definition.metrics[2..]
             .iter()
             .all(|metric| metric.default_section == MetricSection::OnDemand));

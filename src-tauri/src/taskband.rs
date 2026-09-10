@@ -796,12 +796,10 @@ mod tests {
         let mut catalog_settings =
             default_settings(&catalog, &HashSet::from(["opencode".to_owned()]));
         catalog_settings.usage_display = crate::models::UsageDisplay::Used;
-        if pin_first_two {
-            for item in &mut catalog_settings.providers {
-                if item.id == "opencode" {
-                    for (index, metric) in item.metrics.iter_mut().enumerate() {
-                        metric.pinned = index < 2;
-                    }
+        for item in &mut catalog_settings.providers {
+            if item.id == "opencode" {
+                for (index, metric) in item.metrics.iter_mut().enumerate() {
+                    metric.pinned = pin_first_two && index < 2;
                 }
             }
         }
