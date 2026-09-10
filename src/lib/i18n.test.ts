@@ -8,7 +8,7 @@ import { zhCn } from './i18n/messages/zh-CN';
 import fixture from '../test/i18nFixture.svelte';
 
 // Helpers to make locale switches deterministic in tests.
-async function switchLocale(lang: 'en' | 'zh-CN') {
+async function switchLocale(lang: string) {
   await locale.set(lang);
 }
 
@@ -30,19 +30,25 @@ beforeEach(() => {
 });
 
 describe('resolveLocale', () => {
-  it('resolves a Chinese system language to zh-CN', () => {
+  it('resolves Chinese system languages to the matching script', () => {
     stubNavigatorLanguage('zh-CN');
     expect(resolveLocale('system')).toBe('zh-CN');
     stubNavigatorLanguage('zh-TW');
-    expect(resolveLocale('system')).toBe('zh-CN');
+    expect(resolveLocale('system')).toBe('zh-TW');
+    stubNavigatorLanguage('zh-HK');
+    expect(resolveLocale('system')).toBe('zh-TW');
     stubNavigatorLanguage('zh');
     expect(resolveLocale('system')).toBe('zh-CN');
   });
 
-  it('resolves a non-Chinese system language to en', () => {
+  it('resolves supported system languages and falls back to en', () => {
     stubNavigatorLanguage('en-US');
     expect(resolveLocale('system')).toBe('en');
     stubNavigatorLanguage('ja-JP');
+    expect(resolveLocale('system')).toBe('ja');
+    stubNavigatorLanguage('pt-PT');
+    expect(resolveLocale('system')).toBe('pt-BR');
+    stubNavigatorLanguage('xx-YY');
     expect(resolveLocale('system')).toBe('en');
   });
 
@@ -51,6 +57,7 @@ describe('resolveLocale', () => {
     expect(resolveLocale('en')).toBe('en');
     stubNavigatorLanguage('en-US');
     expect(resolveLocale('zh-CN')).toBe('zh-CN');
+    expect(resolveLocale('ar')).toBe('ar');
   });
 });
 

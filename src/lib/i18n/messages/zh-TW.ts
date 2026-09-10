@@ -1,7 +1,7 @@
-// English message catalog. Values must match the app's existing English copy
-// verbatim so rendered-output tests stay green and the backend glossary can
-// resolve known backend strings to these keys.
-export const en = {
+// 繁體中文 message catalog.
+import type { Messages } from './en';
+
+export const zhTw = {
   app: {
     usageDashboard: 'OpenQuota usage dashboard',
     reorderInstructions:
@@ -404,7 +404,6 @@ export const en = {
     apiKeys: 'API Keys',
     billing: 'Billing',
     localUsageNote: 'From your {provider} usage history',
-    // Backend dynamic strings (backendGlossary targets)
     spark: 'Spark',
     sparkWeekly: 'Spark Weekly',
     rateLimitResets: 'Rate Limit Resets',
@@ -638,23 +637,13 @@ export const en = {
     useThisReset: 'Use this reset?',
     resetMessage: "Immediately reset your usage limits. This can't be undone.",
     useReset: 'Use reset',
-    resetting: 'Resetting…',
-    cancel: 'Cancel',
-    use: 'Use',
-    resetApplied: 'Reset applied.',
-    nothingToReset: 'No active limit needs resetting.',
-    noLongerAvailable: 'This reset is no longer available.',
-    couldNotUse: 'Could not use this reset. Try again.',
-    noRateLimitResets: 'No rate limit resets available',
+    resetting: '正在重置…',
+    cancel: '取消',
+    use: '使用',
+    resetApplied: '已應用重置。',
+    nothingToReset: '沒有啟動的限制需要重置。',
+    noLongerAvailable: '此重置不再可用。',
+    couldNotUse: '無法使用此重置。請再試一次。',
+    noRateLimitResets: '沒有可用的速率限制重置',
   },
-} as const;
-
-type MessageShape<T> = {
-  [K in keyof T]: T[K] extends string
-    ? string
-    : T[K] extends Record<string, unknown>
-      ? MessageShape<T[K]>
-      : never;
-};
-
-export type Messages = MessageShape<typeof en>;
+} satisfies Messages;

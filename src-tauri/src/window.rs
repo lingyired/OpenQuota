@@ -47,6 +47,22 @@ pub struct TaskbandAnchor {
     pub rect_height: f64,
 }
 
+/// Anchor captured from a macOS multiline-menubar instance click (screen
+/// points, AppKit coordinate system: origin bottom-left of the primary
+/// display, y increasing upward). Used to open the main popup just below the
+/// clicked menu-bar item instead of at the tray icon.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy)]
+pub struct MenuBarAnchor {
+    /// Screen rectangle of the clicked menu-bar label (points, x from left).
+    pub rect_x: f64,
+    pub rect_y: f64,
+    pub rect_width: f64,
+    /// 仅 macOS 的 popup 定位会读取；跨平台单测会构造该字段但用不到。
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    pub rect_height: f64,
+}
+
 #[derive(Clone, Copy)]
 struct PendingPanelHeight {
     generation: u64,
@@ -405,6 +421,89 @@ pub fn show_main_window_anchored(window: &WebviewWindow, anchor: TaskbandAnchor)
         let _ = restore_manual_panel_height(window);
     } else {
         position_popup_above(window, &anchor);
+        let _ = restore_manual_panel_height(window);
+    }
+    let _ = window.show();
+    let _ = window.set_focus();
+}
+
+/// 菜单栏 item 与 popup 顶边之间的空隙（points）。
+#[cfg(any(target_os = "macos", test))]
+const MENU_BAR_POPUP_GAP: f64 = 4.0;
+
+/// 计算 popup 左上角（主屏逻辑坐标，自上而下）：水平居中于被点击的
+/// 菜单栏 item，垂直放在菜单栏（item 底边）下方并留一点空隙。入参为
+/// 逻辑 points；`anchor.rect_y` 是 AppKit 坐标（左下原点）中的底边 y。
+#[cfg(any(target_os = "macos", test))]
+fn anchored_menu_bar_position(
+    anchor: &MenuBarAnchor,
+    screen_w: f64,
+    screen_h: f64,
+    window_width: f64,
+    window_height: f64,
+) -> (i32, i32) {
+    let item_bottom_from_top = screen_h - anchor.rect_y;
+    let max_y = (screen_h - window_height).max(0.0);
+    let y = (item_bottom_from_top + MENU_BAR_POPUP_GAP).clamp(0.0, max_y);
+    let max_x = (screen_w - window_width).max(0.0);
+    let x = (anchor.rect_x + anchor.rect_width / 2.0 - window_width / 2.0).clamp(0.0, max_x);
+    (x.round() as i32, y.round() as i32)
+}
+
+/// 把主窗口定位到被点击菜单栏实例的正下方。仅当实例位于主屏时生效
+/// （插件对副屏同样只支持 primary monitor）；失败返回 `false`，调用方回退
+/// 到默认（托盘居中）定位。
+#[cfg(target_os = "macos")]
+fn position_popup_below_menu_bar_item(window: &WebviewWindow, anchor: &MenuBarAnchor) -> bool {
+    let Some(monitor) = window.app_handle().primary_monitor().ok().flatten() else {
+        return false;
+    };
+    let scale = monitor.scale_factor();
+    let size = monitor.size();
+    let screen_w = size.width as f64 / scale;
+    let screen_h = size.height as f64 / scale;
+    if anchor.rect_x < 0.0
+        || anchor.rect_x + anchor.rect_width > screen_w
+        || anchor.rect_y < 0.0
+        || anchor.rect_y + anchor.rect_height > screen_h
+    {
+        return false;
+    }
+    let Ok(outer) = window.outer_size() else {
+        return false;
+    };
+    if outer.width == 0 || outer.height == 0 {
+        return false;
+    }
+    let win_scale = window.scale_factor().unwrap_or(scale);
+    let win_w = outer.width as f64 / win_scale;
+    let win_h = outer.height as f64 / win_scale;
+    let (x, y) = anchored_menu_bar_position(anchor, screen_w, screen_h, win_w, win_h);
+    let _ = window.set_position(tauri::PhysicalPosition::new(
+        ((x as f64) * scale).round() as i32,
+        ((y as f64) * scale).round() as i32,
+    ));
+    true
+}
+
+/// Like [`show_main_window`] but anchored below a clicked macOS menu-bar
+/// instance instead of at the tray icon. In floating mode the anchor is
+/// ignored.
+#[cfg(target_os = "macos")]
+pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: MenuBarAnchor) {
+    finish_native_panel_resize(window);
+    crate::webview_memory::set_inactive(window, false);
+    if window
+        .app_handle()
+        .state::<DesktopIntegration>()
+        .is_floating()
+    {
+        let _ = window.unminimize();
+        let _ = restore_manual_panel_height(window);
+    } else {
+        if !position_popup_below_menu_bar_item(window, &anchor) {
+            position_popup(window);
+        }
         let _ = restore_manual_panel_height(window);
     }
     let _ = window.show();
@@ -941,9 +1040,10 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        anchored_taskband_position, anchored_vertical_frame, panel_resize_edge_for_context,
-        panel_resize_edge_for_frames, panel_surface_color, PanelHeightMode, PanelResizeEdge,
-        PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
+        anchored_menu_bar_position, anchored_taskband_position, anchored_vertical_frame,
+        panel_resize_edge_for_context, panel_resize_edge_for_frames, panel_surface_color,
+        MenuBarAnchor, PanelHeightMode, PanelResizeEdge, PanelResizeSession, TaskbandAnchor,
+        VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
     };
     use crate::models::ThemePreference;
     use crate::storage::Storage;
@@ -1145,5 +1245,31 @@ mod tests {
         let (x, _) =
             anchored_taskband_position(&anchor(1080.0, 40.0, 1900.0), 0, 0, 1920, 1080, 640, 800);
         assert_eq!(x, 1920 - 640);
+    }
+
+    #[test]
+    fn mac_menu_bar_popup_centres_under_the_item_below_the_menu_bar() {
+        // 1920x1080 screen; item sits in the menu bar at top-right:
+        // AppKit bottom-up bottom edge y = 1080 - 24.
+        let item = MenuBarAnchor {
+            rect_x: 1800.0,
+            rect_y: 1056.0,
+            rect_width: 60.0,
+            rect_height: 24.0,
+        };
+        let (x, y) = anchored_menu_bar_position(&item, 1920.0, 1080.0, 320.0, 800.0);
+        assert_eq!(y, 28); // just below the menu bar
+        assert_eq!(x, 1600); // centred on the item, clamped to the screen
+        assert_eq!(x + 320, 1920);
+
+        // Far-left item stays inside the screen.
+        let left = MenuBarAnchor {
+            rect_x: 40.0,
+            rect_y: 1056.0,
+            rect_width: 60.0,
+            rect_height: 24.0,
+        };
+        let (x, y) = anchored_menu_bar_position(&left, 1920.0, 1080.0, 320.0, 800.0);
+        assert_eq!((x, y), (0, 28));
     }
 }

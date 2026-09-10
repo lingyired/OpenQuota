@@ -70,7 +70,6 @@ describe('native UI language contract', () => {
       'settings.showTotalSpend': 'Show Total Spend',
       'settings.launchAtLogin': 'Launch at Login',
       'settings.globalShortcut': 'Global Shortcut',
-      'settings.iconStyle': 'Icon Style',
       'settings.appearance': 'Appearance',
       'settings.windowMode': 'Window Mode',
       'settings.usageDisplay': 'Usage Display',

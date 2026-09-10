@@ -1,6 +1,6 @@
 [package]
 name = "openquota"
-version = "0.7.3"
+version = "0.7.5"
 description = "Cross-platform AI quota tracker"
 authors = ["OpenQuota contributors"]
 edition = "2021"
@@ -46,9 +46,10 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 security-framework = "3.7"
+tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.10.0" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
-tauri-plugin-multiline-taskband = { git = "https://github.com/lingyired/tauri-plugin-multiline-taskband", tag = "v1.1.0" }
+tauri-plugin-multiline-taskband = { git = "https://github.com/lingyired/tauri-plugin-multiline-taskband", tag = "v1.2.0" }
 webview2-com = "0.38"
 windows = "0.61"
 windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Credentials", "Win32_UI_WindowsAndMessaging"] }

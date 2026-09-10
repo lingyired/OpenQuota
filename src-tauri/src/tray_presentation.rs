@@ -1,6 +1,6 @@
 use tauri::{image::Image, AppHandle};
 
-#[cfg(any(target_os = "windows", test))]
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 use crate::models::ProviderLayout;
 #[cfg(not(target_os = "macos"))]
 use crate::tray_icon;
@@ -22,8 +22,9 @@ struct TrayMetric {
     gauge: Option<TrayGauge>,
 }
 
-/// 供 taskband 使用的指标解析结果：指标 id、tray 短标签与短值。
-#[cfg(any(target_os = "windows", test))]
+/// 供 Windows taskband / macOS menubar 使用的指标解析结果：
+/// 指标 id、tray 短标签与短值。
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct ResolvedTrayMetric {
     pub id: String,
@@ -33,7 +34,7 @@ pub(crate) struct ResolvedTrayMetric {
 
 #[derive(Debug, Clone, PartialEq)]
 struct TrayGroup {
-    #[cfg(any(target_os = "macos", test))]
+    #[cfg(test)]
     provider_id: String,
     metrics: Vec<TrayMetric>,
 }
@@ -45,20 +46,6 @@ struct TrayGauge {
     remaining_fraction: f64,
 }
 
-#[cfg(any(target_os = "macos", test))]
-#[derive(Debug, Clone, PartialEq)]
-enum MacMenuBarIcon {
-    Mark,
-    Text(Vec<crate::menu_bar::TextGroup>),
-    Bars(Vec<f64>),
-}
-
-#[cfg(any(target_os = "macos", test))]
-#[derive(Debug, Clone, PartialEq)]
-struct MacMenuBarPresentation {
-    icon: MacMenuBarIcon,
-}
-
 pub fn update(
     app: &AppHandle,
     state: &UsageViewState,
@@ -67,6 +54,8 @@ pub fn update(
 ) {
     #[cfg(target_os = "windows")]
     crate::taskband::update(app, state, settings, registry);
+    #[cfg(target_os = "macos")]
+    crate::menubar::update(app, state, settings, registry);
 
     let Some(tray) = app.tray_by_id(TRAY_ID) else {
         return;
@@ -103,93 +92,20 @@ pub fn update(
     }
 
     #[cfg(target_os = "macos")]
-    apply_mac_menu_bar_presentation(
-        &tray,
-        mac_menu_bar_presentation(&groups, settings.menu_bar_style),
-    );
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn mac_menu_bar_presentation(
-    groups: &[TrayGroup],
-    style: crate::models::MenuBarStyle,
-) -> MacMenuBarPresentation {
-    match style {
-        crate::models::MenuBarStyle::Text => {
-            let text_groups = text_groups(groups);
-            MacMenuBarPresentation {
-                icon: if text_groups.is_empty() {
-                    MacMenuBarIcon::Mark
-                } else {
-                    MacMenuBarIcon::Text(text_groups)
-                },
-            }
+    {
+        // 菜单栏的指标内容已交给 multiline-menubar 插件逐 provider 渲染；
+        // 托盘/状态项只保留应用 mark + 右键菜单（settings/quit），
+        // 对应 Windows 的「系统托盘 + taskband」双轨结构。
+        if tray.set_title(Some("")).is_err() {
+            crate::app_warn!("tray", "macOS menu bar title clear failed");
         }
-        crate::models::MenuBarStyle::Bars => {
-            let fractions = bar_fractions(groups);
-            MacMenuBarPresentation {
-                icon: if fractions.is_empty() {
-                    MacMenuBarIcon::Mark
-                } else {
-                    MacMenuBarIcon::Bars(fractions)
-                },
-            }
+        if tray
+            .set_icon_with_as_template(Some(mark_icon()), true)
+            .is_err()
+        {
+            crate::app_warn!("tray", "macOS menu bar icon update failed");
         }
     }
-}
-
-#[cfg(target_os = "macos")]
-fn apply_mac_menu_bar_presentation(
-    tray: &tauri::tray::TrayIcon,
-    presentation: MacMenuBarPresentation,
-) {
-    match presentation.icon {
-        MacMenuBarIcon::Mark => {
-            // An empty value explicitly clears stale native text before the fallback mark is shown.
-            if tray.set_title(Some("")).is_err() {
-                crate::app_warn!("tray", "macOS menu bar title clear failed");
-            }
-            if tray
-                .set_icon_with_as_template(Some(mark_icon()), true)
-                .is_err()
-            {
-                crate::app_warn!("tray", "macOS menu bar icon update failed");
-            }
-        }
-        MacMenuBarIcon::Text(groups) => {
-            // Text is one template strip image (provider marks + values), matching the single native
-            // status-item ownership model while allowing each provider to keep its visual identity.
-            if tray.set_title(Some("")).is_err() {
-                crate::app_warn!("tray", "macOS menu bar title clear failed");
-            }
-            let icon = crate::menu_bar::text_icon(&groups).unwrap_or_else(mark_icon);
-            if tray.set_icon_with_as_template(Some(icon), true).is_err() {
-                crate::app_warn!("tray", "macOS menu bar icon update failed");
-            }
-        }
-        MacMenuBarIcon::Bars(fractions) => {
-            // Clear Text before installing Bars so no stale value can remain beside the compact glyph.
-            if tray.set_title(Some("")).is_err() {
-                crate::app_warn!("tray", "macOS menu bar title clear failed");
-            }
-            if tray
-                .set_icon_with_as_template(Some(crate::menu_bar::bar_icon(&fractions)), true)
-                .is_err()
-            {
-                crate::app_warn!("tray", "macOS menu bar icon update failed");
-            }
-        }
-    }
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn bar_fractions(groups: &[TrayGroup]) -> Vec<f64> {
-    groups
-        .iter()
-        .flat_map(|group| group.metrics.iter())
-        .filter_map(|metric| metric.gauge.map(|gauge| gauge.display_fraction))
-        .take(crate::menu_bar::MAX_BARS)
-        .collect()
 }
 
 #[cfg(any(not(target_os = "macos"), test))]
@@ -198,23 +114,6 @@ fn primary_gauge(groups: &[TrayGroup]) -> Option<TrayGauge> {
         .iter()
         .flat_map(|group| group.metrics.iter())
         .find_map(|metric| metric.gauge)
-}
-
-#[cfg(any(target_os = "macos", test))]
-fn text_groups(groups: &[TrayGroup]) -> Vec<crate::menu_bar::TextGroup> {
-    groups
-        .iter()
-        .map(|group| crate::menu_bar::TextGroup {
-            provider_id: group.provider_id.clone(),
-            values: group
-                .metrics
-                .iter()
-                .take(crate::settings::MAX_PINS_PER_PROVIDER)
-                .map(|metric| metric.value.clone())
-                .collect(),
-        })
-        .filter(|group| !group.values.is_empty())
-        .collect()
 }
 
 fn resolved_groups(
@@ -251,7 +150,7 @@ fn resolved_groups(
                 })
                 .collect::<Vec<_>>();
             (!metrics.is_empty()).then_some(TrayGroup {
-                #[cfg(any(target_os = "macos", test))]
+                #[cfg(test)]
                 provider_id: definition.id.clone(),
                 metrics,
             })
@@ -259,9 +158,9 @@ fn resolved_groups(
         .collect()
 }
 
-/// 解析某个 provider 固定的（pinned，且带 tray 定义）指标为短值，供 taskband
-/// 取用 —— 与 mac menubar 同一套选择规则。无快照或无固定指标时返回空列表。
-#[cfg(any(target_os = "windows", test))]
+/// 解析某个 provider 固定的（pinned，且带 tray 定义）指标为短值，供
+/// Windows taskband 与 macOS menubar 取用。无快照或无固定指标时返回空列表。
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
 pub(crate) fn pinned_provider_metrics(
     state: &UsageViewState,
     provider: &ProviderLayout,
@@ -500,9 +399,8 @@ mod tests {
     };
 
     use super::{
-        bar_fractions, format_tokens, mac_menu_bar_presentation, pinned_provider_metrics,
-        primary_gauge, resolved_groups, text_groups, MacMenuBarIcon, MacMenuBarPresentation,
-        TrayGauge, TrayGroup, TrayMetric,
+        format_tokens, pinned_provider_metrics, primary_gauge, resolved_groups, TrayGauge,
+        TrayGroup, TrayMetric,
     };
     use crate::service::UsageViewState;
 
@@ -511,131 +409,6 @@ mod tests {
         let image = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
             .expect("bundled tray mark should decode");
         assert_eq!((image.width(), image.height()), (32, 32));
-    }
-
-    #[test]
-    fn text_groups_keep_provider_identity_and_values_without_choosing_a_primary_metric() {
-        let metric = |value: &str| TrayMetric {
-            value: value.into(),
-            detail: value.into(),
-            gauge: None,
-        };
-        let groups = vec![
-            TrayGroup {
-                provider_id: "claude".into(),
-                metrics: vec![metric("75%"), metric("40%")],
-            },
-            TrayGroup {
-                provider_id: "codex".into(),
-                metrics: vec![metric("90%")],
-            },
-        ];
-
-        assert_eq!(
-            text_groups(&groups),
-            vec![
-                crate::menu_bar::TextGroup {
-                    provider_id: "claude".into(),
-                    values: vec!["75%".into(), "40%".into()],
-                },
-                crate::menu_bar::TextGroup {
-                    provider_id: "codex".into(),
-                    values: vec!["90%".into()],
-                },
-            ]
-        );
-        assert!(text_groups(&[]).is_empty());
-    }
-
-    #[test]
-    fn mac_text_to_bars_transition_explicitly_clears_the_native_title() {
-        let groups = vec![TrayGroup {
-            provider_id: "codex".into(),
-            metrics: vec![TrayMetric {
-                value: "75%".into(),
-                detail: String::new(),
-                gauge: Some(TrayGauge {
-                    display_fraction: 0.75,
-                    remaining_fraction: 0.75,
-                }),
-            }],
-        }];
-
-        assert_eq!(
-            mac_menu_bar_presentation(&groups, crate::models::MenuBarStyle::Text),
-            MacMenuBarPresentation {
-                icon: MacMenuBarIcon::Text(vec![crate::menu_bar::TextGroup {
-                    provider_id: "codex".into(),
-                    values: vec!["75%".into()],
-                }]),
-            }
-        );
-        assert_eq!(
-            mac_menu_bar_presentation(&groups, crate::models::MenuBarStyle::Bars),
-            MacMenuBarPresentation {
-                icon: MacMenuBarIcon::Bars(vec![0.75]),
-            }
-        );
-    }
-
-    #[test]
-    fn mac_empty_and_unbounded_bar_states_fall_back_without_stale_text() {
-        let unbounded = vec![TrayGroup {
-            provider_id: "codex".into(),
-            metrics: vec![TrayMetric {
-                value: "$4".into(),
-                detail: String::new(),
-                gauge: None,
-            }],
-        }];
-        let fallback = MacMenuBarPresentation {
-            icon: MacMenuBarIcon::Mark,
-        };
-
-        assert_eq!(
-            mac_menu_bar_presentation(&[], crate::models::MenuBarStyle::Text),
-            fallback
-        );
-        assert_eq!(
-            mac_menu_bar_presentation(&[], crate::models::MenuBarStyle::Bars),
-            fallback
-        );
-        assert_eq!(
-            mac_menu_bar_presentation(&unbounded, crate::models::MenuBarStyle::Bars),
-            fallback
-        );
-    }
-
-    #[test]
-    fn bars_use_the_first_four_bounded_metrics_in_layout_order() {
-        let metric = |value: f64| TrayMetric {
-            value: format!("{value:.0}%"),
-            detail: String::new(),
-            gauge: Some(TrayGauge {
-                display_fraction: value / 100.0,
-                remaining_fraction: value / 100.0,
-            }),
-        };
-        let groups = vec![
-            TrayGroup {
-                provider_id: "claude".into(),
-                metrics: vec![
-                    metric(10.0),
-                    TrayMetric {
-                        value: "$4".into(),
-                        detail: String::new(),
-                        gauge: None,
-                    },
-                    metric(20.0),
-                ],
-            },
-            TrayGroup {
-                provider_id: "codex".into(),
-                metrics: vec![metric(30.0), metric(40.0), metric(50.0)],
-            },
-        ];
-
-        assert_eq!(bar_fractions(&groups), vec![0.1, 0.2, 0.3, 0.4]);
     }
 
     #[test]
@@ -699,13 +472,6 @@ mod tests {
         assert_eq!(groups[0].metrics[0].value, "75%");
         assert_eq!(groups[0].metrics[1].value, "40%");
         assert_eq!(
-            text_groups(&groups),
-            vec![crate::menu_bar::TextGroup {
-                provider_id: "codex".into(),
-                values: vec!["75%".into(), "40%".into()],
-            }]
-        );
-        assert_eq!(
             groups[0].metrics[0].gauge,
             Some(TrayGauge {
                 display_fraction: 0.75,
@@ -729,8 +495,6 @@ mod tests {
             })
         );
         assert_eq!(used_groups[0].metrics[0].value, "25%");
-        assert_eq!(bar_fractions(&groups), vec![0.75, 0.4]);
-        assert_eq!(bar_fractions(&used_groups), vec![0.25, 0.6]);
     }
 
     #[test]
@@ -789,8 +553,8 @@ mod tests {
     #[test]
     fn unavailable_pinned_metrics_fall_back_to_na_instead_of_disappearing() {
         // Codex defaults pin session + weekly, but the snapshot only carries
-        // weekly this round: session must stay visible as NA on both the mac
-        // menubar path and the Windows taskband path instead of being dropped.
+        // weekly this round: session must stay visible as NA on both the
+        // macOS menubar and Windows taskband paths instead of being dropped.
         let snapshot = ProviderSnapshot {
             provider_id: "codex".into(),
             plan: None,
@@ -972,10 +736,10 @@ mod tests {
         assert_eq!(metric.value, "2500 cap");
         assert_eq!(metric.detail, "Extra Usage 2500 cap");
         assert_eq!(metric.gauge, None);
-        assert!(bar_fractions(&[TrayGroup {
+        assert!(primary_gauge(&[TrayGroup {
             provider_id: "grok".into(),
             metrics: vec![metric],
         }])
-        .is_empty());
+        .is_none());
     }
 }

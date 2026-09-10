@@ -13,6 +13,10 @@
     background: var(--tray);
   }
 
+  html[dir='rtl'] {
+    direction: rtl;
+  }
+
   button,
   input,
   select {

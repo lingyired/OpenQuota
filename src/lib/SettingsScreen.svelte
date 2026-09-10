@@ -162,8 +162,22 @@
         value={settings.language}
         options={[
           { value: 'system', label: $tStore('settings.languageAuto') },
-          { value: 'en', label: 'English' },
-          { value: 'zh-CN', label: '简体中文' },
+          { value: 'en', label: $tStore('settings.english') },
+          { value: 'zh-CN', label: $tStore('settings.chinese') },
+          { value: 'zh-TW', label: $tStore('settings.traditionalChinese') },
+          { value: 'es', label: $tStore('settings.spanish') },
+          { value: 'pt-BR', label: $tStore('settings.portugueseBrazil') },
+          { value: 'ja', label: $tStore('settings.japanese') },
+          { value: 'ko', label: $tStore('settings.korean') },
+          { value: 'de', label: $tStore('settings.german') },
+          { value: 'fr', label: $tStore('settings.french') },
+          { value: 'ru', label: $tStore('settings.russian') },
+          { value: 'hi', label: $tStore('settings.hindi') },
+          { value: 'ar', label: $tStore('settings.arabic') },
+          { value: 'it', label: $tStore('settings.italian') },
+          { value: 'pl', label: $tStore('settings.polish') },
+          { value: 'tr', label: $tStore('settings.turkish') },
+          { value: 'vi', label: $tStore('settings.vietnamese') },
         ]}
         onChange={(value) => patch({ language: value as AppSettings['language'] })}
       />
@@ -213,19 +227,6 @@
 
   <div class="settings-section">
     <h2>{$tStore('settings.appearance')}</h2>
-    {#if platform === 'macos'}
-      <div class="setting-row">
-        <span><b>{$tStore('settings.iconStyle')}</b></span><SelectMenu
-          label={$tStore('settings.iconStyle')}
-          value={settings.menuBarStyle}
-          options={[
-            { value: 'text', label: $tStore('settings.text') },
-            { value: 'bars', label: $tStore('settings.bars') },
-          ]}
-          onChange={(value) => patch({ menuBarStyle: value as AppSettings['menuBarStyle'] })}
-        />
-      </div>
-    {/if}
     <div class="setting-row">
       <span><b>{$tStore('settings.theme')}</b></span><SelectMenu
         label={$tStore('settings.theme')}

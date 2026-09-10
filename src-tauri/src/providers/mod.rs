@@ -15,7 +15,7 @@ pub mod minimax;
 pub mod opencode;
 pub mod openrouter;
 mod pi_usage;
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 mod provider_icons;
 mod registry;
 #[cfg(test)]
@@ -23,7 +23,7 @@ pub mod test_http;
 pub mod zai;
 
 pub use detection::{detect_local_credentials, CredentialProbeResults, CredentialProbeStatus};
-#[cfg(target_os = "windows")]
+#[cfg(any(target_os = "macos", target_os = "windows"))]
 pub(crate) use provider_icons::provider_icon_svg;
 pub use registry::ProviderRegistry;
 

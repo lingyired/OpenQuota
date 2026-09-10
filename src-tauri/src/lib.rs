@@ -4,8 +4,10 @@ mod desktop_integration;
 mod hashing;
 mod i18n;
 mod logging;
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 mod menu_bar;
+#[cfg(any(target_os = "macos", test))]
+mod menubar;
 mod models;
 mod notifications;
 mod pacing;
@@ -388,6 +390,10 @@ pub fn run() {
     let builder = builder.plugin(tauri_plugin_multiline_taskband::init());
     #[cfg(target_os = "windows")]
     let builder = builder.manage(taskband::TaskbandState::default());
+    #[cfg(target_os = "macos")]
+    let builder = builder.plugin(tauri_plugin_multiline_menubar::init());
+    #[cfg(target_os = "macos")]
+    let builder = builder.manage(menubar::MenubarState::default());
     builder
         .setup(|app| {
             logging::init(logging::default_log_path(), models::LogLevel::Info);

@@ -67,7 +67,7 @@ describe('OpenQuota update lifecycle', () => {
     vi.restoreAllMocks();
   });
 
-  it('checks for updates manually and persists the macOS menu bar style', async () => {
+  it('checks for updates manually and reports when up to date', async () => {
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)',
     );
@@ -85,25 +85,6 @@ describe('OpenQuota update lifecycle', () => {
         settings: expect.objectContaining({ lastUpdateCheckAt: expect.any(String) }),
       }),
     );
-    await fireEvent.click(screen.getByRole('combobox', { name: 'Icon Style' }));
-    await fireEvent.click(screen.getByRole('option', { name: 'Bars' }));
-    await waitFor(() =>
-      expect(mocks.invoke).toHaveBeenCalledWith(
-        'save_app_settings',
-        expect.objectContaining({ settings: expect.objectContaining({ menuBarStyle: 'bars' }) }),
-      ),
-    );
-  });
-
-  it('hides the macOS-only icon style on other desktop platforms', async () => {
-    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-    );
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.queryByRole('combobox', { name: 'Icon Style' })).not.toBeInTheDocument();
   });
 
   it('surfaces an available update on the dashboard and allows it to be dismissed', async () => {

@@ -90,6 +90,9 @@ fn deliver(app: &AppHandle, alerts: &[PaceAlert], locale: i18n::Locale) -> Vec<P
 }
 
 fn show(app: &AppHandle, locale: i18n::Locale, title: &str, body: &str) -> Result<(), String> {
+    // `locale` 只用于 macOS / Linux 的 action 文案，Windows toast 没有该按钮。
+    #[cfg(target_os = "windows")]
+    let _ = locale;
     let mut notification = notify_rust::Notification::new();
     notification.summary(title).body(body).appname("OpenQuota");
     #[cfg(any(target_os = "linux", target_os = "macos"))]

@@ -1,6 +1,6 @@
 // i18n infrastructure: message registration, locale resolution, and
 // translation helpers. Initialized at module load so both tests and the app
-// see the same dictionaries (en + zh-CN, fallback en).
+// see the same dictionaries (16 locales, fallback en).
 //
 // Usage:
 //   - Templates: `{$_('key', params)}` for static copy (reactive), and
@@ -14,9 +14,37 @@ import type { LanguagePreference } from '../types';
 import { backendGlossary, backendPatterns } from './backendGlossary';
 import { en, type Messages } from './messages/en';
 import { zhCn } from './messages/zh-CN';
+import { ar } from './messages/ar';
+import { de } from './messages/de';
+import { es } from './messages/es';
+import { fr } from './messages/fr';
+import { hi } from './messages/hi';
+import { it } from './messages/it';
+import { ja } from './messages/ja';
+import { ko } from './messages/ko';
+import { pl } from './messages/pl';
+import { ptBr } from './messages/pt-BR';
+import { ru } from './messages/ru';
+import { tr } from './messages/tr';
+import { vi } from './messages/vi';
+import { zhTw } from './messages/zh-TW';
 
 addMessages('en', en);
 addMessages('zh-CN', zhCn);
+addMessages('zh-TW', zhTw);
+addMessages('es', es);
+addMessages('pt-BR', ptBr);
+addMessages('ja', ja);
+addMessages('ko', ko);
+addMessages('de', de);
+addMessages('fr', fr);
+addMessages('ru', ru);
+addMessages('hi', hi);
+addMessages('ar', ar);
+addMessages('it', it);
+addMessages('pl', pl);
+addMessages('tr', tr);
+addMessages('vi', vi);
 
 init({ initialLocale: 'en', fallbackLocale: 'en' });
 
@@ -34,11 +62,38 @@ export type MessageKey = DotKeys<Messages>;
 export type { Messages };
 
 /** Resolve a language preference to an actual locale. */
-export function resolveLocale(pref: LanguagePreference): 'en' | 'zh-CN' {
-  if (pref === 'en') return 'en';
-  if (pref === 'zh-CN') return 'zh-CN';
-  const lang = typeof navigator !== 'undefined' ? navigator.language : 'en';
-  return lang.toLowerCase().startsWith('zh') ? 'zh-CN' : 'en';
+export type SupportedLocale = Exclude<LanguagePreference, 'system'>;
+
+const supportedLocales: readonly SupportedLocale[] = [
+  'en',
+  'zh-CN',
+  'zh-TW',
+  'es',
+  'pt-BR',
+  'ja',
+  'ko',
+  'de',
+  'fr',
+  'ru',
+  'hi',
+  'ar',
+  'it',
+  'pl',
+  'tr',
+  'vi',
+];
+
+export function resolveLocale(pref: LanguagePreference): SupportedLocale {
+  if (pref !== 'system') return pref;
+  const language = typeof navigator !== 'undefined' ? navigator.language : 'en';
+  const normalized = language.toLowerCase();
+  if (normalized.startsWith('zh-tw') || normalized.startsWith('zh-hk')) return 'zh-TW';
+  if (normalized.startsWith('zh')) return 'zh-CN';
+  if (normalized.startsWith('pt')) return 'pt-BR';
+  const match = supportedLocales.find((candidate) =>
+    normalized.startsWith(candidate.toLowerCase()),
+  );
+  return match ?? 'en';
 }
 
 /** Apply a language preference; all active components update reactively. */

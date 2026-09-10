@@ -762,6 +762,22 @@ pub enum LanguagePreference {
     En,
     #[serde(rename = "zh-CN")]
     ZhCn,
+    #[serde(rename = "zh-TW")]
+    ZhTw,
+    Es,
+    #[serde(rename = "pt-BR")]
+    PtBr,
+    Ja,
+    Ko,
+    De,
+    Fr,
+    Ru,
+    Hi,
+    Ar,
+    It,
+    Pl,
+    Tr,
+    Vi,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]

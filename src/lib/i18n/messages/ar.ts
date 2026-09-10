@@ -1,7 +1,7 @@
-// English message catalog. Values must match the app's existing English copy
-// verbatim so rendered-output tests stay green and the backend glossary can
-// resolve known backend strings to these keys.
-export const en = {
+// العربية message catalog.
+import type { Messages } from './en';
+
+export const ar = {
   app: {
     usageDashboard: 'OpenQuota usage dashboard',
     reorderInstructions:
@@ -404,7 +404,6 @@ export const en = {
     apiKeys: 'API Keys',
     billing: 'Billing',
     localUsageNote: 'From your {provider} usage history',
-    // Backend dynamic strings (backendGlossary targets)
     spark: 'Spark',
     sparkWeekly: 'Spark Weekly',
     rateLimitResets: 'Rate Limit Resets',
@@ -638,23 +637,13 @@ export const en = {
     useThisReset: 'Use this reset?',
     resetMessage: "Immediately reset your usage limits. This can't be undone.",
     useReset: 'Use reset',
-    resetting: 'Resetting…',
-    cancel: 'Cancel',
-    use: 'Use',
-    resetApplied: 'Reset applied.',
-    nothingToReset: 'No active limit needs resetting.',
-    noLongerAvailable: 'This reset is no longer available.',
-    couldNotUse: 'Could not use this reset. Try again.',
-    noRateLimitResets: 'No rate limit resets available',
+    resetting: 'جارٍ إعادة الضبط...',
+    cancel: 'إلغاء',
+    use: 'الاستخدام',
+    resetApplied: 'تم تطبيق إعادة التعيين.',
+    nothingToReset: 'لا يحتاج أي حد نشط إلى إعادة الضبط.',
+    noLongerAvailable: 'لم تعد إعادة التعيين هذه متاحة.',
+    couldNotUse: 'تعذر استخدام إعادة التعيين هذه. حاول مرة أخرى.',
+    noRateLimitResets: 'لا توجد إعادة تعيين لحد السعر',
   },
-} as const;
-
-type MessageShape<T> = {
-  [K in keyof T]: T[K] extends string
-    ? string
-    : T[K] extends Record<string, unknown>
-      ? MessageShape<T[K]>
-      : never;
-};
-
-export type Messages = MessageShape<typeof en>;
+} satisfies Messages;

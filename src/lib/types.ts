@@ -195,7 +195,24 @@ export interface ProviderLayout {
   metrics: MetricLayout[];
 }
 
-export type LanguagePreference = 'system' | 'en' | 'zh-CN';
+export type LanguagePreference =
+  | 'system'
+  | 'en'
+  | 'zh-CN'
+  | 'zh-TW'
+  | 'es'
+  | 'pt-BR'
+  | 'ja'
+  | 'ko'
+  | 'de'
+  | 'fr'
+  | 'ru'
+  | 'hi'
+  | 'ar'
+  | 'it'
+  | 'pl'
+  | 'tr'
+  | 'vi';
 
 export interface NotificationPreferences {
   almostOut: boolean;

@@ -138,6 +138,9 @@
   $effect(() => {
     const root = document.documentElement;
     root.toggleAttribute('data-reduced-motion', reducedMotion);
+    const activeLocale = currentLocale ?? 'en';
+    root.lang = activeLocale;
+    root.dir = activeLocale === 'ar' ? 'rtl' : 'ltr';
     if (!settingsState) return;
     if (settingsState.settings.theme === 'system') delete root.dataset.theme;
     else root.dataset.theme = settingsState.settings.theme;
