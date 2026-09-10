@@ -1,6 +1,6 @@
 # Grok
 
-OpenQuota tracks Grok allowance information and usage recorded by the Grok CLI.
+OpenQuota01 tracks Grok allowance information and usage recorded by the Grok CLI.
 
 ## What it tracks
 
@@ -16,14 +16,14 @@ Weekly row shows **No data**.
 
 ## Sign-in and local data
 
-Sign in by running `grok login`. OpenQuota reads the authentication data and usage history stored by
+Sign in by running `grok login`. OpenQuota01 reads the authentication data and usage history stored by
 the Grok CLI. `GROK_HOME` is respected when it is set.
 
-Spend history is estimated locally from Grok's usage log and is not uploaded by OpenQuota.
+Spend history is estimated locally from Grok's usage log and is not uploaded by OpenQuota01.
 
 ## Troubleshooting
 
-- **Not logged in** — run `grok login`, then refresh OpenQuota.
+- **Not logged in** — run `grok login`, then refresh OpenQuota01.
 - **Login invalid or expired** — sign in again with the Grok CLI.
 - **No local history** — use Grok normally and check the active `GROK_HOME` directory.
 - **Billing request failed** — check the connection and try another refresh.

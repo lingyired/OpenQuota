@@ -24,7 +24,7 @@
   - 每实例两行文本，每行独立颜色（`default` 跟随系统 / `solid #rrggbb`）、字号（pt）、加粗、对齐（0/1/2）；每实例独立 padding、位置（left=开始按钮旁 / right=托盘旁）、顺序。
   - 内置 popup 机制（`setPopupWindow` + `setAutoPopup`），但我们不复用（会尝试打开未注册的 popup 窗口），将调用 `set_auto_popup(false)` 关闭。
   - 插件仅支持文本渲染、不支持图片 → 图标用文字缩写（用户已确认"先显示文字缩写"）。
-- **OpenQuota 现状**：
+- **OpenQuota01 现状**：
   - [`tray_presentation.rs`](file:///Users/lingsmbp/Documents/aiwork/OpenQuota/src-tauri/src/tray_presentation.rs) 的 `update()` 在每次刷新完成（`notifications::finish_refresh`）、设置保存（`commands/settings.rs`）、启动时被调用 —— 是 taskband 更新的理想挂载点。内部 `tray_metric()` 已能把指标解析为短值（如 "75%"）。
   - [`models.rs`](file:///Users/lingsmbp/Documents/aiwork/OpenQuota/src-tauri/src/models.rs)：`AppSettings`（schema_version=7）、`ProviderLayout`、`MetricDefinition`（含 `tray.short_label`，如 "S"/"W"/"M"）。
   - 指标示例：opencode 有 `session/weekly/monthly` 三个 quota（全 enable、AlwaysVisible）；codex 有 `session/weekly/spark/sparkWeekly` + `credits/rateLimitResets` 等，无 monthly —— 正好验证"不支持就不显示"。

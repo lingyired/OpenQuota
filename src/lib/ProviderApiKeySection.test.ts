@@ -161,7 +161,7 @@ describe('ProviderApiKeySection', () => {
           providerId: 'openrouter',
           status: 'saved',
           warning:
-            'The API key was saved securely, but OpenQuota could not finish updating provider status. Restart OpenQuota or try again.',
+            'The API key was saved securely, but OpenQuota01 could not finish updating provider status. Restart OpenQuota01 or try again.',
         });
       }
       return Promise.reject(new Error(`unexpected command ${command}`));
@@ -179,7 +179,7 @@ describe('ProviderApiKeySection', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     expect(await screen.findByRole('status')).toHaveTextContent(
-      'The API key was saved securely, but OpenQuota could not finish updating provider status.',
+      'The API key was saved securely, but OpenQuota01 could not finish updating provider status.',
     );
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.getByRole('textbox', { name: 'OpenRouter API key source' })).toHaveValue(

@@ -180,6 +180,44 @@ describe('hybrid window controller', () => {
     controller.dispose();
   });
 
+  it('keeps a fixed provider popup at its native size', async () => {
+    let fixedHeight = false;
+    const page = document.querySelector<HTMLElement>('.screen-page')!;
+    page.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          width: 292,
+          height: 120,
+          top: 0,
+          right: 292,
+          bottom: 120,
+          left: 0,
+          x: 0,
+          y: 0,
+        }) as DOMRect,
+    );
+    const controller = createWindowController({
+      screen: () => 'dashboard',
+      refreshing: () => false,
+      reordering: () => false,
+      fixedHeight: () => fixedHeight,
+      automatic: () => true,
+      reducedMotion: () => true,
+      onError: vi.fn(),
+    });
+
+    controller.scheduleFit();
+    fixedHeight = true;
+    controller.scheduleFit();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(mocks.fitPanelToContent).not.toHaveBeenCalled();
+
+    fixedHeight = false;
+    controller.scheduleFit();
+    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(250));
+    controller.dispose();
+  });
+
   it('preserves dashboard content height when floating chrome changes in Settings', async () => {
     let activeScreen: 'dashboard' | 'settings' = 'dashboard';
     const page = document.querySelector<HTMLElement>('.screen-page')!;

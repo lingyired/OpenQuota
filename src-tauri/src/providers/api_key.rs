@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 use super::credential_store::{delete_owned_password, read_owned_password, write_owned_password};
 
-const SERVICE: &str = "io.github.deviffyy.openquota.api-key";
+const SERVICE: &str = "com.lingyi.openquota01.api-key";
 
 pub struct SecretBytes(Zeroizing<Vec<u8>>);
 
@@ -37,6 +37,9 @@ impl SecretString {
 
 pub trait SecretBackend: Send + Sync {
     fn read(&self, account: &str) -> Result<Option<SecretBytes>, String>;
+    fn exists(&self, account: &str) -> Result<bool, String> {
+        self.read(account).map(|value| value.is_some())
+    }
     fn write(&self, account: &str, value: &[u8]) -> Result<(), String>;
     fn delete(&self, account: &str) -> Result<(), String>;
 }
@@ -47,6 +50,15 @@ struct SystemSecretBackend;
 impl SecretBackend for SystemSecretBackend {
     fn read(&self, account: &str) -> Result<Option<SecretBytes>, String> {
         read_owned_password(SERVICE, account).map(|value| value.map(SecretBytes::new))
+    }
+
+    fn exists(&self, account: &str) -> Result<bool, String> {
+        super::credential_store::generic_password_exists(
+            SERVICE,
+            account,
+            std::time::Duration::from_secs(2),
+        )
+        .ok_or_else(|| "The system credential store could not be searched.".into())
     }
 
     fn write(&self, account: &str, value: &[u8]) -> Result<(), String> {
@@ -174,10 +186,14 @@ impl ApiKeyStore {
         }
     }
 
+    pub fn has_credentials(&self) -> bool {
+        self.external_key().is_some() || self.saved_key_exists().unwrap_or(false)
+    }
+
     pub fn status(&self) -> Result<ApiKeyStatus, String> {
         let external = self.external_key().map(|(_, status)| status);
-        let saved = match self.saved_key() {
-            Ok(value) => value.is_some(),
+        let saved = match self.saved_key_exists() {
+            Ok(value) => value,
             Err(error) if external.is_some() => {
                 report_external_fallback(&self.provider_id, &error);
                 return Ok(external.expect("external source checked above"));
@@ -214,6 +230,10 @@ impl ApiKeyStore {
         let value = std::str::from_utf8(value.as_slice())
             .map_err(|_| "The saved API key has an unsupported encoding.".to_owned())?;
         Ok(non_empty(value.to_owned()))
+    }
+
+    fn saved_key_exists(&self) -> Result<bool, String> {
+        self.secrets.exists(&self.provider_id)
     }
 
     fn environment_key(&self) -> Option<SecretString> {
@@ -357,6 +377,26 @@ mod tests {
         }
     }
 
+    struct ExistsOnlySecrets;
+
+    impl SecretBackend for ExistsOnlySecrets {
+        fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+            Err("The secret must not be read for a presence check.".into())
+        }
+
+        fn exists(&self, _account: &str) -> Result<bool, String> {
+            Ok(true)
+        }
+
+        fn write(&self, _account: &str, _value: &[u8]) -> Result<(), String> {
+            unreachable!()
+        }
+
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            unreachable!()
+        }
+    }
+
     fn store(secrets: Arc<MemorySecrets>, environment: &[(&str, &str)]) -> ApiKeyStore {
         ApiKeyStore::with_backends(
             "provider",
@@ -443,6 +483,19 @@ mod tests {
             store.load().err().as_deref(),
             Some("System credential store unavailable.")
         );
+    }
+
+    #[test]
+    fn api_key_status_uses_a_presence_probe_without_reading_the_secret() {
+        let store = ApiKeyStore::with_backends(
+            "provider",
+            "PROVIDER_API_KEY",
+            Arc::new(ExistsOnlySecrets),
+            Arc::new(MemoryEnvironment(HashMap::new())),
+        );
+
+        assert!(store.has_credentials());
+        assert_eq!(store.status().unwrap(), ApiKeyStatus::Saved);
     }
 
     #[test]

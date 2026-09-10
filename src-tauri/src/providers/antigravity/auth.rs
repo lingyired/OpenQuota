@@ -10,6 +10,8 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
+#[cfg(target_os = "macos")]
+use crate::providers::credential_store::generic_password_exists;
 use crate::providers::credential_store::{decode_go_keyring_value, read_generic_password};
 
 use super::AntigravityError;
@@ -134,9 +136,18 @@ pub fn load_token() -> Result<Option<AntigravityToken>, AntigravityError> {
 }
 
 pub fn has_local_credentials() -> bool {
-    credential_state_is_actionable(load_token())
+    #[cfg(target_os = "macos")]
+    {
+        generic_password_exists("gemini", "antigravity", std::time::Duration::from_secs(2))
+            == Some(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        credential_state_is_actionable(load_token())
+    }
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn credential_state_is_actionable(
     state: Result<Option<AntigravityToken>, AntigravityError>,
 ) -> bool {

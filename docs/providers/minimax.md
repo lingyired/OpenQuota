@@ -1,6 +1,6 @@
 # MiniMax
 
-OpenQuota tracks the Session and Weekly quotas of a MiniMax Token Plan.
+OpenQuota01 tracks the Session and Weekly quotas of a MiniMax Token Plan.
 
 ## What it tracks
 
@@ -12,8 +12,8 @@ OpenQuota tracks the Session and Weekly quotas of a MiniMax Token Plan.
 ## Setup
 
 Create or view the Token Plan subscription key in the [MiniMax global console](https://platform.minimax.io/console/plan),
-then add it in **Customize** in OpenQuota. Saved keys are stored in the operating system's credential
-store. OpenQuota also checks `MINIMAX_API_KEY` and `~/.config/openquota/minimax.json`; a key saved
+then add it in **Customize** in OpenQuota01. Saved keys are stored in the operating system's credential
+store. OpenQuota01 also checks `MINIMAX_API_KEY` and `~/.config/openquota01/minimax.json`; a key saved
 in the app takes priority.
 
 This provider uses MiniMax's global endpoint, `https://www.minimax.io/v1/token_plan/remains`. Use a

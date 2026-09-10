@@ -5,7 +5,7 @@ use crate::{
 
 use super::MiniMaxError;
 
-const CONFIG_PATHS: &[&str] = &["~/.config/openquota/minimax.json"];
+const CONFIG_PATHS: &[&str] = &["~/.config/openquota01/minimax.json"];
 const ENVIRONMENT_NAMES: &[&str] = &["MINIMAX_API_KEY"];
 
 #[derive(Clone)]
@@ -32,7 +32,7 @@ impl MiniMaxAuthStore {
     }
 
     pub fn has_local_credentials(&self) -> bool {
-        self.load().is_ok_and(|secret| secret.is_some())
+        self.store.has_credentials()
     }
 
     pub fn status(&self) -> Result<ApiKeyStatus, MiniMaxError> {

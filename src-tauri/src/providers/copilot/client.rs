@@ -120,7 +120,7 @@ impl CopilotClient {
             .header("Accept", "application/vnd.github+json")
             .header(
                 "User-Agent",
-                concat!("OpenQuota/", env!("CARGO_PKG_VERSION")),
+                concat!("OpenQuota01/", env!("CARGO_PKG_VERSION")),
             )
             .header("X-GitHub-Api-Version", "2022-11-28")
             .timeout(timeout)

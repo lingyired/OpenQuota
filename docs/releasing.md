@@ -1,6 +1,6 @@
-# Releasing OpenQuota
+# Releasing OpenQuota01
 
-OpenQuota treats updater signatures and native operating-system signatures as separate trust
+OpenQuota01 treats updater signatures and native operating-system signatures as separate trust
 layers. Updater artifacts must always be signed with `TAURI_SIGNING_PRIVATE_KEY`. Native Windows
 and macOS signing are independent opt-ins because they require externally provisioned certificates.
 If the updater key is encrypted, also configure `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`. The updater

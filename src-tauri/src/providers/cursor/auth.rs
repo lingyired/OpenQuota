@@ -5,6 +5,8 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
 
+#[cfg(target_os = "macos")]
+use crate::providers::credential_store::generic_password_exists;
 use crate::providers::credential_store::{read_generic_password, write_generic_password};
 
 use super::CursorError;
@@ -39,7 +41,30 @@ impl CursorAuthState {
     }
 
     pub fn has_local_credentials() -> bool {
-        Self::load().ok().flatten().is_some()
+        if state_database_paths()
+            .into_iter()
+            .any(|path| load_sqlite_auth(&path).is_some())
+        {
+            return true;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            keychain_accounts().into_iter().any(|account| {
+                [ACCESS_TOKEN_SERVICE, REFRESH_TOKEN_SERVICE]
+                    .into_iter()
+                    .any(|service| {
+                        generic_password_exists(
+                            service,
+                            &account,
+                            std::time::Duration::from_secs(2),
+                        ) == Some(true)
+                    })
+            })
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            load_keychain_auth().is_some()
+        }
     }
 
     pub fn needs_refresh(&self, now: DateTime<Utc>) -> bool {

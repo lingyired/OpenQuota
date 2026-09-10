@@ -1,6 +1,6 @@
 # OpenCode
 
-OpenQuota combines OpenCode Go quota information with usage recorded by local OpenCode sessions.
+OpenQuota01 combines OpenCode Go quota information with usage recorded by local OpenCode sessions.
 
 ## What it tracks
 
@@ -21,7 +21,7 @@ the OpenCode data directory.
 
 ## Sign-in and local data
 
-Sign in to OpenCode Go or use OpenCode locally first. OpenQuota reads OpenCode's local authentication
+Sign in to OpenCode Go or use OpenCode locally first. OpenQuota01 reads OpenCode's local authentication
 file and databases from its data directory. `OPENCODE_DATA_DIR` and `XDG_DATA_HOME` are respected
 when present.
 

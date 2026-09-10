@@ -10,6 +10,9 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tempfile::NamedTempFile;
 
+#[cfg(target_os = "macos")]
+use crate::providers::credential_store::generic_password_exists;
+
 use super::CodexError;
 
 const REFRESH_WINDOW: Duration = Duration::from_secs(5 * 60);
@@ -33,17 +36,34 @@ enum AuthSource {
 
 impl CodexAuthState {
     pub fn has_local_credentials() -> bool {
-        let file_credentials = auth_paths().into_iter().any(|path| {
-            fs::read_to_string(path)
-                .ok()
-                .and_then(|text| parse_auth_document(&text))
-                .is_some_and(|document| auth_document_has_credentials(&document))
-        });
-        file_credentials
-            || keychain_document().is_some_and(|document| auth_document_has_credentials(&document))
+        if !Self::load_file_candidates().0.is_empty() {
+            return true;
+        }
+        #[cfg(target_os = "macos")]
+        {
+            generic_password_exists("Codex Auth", "", Duration::from_secs(2)) == Some(true)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            false
+        }
     }
 
     pub fn load_candidates() -> Result<Vec<Self>, CodexError> {
+        let (mut candidates, api_key_only) = Self::load_file_candidates();
+        if let Some(state) = load_keychain_candidate() {
+            candidates.push(state);
+        }
+        if !candidates.is_empty() {
+            Ok(candidates)
+        } else if api_key_only {
+            Err(CodexError::ApiKeyOnly)
+        } else {
+            Err(CodexError::NotLoggedIn)
+        }
+    }
+
+    fn load_file_candidates() -> (Vec<Self>, bool) {
         let mut candidates = Vec::new();
         let mut api_key_only = false;
         for path in auth_paths() {
@@ -77,21 +97,12 @@ impl CodexAuthState {
                 .and_then(Value::as_str)
                 .is_some_and(|value| !value.is_empty());
         }
-        if let Some(state) = load_keychain_candidate() {
-            candidates.push(state);
-        }
-        if !candidates.is_empty() {
-            Ok(candidates)
-        } else if api_key_only {
-            Err(CodexError::ApiKeyOnly)
-        } else {
-            Err(CodexError::NotLoggedIn)
-        }
+        (candidates, api_key_only)
     }
 
     pub fn observed_account_identity() -> Option<String> {
-        Self::load_candidates()
-            .ok()?
+        Self::load_file_candidates()
+            .0
             .into_iter()
             .find_map(|state| state.account_identity())
     }
@@ -322,6 +333,7 @@ fn string_at(document: &Value, pointer: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+#[cfg(test)]
 fn auth_document_has_credentials(document: &Value) -> bool {
     document
         .pointer("/tokens/access_token")

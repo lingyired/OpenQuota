@@ -109,7 +109,7 @@ impl ReqwestPricingHttpClient {
         Ok(Self {
             client: Client::builder()
                 .timeout(Duration::from_secs(30))
-                .user_agent("OpenQuota pricing refresh")
+                .user_agent("OpenQuota01 pricing refresh")
                 .build()?,
         })
     }

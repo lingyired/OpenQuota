@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
+#[cfg(target_os = "macos")]
+use crate::providers::credential_store::generic_password_exists;
 use crate::{
     hashing::sha256_hex,
     providers::credential_store::{read_generic_password, write_generic_password},
@@ -280,7 +282,31 @@ pub struct ClaudeOAuthConfig {
 }
 
 pub(super) fn has_local_credentials(scope: &ClaudeCredentialScope) -> bool {
-    !load_candidates(scope).is_empty()
+    #[cfg(target_os = "macos")]
+    {
+        let path = credential_path(scope);
+        if fs::read(path)
+            .ok()
+            .is_some_and(|bytes| credentials_have_access_token(&bytes))
+        {
+            return true;
+        }
+        if matches!(scope, ClaudeCredentialScope::Standard)
+            && env_text("CLAUDE_CODE_OAUTH_TOKEN").is_some()
+        {
+            return true;
+        }
+        keychain_candidates(scope)
+            .into_iter()
+            .any(|(service, account)| {
+                generic_password_exists(&service, &account, std::time::Duration::from_secs(2))
+                    == Some(true)
+            })
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        !load_candidates(scope).is_empty()
+    }
 }
 
 pub fn has_desktop_app_data() -> bool {

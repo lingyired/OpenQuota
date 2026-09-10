@@ -60,7 +60,7 @@ function mockInvoke(
   });
 }
 
-describe('OpenQuota dashboard', () => {
+describe('OpenQuota01 dashboard', () => {
   beforeEach(() => {
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
@@ -98,7 +98,8 @@ describe('OpenQuota dashboard', () => {
       if (command === 'set_panel_height_manual') return Promise.resolve();
       if (command === 'begin_panel_resize') return Promise.resolve('bottom');
       if (command === 'lock_panel_resize_axis') return Promise.resolve();
-      if (command === 'get_log_path') return Promise.resolve('C:\\OpenQuota\\logs\\OpenQuota.log');
+      if (command === 'get_log_path')
+        return Promise.resolve('C:\\OpenQuota01\\logs\\OpenQuota01.log');
       if (command === 'open_log_folder') return Promise.resolve();
       if (command === 'dismiss_main_window') return Promise.resolve();
       if (command === 'check_for_updates')
@@ -129,7 +130,7 @@ describe('OpenQuota dashboard', () => {
       'data-tooltip',
       '$3.84 · Estimated locally, so it may be off',
     );
-    expect(screen.getByText(`OpenQuota ${import.meta.env.APP_VERSION}`)).toBeInTheDocument();
+    expect(screen.getByText(`OpenQuota01 ${import.meta.env.APP_VERSION}`)).toBeInTheDocument();
     expect(container.querySelector('.floating-chrome')).not.toBeInTheDocument();
   });
 
@@ -191,7 +192,7 @@ describe('OpenQuota dashboard', () => {
       await screen.findByText('Plus');
       const dragSurface = container.querySelector<HTMLElement>('.floating-chrome__drag');
       expect(dragSurface).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Hide OpenQuota' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Hide OpenQuota01' })).toBeInTheDocument();
       expect(screen.getByRole('separator', { name: 'Resize panel height' })).toHaveClass(
         'panel-resize-dragger--bottom',
       );
@@ -769,7 +770,7 @@ describe('OpenQuota dashboard', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Copy Log Path' }));
     await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith('C:\\OpenQuota\\logs\\OpenQuota.log'),
+      expect(writeText).toHaveBeenCalledWith('C:\\OpenQuota01\\logs\\OpenQuota01.log'),
     );
     expect(mocks.invoke).toHaveBeenCalledWith('get_log_path');
     expect(screen.getByRole('status')).toHaveTextContent('Log path copied');
@@ -829,7 +830,7 @@ describe('OpenQuota dashboard', () => {
     });
     render(App);
     await screen.findByText('Plus');
-    expect(screen.getByRole('button', { name: 'Close OpenQuota' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close OpenQuota01' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Keep Window Open' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Return to Tray Popup' })).not.toBeInTheDocument();
     await fireEvent.click(screen.getByLabelText('Open options'));
@@ -1391,7 +1392,7 @@ describe('OpenQuota dashboard', () => {
     );
     expect(within(provider).getByRole('region', { name: 'Codex usage' })).toBe(card);
     expect(provider.querySelector('.provider-status-slot')).not.toHaveClass('active');
-    expect(screen.getByText('OpenQuota could not start a provider refresh.')).toBeInTheDocument();
+    expect(screen.getByText('OpenQuota01 could not start a provider refresh.')).toBeInTheDocument();
     expect(screen.getByText('Next update in 1m')).toBeInTheDocument();
   });
 
@@ -1586,7 +1587,7 @@ describe('OpenQuota dashboard', () => {
     render(App);
     await screen.findByText('Plus');
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
-    screen.getByLabelText('OpenQuota usage dashboard').dispatchEvent(event);
+    screen.getByLabelText('OpenQuota01 usage dashboard').dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -1681,9 +1682,9 @@ describe('OpenQuota dashboard', () => {
     render(App);
     await screen.findByText('Plus');
     await fireEvent.click(screen.getByLabelText('Open options'));
-    const trigger = screen.getByRole('button', { name: 'About OpenQuota' });
+    const trigger = screen.getByRole('button', { name: 'About OpenQuota01' });
     await fireEvent.click(trigger);
-    expect(screen.getByRole('dialog', { name: 'About OpenQuota' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'About OpenQuota01' })).toBeInTheDocument();
     const close = screen.getByRole('button', { name: 'Close About' });
     await waitFor(() => expect(close).toHaveFocus());
     expect(close.querySelector('svg')).not.toBeNull();
@@ -1691,7 +1692,7 @@ describe('OpenQuota dashboard', () => {
     await fireEvent.keyDown(close, { key: 'Tab' });
     expect(close).toHaveFocus();
     await fireEvent.keyDown(close, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'About OpenQuota' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'About OpenQuota01' })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText('Open options')).toHaveFocus());
   });
 
@@ -1783,7 +1784,7 @@ describe('OpenQuota dashboard', () => {
   });
 });
 
-describe('OpenQuota Windows taskband focus', () => {
+describe('OpenQuota01 Windows taskband focus', () => {
   const eventHandlers = new Map<string, (payload: unknown) => void>();
 
   beforeEach(() => {
@@ -1834,6 +1835,7 @@ describe('OpenQuota Windows taskband focus', () => {
       )
         return Promise.resolve(multiUsage);
       if (command === 'get_app_settings') return Promise.resolve(multiSettings);
+      if (command === 'get_panel_height_mode') return Promise.resolve('automatic');
       if (command === 'check_for_updates')
         return Promise.resolve({
           available: false,
@@ -1848,19 +1850,35 @@ describe('OpenQuota Windows taskband focus', () => {
       return Promise.resolve();
     });
 
-    render(App);
-    await screen.findByRole('group', { name: 'Codex provider' });
-    expect(screen.getByRole('group', { name: 'Claude provider' })).toBeInTheDocument();
-
-    const openTaskband = eventHandlers.get('taskband-open');
-    expect(openTaskband).toBeDefined();
-    openTaskband?.({ payload: 'codex' });
-
-    await waitFor(() => {
-      expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
+    Object.defineProperty(window, '__TAURI_INTERNALS__', {
+      configurable: true,
+      value: {},
     });
-    expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
-    expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
+    try {
+      render(App);
+      await screen.findByRole('group', { name: 'Codex provider' });
+      expect(screen.getByRole('group', { name: 'Claude provider' })).toBeInTheDocument();
+      const fitCallsBeforeOpen = mocks.invoke.mock.calls.filter(
+        ([command]) => command === 'fit_panel_to_content',
+      ).length;
+
+      const openTaskband = eventHandlers.get('taskband-open');
+      expect(openTaskband).toBeDefined();
+      openTaskband?.({ payload: 'codex' });
+
+      await waitFor(() => {
+        expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
+      });
+      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+      expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
+      await waitFor(() =>
+        expect(
+          mocks.invoke.mock.calls.filter(([command]) => command === 'fit_panel_to_content').length,
+        ).toBeGreaterThan(fitCallsBeforeOpen),
+      );
+    } finally {
+      delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+    }
   });
 
   it('opens the provider settings screen when an open-screen event targets a provider', async () => {

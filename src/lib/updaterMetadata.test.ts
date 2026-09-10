@@ -3,13 +3,13 @@ import { createUpdaterMetadata } from '../../.github/scripts/create-updater-json
 
 describe('release updater metadata', () => {
   const artifactNames = [
-    'OpenQuota_0.2.0_x64-setup.exe',
-    'OpenQuota_0.2.0_arm64-setup.exe',
-    'OpenQuota_0.2.0_amd64.AppImage',
-    'OpenQuota_0.2.0_arm64.AppImage',
-    'OpenQuota_0.2.0_amd64.deb',
-    'OpenQuota_0.2.0_arm64.deb',
-    'OpenQuota_0.2.0_universal.app.tar.gz',
+    'OpenQuota01_0.2.0_x64-setup.exe',
+    'OpenQuota01_0.2.0_arm64-setup.exe',
+    'OpenQuota01_0.2.0_amd64.AppImage',
+    'OpenQuota01_0.2.0_arm64.AppImage',
+    'OpenQuota01_0.2.0_amd64.deb',
+    'OpenQuota01_0.2.0_arm64.deb',
+    'OpenQuota01_0.2.0_universal.app.tar.gz',
   ];
   const release = {
     body: 'Release notes',
@@ -19,7 +19,7 @@ describe('release updater metadata', () => {
         { id: index * 2 + 1, name },
         { id: index * 2 + 2, name: `${name}.sig` },
       ]),
-      { id: 99, name: 'OpenQuota_0.2.0_universal.dmg' },
+      { id: 99, name: 'OpenQuota01_0.2.0_universal.dmg' },
     ],
   };
   const signatures = Object.fromEntries(
@@ -36,7 +36,7 @@ describe('release updater metadata', () => {
     );
 
     expect(update.platforms['windows-x86_64'].url).toBe(
-      'https://github.com/deviffyy/OpenQuota/releases/download/v0.2.0/OpenQuota_0.2.0_x64-setup.exe',
+      'https://github.com/deviffyy/OpenQuota/releases/download/v0.2.0/OpenQuota01_0.2.0_x64-setup.exe',
     );
     expect(update.platforms['windows-aarch64'].url).toContain('_arm64-setup.exe');
     expect(update.platforms['linux-aarch64'].url).toContain('_arm64.AppImage');
@@ -60,7 +60,7 @@ describe('release updater metadata', () => {
         {
           ...release,
           assets: release.assets.filter(
-            (asset) => !asset.name.startsWith('OpenQuota_0.2.0_arm64-setup.exe'),
+            (asset) => !asset.name.startsWith('OpenQuota01_0.2.0_arm64-setup.exe'),
           ),
         },
         signatures,

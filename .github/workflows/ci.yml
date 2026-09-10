@@ -97,16 +97,16 @@ jobs:
         run: |
           set -euo pipefail
           original_keychain="$(security default-keychain -d user | tr -d '"')"
-          test_keychain="${RUNNER_TEMP}/openquota-credential-test.keychain-db"
+          test_keychain="${RUNNER_TEMP}/openquota01-credential-test.keychain-db"
           cleanup() {
             security default-keychain -d user -s "${original_keychain}" || true
             security list-keychains -d user -s "${original_keychain}" || true
             security delete-keychain "${test_keychain}" || true
           }
           trap cleanup EXIT
-          security create-keychain -p openquota-test "${test_keychain}"
+          security create-keychain -p openquota01-test "${test_keychain}"
           security set-keychain-settings -lut 21600 "${test_keychain}"
-          security unlock-keychain -p openquota-test "${test_keychain}"
+          security unlock-keychain -p openquota01-test "${test_keychain}"
           security list-keychains -d user -s "${test_keychain}" "${original_keychain}"
           security default-keychain -d user -s "${test_keychain}"
           export OPENQUOTA_TEST_CREDENTIAL_STORE=1
@@ -120,7 +120,7 @@ jobs:
           xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
             original_home="${HOME}"
             export RUSTUP_HOME="${RUSTUP_HOME:-${original_home}/.rustup}"
-            export HOME="${RUNNER_TEMP}/openquota-secret-service-home"
+            export HOME="${RUNNER_TEMP}/openquota01-secret-service-home"
             mkdir -p "${HOME}/.local/share/keyrings"
             eval "$(printf "\n" | gnome-keyring-daemon --unlock --components=secrets)"
             export OPENQUOTA_TEST_CREDENTIAL_STORE=1
@@ -154,7 +154,7 @@ jobs:
         if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
-          name: OpenQuota-Windows-installer
+          name: OpenQuota01-Windows-installer
           path: src-tauri/target/release/bundle/nsis/*.exe
           if-no-files-found: error
 
@@ -162,7 +162,7 @@ jobs:
         if: runner.os == 'macOS'
         uses: actions/upload-artifact@v7
         with:
-          name: OpenQuota-macOS-DMG
+          name: OpenQuota01-macOS-DMG
           path: src-tauri/target/release/bundle/dmg/*.dmg
           if-no-files-found: error
 
@@ -170,7 +170,7 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
-          name: OpenQuota-Linux-AppImage
+          name: OpenQuota01-Linux-AppImage
           path: src-tauri/target/release/bundle/appimage/*.AppImage
           if-no-files-found: error
 
@@ -178,6 +178,6 @@ jobs:
         if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
         with:
-          name: OpenQuota-Linux-deb
+          name: OpenQuota01-Linux-deb
           path: src-tauri/target/release/bundle/deb/*.deb
           if-no-files-found: error

@@ -214,7 +214,7 @@ impl UsageProvider for OpenRouterProvider {
     }
 
     fn has_local_credentials(&self) -> bool {
-        self.auth.load().is_ok_and(|key| key.is_some())
+        self.auth.has_credentials()
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {

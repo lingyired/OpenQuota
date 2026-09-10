@@ -960,7 +960,7 @@ mod tests {
     #[test]
     fn cached_snapshot_staleness_is_based_on_snapshot_age() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let provider = Arc::new(SlowProvider {
             id: "cached",
             calls: Arc::new(AtomicUsize::new(0)),
@@ -988,7 +988,7 @@ mod tests {
     #[test]
     fn successful_refresh_switches_account_name_and_cache_without_a_restart() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let provider = Arc::new(AccountSwitchProvider {
             identity: "bbbbbbbb22222222".into(),
         }) as Arc<dyn UsageProvider>;
@@ -1145,7 +1145,7 @@ mod tests {
     #[test]
     fn enabled_providers_refresh_in_parallel() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let active = Arc::new(AtomicUsize::new(0));
         let maximum = Arc::new(AtomicUsize::new(0));
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1180,7 +1180,7 @@ mod tests {
     #[test]
     fn timed_out_refresh_quarantines_the_late_worker_and_releases_waiters() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let mut cached = test_snapshot("slow");
         cached.plan = Some("cached".into());
         storage.save_snapshot(&cached).unwrap();
@@ -1330,7 +1330,7 @@ mod tests {
     #[test]
     fn cancelled_refresh_keeps_single_flight_until_blocking_worker_finishes() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let calls = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(AtomicUsize::new(0));
         let maximum = Arc::new(AtomicUsize::new(0));
@@ -1377,7 +1377,7 @@ mod tests {
     #[test]
     fn concurrent_forced_waiters_coalesce_one_follow_up() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let calls = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(AtomicUsize::new(0));
         let maximum = Arc::new(AtomicUsize::new(0));
@@ -1427,7 +1427,7 @@ mod tests {
     #[test]
     fn forced_refresh_after_credential_change_returns_authoritative_snapshot() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let credential = Arc::new(Mutex::new(Some("old".to_owned())));
         let calls = Arc::new(AtomicUsize::new(0));
         let active = Arc::new(AtomicUsize::new(0));
@@ -1492,7 +1492,7 @@ mod tests {
     #[test]
     fn progress_reports_every_provider_completion() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let active = Arc::new(AtomicUsize::new(0));
         let maximum = Arc::new(AtomicUsize::new(0));
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1562,7 +1562,7 @@ mod tests {
     #[test]
     fn failed_provider_is_backed_off_but_force_and_expiry_retry() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let calls = Arc::new(AtomicUsize::new(0));
         let provider = Arc::new(SequenceProvider {
             id: "failing",
@@ -1592,7 +1592,7 @@ mod tests {
     #[test]
     fn successful_retry_clears_failure_backoff() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let calls = Arc::new(AtomicUsize::new(0));
         let provider = Arc::new(SequenceProvider {
             id: "recovering",

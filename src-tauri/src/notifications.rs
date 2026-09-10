@@ -94,7 +94,10 @@ fn show(app: &AppHandle, locale: i18n::Locale, title: &str, body: &str) -> Resul
     #[cfg(target_os = "windows")]
     let _ = locale;
     let mut notification = notify_rust::Notification::new();
-    notification.summary(title).body(body).appname("OpenQuota");
+    notification
+        .summary(title)
+        .body(body)
+        .appname("OpenQuota01");
     #[cfg(any(target_os = "linux", target_os = "macos"))]
     notification.action("default", i18n::tr(locale, "notif.open"));
     #[cfg(target_os = "windows")]

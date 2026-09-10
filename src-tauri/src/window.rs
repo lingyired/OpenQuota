@@ -10,8 +10,8 @@ use std::{
 
 use serde::Serialize;
 use tauri::{
-    webview::Color, AppHandle, Emitter, LogicalSize, Manager, Theme, WebviewWindow, Window,
-    WindowEvent,
+    webview::Color, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Theme,
+    WebviewWindow, Window, WindowEvent,
 };
 use tauri_plugin_positioner::{Position, WindowExt};
 
@@ -26,10 +26,36 @@ use crate::{
 pub const MAIN_WINDOW: &str = "main";
 pub const PANEL_WIDTH: f64 = 320.0;
 pub const PANEL_MIN_HEIGHT: u32 = 240;
+const PANEL_DEFAULT_HEIGHT: u32 = 800;
 const PANEL_SCREEN_FRACTION: f64 = 0.85;
 const PANEL_RESIZE_SAVE_DELAY: Duration = Duration::from_millis(120);
 const LIGHT_PANEL_SURFACE: Color = Color(0xff, 0xff, 0xff, 0xff);
 const DARK_PANEL_SURFACE: Color = Color(0x1d, 0x1d, 0x1f, 0xff);
+
+#[cfg(target_os = "macos")]
+const MENU_BAR_POPUP_POSITION_UNSET: u64 = u64::MAX;
+#[cfg(target_os = "macos")]
+static MENU_BAR_POPUP_POSITION: AtomicU64 = AtomicU64::new(MENU_BAR_POPUP_POSITION_UNSET);
+
+#[cfg(target_os = "macos")]
+fn store_menu_bar_popup_position(x: i32, y: i32) {
+    let packed = (u64::from(x as u32) << 32) | u64::from(y as u32);
+    MENU_BAR_POPUP_POSITION.store(packed, Ordering::SeqCst);
+}
+
+#[cfg(target_os = "macos")]
+fn clear_menu_bar_popup_position() {
+    MENU_BAR_POPUP_POSITION.store(MENU_BAR_POPUP_POSITION_UNSET, Ordering::SeqCst);
+}
+
+#[cfg(target_os = "macos")]
+fn menu_bar_popup_position() -> Option<(i32, i32)> {
+    let packed = MENU_BAR_POPUP_POSITION.load(Ordering::SeqCst);
+    if packed == MENU_BAR_POPUP_POSITION_UNSET {
+        return None;
+    }
+    Some(((packed >> 32) as u32 as i32, packed as u32 as i32))
+}
 
 /// Anchor captured from a Windows taskband instance click (physical pixels):
 /// the mouse click point plus the on-screen rectangle of the clicked label.
@@ -160,10 +186,10 @@ impl PanelResizeSession {
         let _guard = self
             .persistence
             .lock()
-            .map_err(|_| "OpenQuota panel state is unavailable.")?;
+            .map_err(|_| "OpenQuota01 panel state is unavailable.")?;
         self.storage
             .save_panel_height(height)
-            .map_err(|_| "OpenQuota panel state could not be saved.".to_owned())?;
+            .map_err(|_| "OpenQuota01 panel state could not be saved.".to_owned())?;
         self.generation.fetch_add(1, Ordering::SeqCst);
         self.automatic.store(false, Ordering::SeqCst);
         Ok(())
@@ -202,18 +228,18 @@ impl PanelResizeSession {
         let mut latest = self
             .latest_height
             .lock()
-            .map_err(|_| "OpenQuota panel state is unavailable.".to_owned())?;
+            .map_err(|_| "OpenQuota01 panel state is unavailable.".to_owned())?;
         let _guard = self
             .persistence
             .lock()
-            .map_err(|_| "OpenQuota panel state is unavailable.")?;
+            .map_err(|_| "OpenQuota01 panel state is unavailable.")?;
         let previous_height = self
             .storage
             .load_panel_height()
-            .map_err(|_| "OpenQuota panel state could not be loaded.".to_owned())?;
+            .map_err(|_| "OpenQuota01 panel state could not be loaded.".to_owned())?;
         self.storage
             .clear_panel_height()
-            .map_err(|_| "OpenQuota panel state could not be saved.".to_owned())?;
+            .map_err(|_| "OpenQuota01 panel state could not be saved.".to_owned())?;
         self.active.store(false, Ordering::SeqCst);
         *latest = None;
         let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
@@ -228,7 +254,7 @@ impl PanelResizeSession {
         let _guard = self
             .persistence
             .lock()
-            .map_err(|_| "OpenQuota panel state is unavailable.")?;
+            .map_err(|_| "OpenQuota01 panel state is unavailable.")?;
         if self.generation.load(Ordering::SeqCst) != token.generation
             || !self.automatic.load(Ordering::SeqCst)
         {
@@ -237,12 +263,12 @@ impl PanelResizeSession {
         if let Some(height) = token.previous_height {
             self.storage
                 .save_panel_height(height)
-                .map_err(|_| "OpenQuota panel state could not be restored.".to_owned())?;
+                .map_err(|_| "OpenQuota01 panel state could not be restored.".to_owned())?;
             self.automatic.store(false, Ordering::SeqCst);
         } else {
             self.storage
                 .clear_panel_height()
-                .map_err(|_| "OpenQuota panel state could not be restored.".to_owned())?;
+                .map_err(|_| "OpenQuota01 panel state could not be restored.".to_owned())?;
             self.automatic.store(true, Ordering::SeqCst);
         }
         self.generation.fetch_add(1, Ordering::SeqCst);
@@ -454,7 +480,12 @@ fn anchored_menu_bar_position(
 /// （插件对副屏同样只支持 primary monitor）；失败返回 `false`，调用方回退
 /// 到默认（托盘居中）定位。
 #[cfg(target_os = "macos")]
-fn position_popup_below_menu_bar_item(window: &WebviewWindow, anchor: &MenuBarAnchor) -> bool {
+fn position_popup_below_menu_bar_item(
+    window: &WebviewWindow,
+    anchor: &MenuBarAnchor,
+    window_height: f64,
+) -> bool {
+    clear_menu_bar_popup_position();
     let Some(monitor) = window.app_handle().primary_monitor().ok().flatten() else {
         return false;
     };
@@ -469,20 +500,10 @@ fn position_popup_below_menu_bar_item(window: &WebviewWindow, anchor: &MenuBarAn
     {
         return false;
     }
-    let Ok(outer) = window.outer_size() else {
-        return false;
-    };
-    if outer.width == 0 || outer.height == 0 {
-        return false;
-    }
-    let win_scale = window.scale_factor().unwrap_or(scale);
-    let win_w = outer.width as f64 / win_scale;
-    let win_h = outer.height as f64 / win_scale;
-    let (x, y) = anchored_menu_bar_position(anchor, screen_w, screen_h, win_w, win_h);
-    let _ = window.set_position(tauri::PhysicalPosition::new(
-        ((x as f64) * scale).round() as i32,
-        ((y as f64) * scale).round() as i32,
-    ));
+    let win_w = PANEL_WIDTH;
+    let (x, y) = anchored_menu_bar_position(anchor, screen_w, screen_h, win_w, window_height);
+    let _ = window.set_position(LogicalPosition::new(f64::from(x), f64::from(y)));
+    store_menu_bar_popup_position(x, y);
     true
 }
 
@@ -498,19 +519,26 @@ pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: Menu
         .state::<DesktopIntegration>()
         .is_floating()
     {
+        clear_menu_bar_popup_position();
         let _ = window.unminimize();
         let _ = restore_manual_panel_height(window);
     } else {
-        if !position_popup_below_menu_bar_item(window, &anchor) {
+        let panel_height = restore_fixed_panel_height(window).unwrap_or_else(|_| {
+            current_logical_height(&window.as_ref().window()).unwrap_or(PANEL_DEFAULT_HEIGHT)
+        });
+        if !position_popup_below_menu_bar_item(window, &anchor, f64::from(panel_height)) {
+            clear_menu_bar_popup_position();
             position_popup(window);
         }
-        let _ = restore_manual_panel_height(window);
     }
     let _ = window.show();
     let _ = window.set_focus();
 }
 
 pub fn show_main_window(window: &WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    clear_menu_bar_popup_position();
+
     finish_native_panel_resize(window);
     crate::webview_memory::set_inactive(window, false);
     if window
@@ -541,6 +569,9 @@ pub fn apply_window_mode(
     mode: WindowMode,
     center_floating: bool,
 ) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    clear_menu_bar_popup_position();
+
     let integration = window.app_handle().state::<DesktopIntegration>();
     let previous_floating = integration.is_floating();
     let floating = !integration.tray_available() || mode == WindowMode::Floating;
@@ -552,7 +583,7 @@ pub fn apply_window_mode(
     finish_native_panel_resize(window);
     if set_window_chrome(window, floating).is_err() {
         let _ = set_window_chrome(window, previous_floating);
-        return Err("OpenQuota window mode could not be changed.".to_owned());
+        return Err("OpenQuota01 window mode could not be changed.".to_owned());
     }
 
     integration.apply_window_mode(mode);
@@ -574,7 +605,7 @@ pub fn apply_window_mode(
         window
             .show()
             .and_then(|_| window.set_focus())
-            .map_err(|_| "OpenQuota window could not be shown.".to_owned())
+            .map_err(|_| "OpenQuota01 window could not be shown.".to_owned())
     };
     if result.is_err() {
         integration.set_floating(previous_floating);
@@ -594,6 +625,9 @@ fn hide_main_native_window(window: &Window) {
 }
 
 pub fn hide_main_window(window: &WebviewWindow) {
+    #[cfg(target_os = "macos")]
+    clear_menu_bar_popup_position();
+
     finish_native_panel_resize(window);
     hide_main_native_window(&window.as_ref().window());
 }
@@ -674,14 +708,14 @@ fn anchored_vertical_frame(
 pub fn panel_resize_edge(window: &WebviewWindow) -> Result<PanelResizeEdge, String> {
     let position = window
         .outer_position()
-        .map_err(|_| "OpenQuota window position is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window position is unavailable.")?;
     let size = window
         .outer_size()
-        .map_err(|_| "OpenQuota window size is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window size is unavailable.")?;
     let monitor = window
         .current_monitor()
-        .map_err(|_| "OpenQuota display is unavailable.")?
-        .ok_or("OpenQuota display is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display is unavailable.")?
+        .ok_or("OpenQuota01 display is unavailable.")?;
     let work_area = monitor.work_area();
     Ok(panel_resize_edge_for_context(
         VerticalFrame {
@@ -702,20 +736,20 @@ pub fn panel_resize_edge(window: &WebviewWindow) -> Result<PanelResizeEdge, Stri
 fn panel_maximum_height(window: &WebviewWindow) -> Result<u32, String> {
     let position = window
         .outer_position()
-        .map_err(|_| "OpenQuota window position is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window position is unavailable.")?;
     let outer_size = window
         .outer_size()
-        .map_err(|_| "OpenQuota window size is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window size is unavailable.")?;
     let inner_size = window
         .inner_size()
-        .map_err(|_| "OpenQuota content size is unavailable.")?;
+        .map_err(|_| "OpenQuota01 content size is unavailable.")?;
     let scale = window
         .scale_factor()
-        .map_err(|_| "OpenQuota display scale is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display scale is unavailable.")?;
     let monitor = window
         .current_monitor()
-        .map_err(|_| "OpenQuota display is unavailable.")?
-        .ok_or("OpenQuota display is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display is unavailable.")?
+        .ok_or("OpenQuota01 display is unavailable.")?;
     let work_area = monitor.work_area();
     let current = VerticalFrame {
         top: position.y,
@@ -752,7 +786,7 @@ fn configure_panel_size_constraints(window: &WebviewWindow) -> Result<u32, Strin
     window
         .set_max_size(Some(LogicalSize::new(PANEL_WIDTH, f64::from(maximum))))
         .and_then(|_| window.set_min_size(Some(LogicalSize::new(PANEL_WIDTH, f64::from(minimum)))))
-        .map_err(|_| "OpenQuota panel size limits could not be applied.".to_owned())?;
+        .map_err(|_| "OpenQuota01 panel size limits could not be applied.".to_owned())?;
     Ok(maximum)
 }
 
@@ -770,6 +804,27 @@ fn restore_manual_panel_height(window: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+fn resolved_fixed_panel_height(saved: Option<u32>, minimum: u32, maximum: u32) -> u32 {
+    saved
+        .unwrap_or(PANEL_DEFAULT_HEIGHT)
+        .clamp(minimum, maximum)
+}
+
+fn restore_fixed_panel_height(window: &WebviewWindow) -> Result<u32, String> {
+    let maximum = panel_maximum_height(window)?;
+    let minimum = PANEL_MIN_HEIGHT.min(maximum);
+    let saved = window
+        .app_handle()
+        .try_state::<Arc<PanelResizeSession>>()
+        .and_then(|session| session.saved_height());
+    let height = resolved_fixed_panel_height(saved, minimum, maximum);
+    configure_panel_size_constraints(window)?;
+    window
+        .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+        .map_err(|_| "OpenQuota01 window could not be resized.".to_owned())?;
+    Ok(height)
+}
+
 fn resize_panel_for_context(window: &WebviewWindow, height: u32) -> Result<(), String> {
     if window
         .app_handle()
@@ -778,7 +833,7 @@ fn resize_panel_for_context(window: &WebviewWindow, height: u32) -> Result<(), S
     {
         return window
             .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
-            .map_err(|_| "OpenQuota window could not be resized.".to_owned());
+            .map_err(|_| "OpenQuota01 window could not be resized.".to_owned());
     }
     resize_popup_anchored(window, height)
 }
@@ -804,10 +859,10 @@ pub fn prepare_native_panel_resize(window: &WebviewWindow) -> Result<PanelResize
     configure_panel_size_constraints(window)?;
     window
         .set_resizable(true)
-        .map_err(|_| "OpenQuota panel resize could not be enabled.".to_owned())?;
+        .map_err(|_| "OpenQuota01 panel resize could not be enabled.".to_owned())?;
     if let Some(session) = window.app_handle().try_state::<Arc<PanelResizeSession>>() {
         let height = current_logical_height(&window.as_ref().window())
-            .ok_or("OpenQuota content size is unavailable.")?;
+            .ok_or("OpenQuota01 content size is unavailable.")?;
         session.begin(height)?;
     }
     Ok(edge)
@@ -815,7 +870,7 @@ pub fn prepare_native_panel_resize(window: &WebviewWindow) -> Result<PanelResize
 
 pub fn set_manual_panel_height(window: &WebviewWindow) -> Result<(), String> {
     let height = current_logical_height(&window.as_ref().window())
-        .ok_or("OpenQuota content size is unavailable.")?;
+        .ok_or("OpenQuota01 content size is unavailable.")?;
     window
         .app_handle()
         .state::<Arc<PanelResizeSession>>()
@@ -835,17 +890,17 @@ pub fn lock_native_panel_resize_axis(window: &WebviewWindow) -> Result<(), Strin
     // platform briefly reported a horizontal resize before the native constraint took effect.
     window
         .set_resizable(false)
-        .map_err(|_| "OpenQuota panel resize could not be settled.".to_owned())?;
+        .map_err(|_| "OpenQuota01 panel resize could not be settled.".to_owned())?;
     let size = window
         .inner_size()
-        .map_err(|_| "OpenQuota content size is unavailable.")?;
+        .map_err(|_| "OpenQuota01 content size is unavailable.")?;
     let scale = window
         .scale_factor()
-        .map_err(|_| "OpenQuota display scale is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display scale is unavailable.")?;
     let height = f64::from(size.height) / scale;
     window
         .set_size(LogicalSize::new(PANEL_WIDTH, height))
-        .map_err(|_| "OpenQuota panel resize could not be settled.".to_owned())
+        .map_err(|_| "OpenQuota01 panel resize could not be settled.".to_owned())
 }
 
 fn current_logical_height(window: &Window) -> Option<u32> {
@@ -866,20 +921,20 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
 
     let outer_position = window
         .outer_position()
-        .map_err(|_| "OpenQuota window position is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window position is unavailable.")?;
     let outer_size = window
         .outer_size()
-        .map_err(|_| "OpenQuota window size is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window size is unavailable.")?;
     let inner_size = window
         .inner_size()
-        .map_err(|_| "OpenQuota content size is unavailable.")?;
+        .map_err(|_| "OpenQuota01 content size is unavailable.")?;
     let scale = window
         .scale_factor()
-        .map_err(|_| "OpenQuota display scale is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display scale is unavailable.")?;
     let monitor = window
         .current_monitor()
-        .map_err(|_| "OpenQuota display is unavailable.")?
-        .ok_or("OpenQuota display is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display is unavailable.")?
+        .ok_or("OpenQuota01 display is unavailable.")?;
     let work_area = monitor.work_area();
     let frame_overhead = outer_size.height.saturating_sub(inner_size.height);
     let target_inner_height = (f64::from(height) * scale)
@@ -901,7 +956,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         SetWindowPos(
             window
                 .hwnd()
-                .map_err(|_| "OpenQuota native window is unavailable.")?
+                .map_err(|_| "OpenQuota01 native window is unavailable.")?
                 .0 as _,
             std::ptr::null_mut(),
             outer_position.x,
@@ -912,27 +967,35 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         )
     };
     if result == 0 {
-        return Err("OpenQuota window could not be resized.".into());
+        return Err("OpenQuota01 window could not be resized.".into());
     }
     Ok(())
 }
 
 #[cfg(not(target_os = "windows"))]
 pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    if let Some((x, y)) = menu_bar_popup_position() {
+        return window
+            .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+            .and_then(|_| window.set_position(LogicalPosition::new(f64::from(x), f64::from(y))))
+            .map_err(|_| "OpenQuota01 window could not be resized.".into());
+    }
+
     let outer_position = window
         .outer_position()
-        .map_err(|_| "OpenQuota window position is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window position is unavailable.")?;
     let outer_size = window
         .outer_size()
-        .map_err(|_| "OpenQuota window size is unavailable.")?;
+        .map_err(|_| "OpenQuota01 window size is unavailable.")?;
     let monitor = window
         .current_monitor()
-        .map_err(|_| "OpenQuota display is unavailable.")?
-        .ok_or("OpenQuota display is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display is unavailable.")?
+        .ok_or("OpenQuota01 display is unavailable.")?;
     let work_area = monitor.work_area();
     let scale = window
         .scale_factor()
-        .map_err(|_| "OpenQuota display scale is unavailable.")?;
+        .map_err(|_| "OpenQuota01 display scale is unavailable.")?;
     let target_outer_height = (f64::from(height) * scale)
         .round()
         .clamp(1.0, f64::from(u32::MAX)) as u32;
@@ -952,7 +1015,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         .and_then(|_| {
             window.set_position(tauri::PhysicalPosition::new(outer_position.x, anchored.top))
         })
-        .map_err(|_| "OpenQuota window could not be resized.".into())
+        .map_err(|_| "OpenQuota01 window could not be resized.".into())
 }
 
 fn schedule_outside_click_dismiss(window: Window) {
@@ -1042,8 +1105,9 @@ mod tests {
     use super::{
         anchored_menu_bar_position, anchored_taskband_position, anchored_vertical_frame,
         panel_resize_edge_for_context, panel_resize_edge_for_frames, panel_surface_color,
-        MenuBarAnchor, PanelHeightMode, PanelResizeEdge, PanelResizeSession, TaskbandAnchor,
-        VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
+        resolved_fixed_panel_height, MenuBarAnchor, PanelHeightMode, PanelResizeEdge,
+        PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
+        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
     };
     use crate::models::ThemePreference;
     use crate::storage::Storage;
@@ -1052,7 +1116,7 @@ mod tests {
     #[test]
     fn a_real_resize_owns_the_height_until_automatic_mode_is_restored() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let session = PanelResizeSession::new(storage.clone());
 
         assert_eq!(session.mode(), PanelHeightMode::Automatic);
@@ -1083,7 +1147,7 @@ mod tests {
     #[test]
     fn failed_settings_reset_only_restores_unchanged_panel_state() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
         let session = PanelResizeSession::new(storage.clone());
         session.set_manual(560).unwrap();
 
@@ -1117,6 +1181,22 @@ mod tests {
         assert_eq!(
             panel_surface_color(ThemePreference::System, Theme::Light),
             LIGHT_PANEL_SURFACE
+        );
+    }
+
+    #[test]
+    fn fixed_popup_height_matches_the_windows_default_and_screen_clamp() {
+        assert_eq!(
+            resolved_fixed_panel_height(None, PANEL_MIN_HEIGHT, 900),
+            PANEL_DEFAULT_HEIGHT
+        );
+        assert_eq!(
+            resolved_fixed_panel_height(None, PANEL_MIN_HEIGHT, 700),
+            700
+        );
+        assert_eq!(
+            resolved_fixed_panel_height(Some(640), PANEL_MIN_HEIGHT, 900),
+            640
         );
     }
 

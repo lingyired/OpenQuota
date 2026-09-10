@@ -39,7 +39,7 @@
   import { createListenerRegistry } from './lib/listenerRegistry';
   import { emptyProviderCatalog, ProviderCatalogIndex } from './lib/metrics';
   import { springMotion } from './lib/motion';
-  import OpenQuotaMark from './lib/OpenQuotaMark.svelte';
+  import OpenQuota01Mark from './lib/OpenQuota01Mark.svelte';
   import { horizontalPageTransition, shouldSlideBetweenScreens } from './lib/pageTransition';
   import { desktopPlatform, shortcutLabels } from './lib/platform';
   import { withProviderName } from './lib/providerNames';
@@ -125,6 +125,7 @@
     screen: () => screen,
     refreshing: () => anyRefreshing,
     reordering: () => reordering,
+    fixedHeight: () => platform === 'macos' && focusedProviderId !== null,
     automatic: () => panelHeightMode === 'automatic',
     reducedMotion: () => reducedMotion,
     onError: (message) => (settingsError = message),
@@ -222,6 +223,9 @@
     const content = document.querySelector<HTMLElement>('.content');
     if (content && typeof content.scrollTo === 'function') content.scrollTo({ top: 0 });
     else if (content) content.scrollTop = 0;
+    // The filtered dashboard has a different natural height; fit immediately instead of relying on
+    // the platform webview to emit a later resize-observer pass.
+    scheduleWindowFit();
   }
   function back() {
     if (screen.startsWith('provider:')) navigate('customize');
@@ -839,15 +843,15 @@
   {#if floatingWindow}
     <header class="floating-chrome" aria-label={$tStore('app.windowControls')}>
       <div class="floating-chrome__drag">
-        <OpenQuotaMark size={14} />
-        <span>OpenQuota</span>
+        <OpenQuota01Mark size={14} />
+        <span>OpenQuota01</span>
       </div>
       <button
         class="floating-chrome__close"
         type="button"
         aria-label={settingsState?.trayAvailable
-          ? $tStore('app.hideOpenQuota')
-          : $tStore('app.closeOpenQuota')}
+          ? $tStore('app.hideOpenQuota01')
+          : $tStore('app.closeOpenQuota01')}
         onclick={closeMainWindow}
       >
         <Icon name="close" size={12} strokeWidth={2.1} />
@@ -991,7 +995,7 @@
           disabled={anyRefreshing}
           aria-label={$tStore('app.refreshAll')}
         >
-          <span>OpenQuota {appVersion}</span><small
+          <span>OpenQuota01 {appVersion}</span><small
             >{anyRefreshing ? $tStore('app.updating') : nextUpdateLabelText}</small
           >
         </button>
@@ -1077,14 +1081,14 @@
                 >
                 <hr />
                 <button class="menu-item" type="button" onclick={openAbout}
-                  ><Icon name="about" /><span>{$tStore('app.aboutOpenQuota')}</span></button
+                  ><Icon name="about" /><span>{$tStore('app.aboutOpenQuota01')}</span></button
                 >
                 <button
                   class="menu-item menu-item--danger"
                   type="button"
-                  aria-label={$tStore('app.quitOpenQuota')}
+                  aria-label={$tStore('app.quitOpenQuota01')}
                   onclick={quitApp}
-                  ><Icon name="power" /><span>{$tStore('app.quitOpenQuota')}</span><kbd
+                  ><Icon name="power" /><span>{$tStore('app.quitOpenQuota01')}</span><kbd
                     >{shortcuts.quit}</kbd
                   ></button
                 >
@@ -1143,7 +1147,7 @@
           role="dialog"
           tabindex="-1"
           aria-modal="true"
-          aria-label={$tStore('app.aboutOpenQuota')}
+          aria-label={$tStore('app.aboutOpenQuota01')}
         >
           <button
             bind:this={aboutCloseButton}
@@ -1153,8 +1157,8 @@
             onclick={() => void closeAbout()}
             ><Icon name="close" size={11} strokeWidth={2.3} /></button
           >
-          <OpenQuotaMark size={44} />
-          <h1>OpenQuota</h1>
+          <OpenQuota01Mark size={44} />
+          <h1>OpenQuota01</h1>
           <p>{$tStore('app.aboutVersion', { version: appVersion })}</p>
           <small>{$tStore('app.aboutTagline')}</small>
         </div>

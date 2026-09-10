@@ -28,7 +28,7 @@ impl OpenCodeClient {
             client: Client::builder()
                 .connect_timeout(Duration::from_secs(8))
                 .timeout(timeout)
-                .user_agent(concat!("OpenQuota/", env!("CARGO_PKG_VERSION")))
+                .user_agent(concat!("OpenQuota01/", env!("CARGO_PKG_VERSION")))
                 .build()
                 .map_err(|_| OpenCodeError::ConnectionFailed)?,
             usage_url: usage_url.into(),

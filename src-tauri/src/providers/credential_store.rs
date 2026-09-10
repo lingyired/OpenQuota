@@ -1,5 +1,9 @@
 #[cfg(target_os = "macos")]
 const MACOS_ITEM_NOT_FOUND: i32 = -25_300;
+#[cfg(target_os = "macos")]
+const MACOS_AUTH_FAILED: i32 = -25_293;
+#[cfg(target_os = "macos")]
+const MACOS_INTERACTION_NOT_ALLOWED: i32 = -25_308;
 
 #[cfg(target_os = "macos")]
 pub fn generic_password_service_exists(
@@ -17,6 +21,36 @@ pub fn generic_password_service_exists(
     {
         Ok(_) => Some(true),
         Err(error) if error.code() == MACOS_ITEM_NOT_FOUND => Some(false),
+        Err(_) => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
+pub fn generic_password_exists(
+    service: &str,
+    account: &str,
+    _timeout: std::time::Duration,
+) -> Option<bool> {
+    use security_framework::item::{ItemClass, ItemSearchOptions};
+
+    match ItemSearchOptions::new()
+        .class(ItemClass::generic_password())
+        .service(service)
+        .account(account)
+        .load_attributes(true)
+        .skip_authenticated_items(true)
+        .search()
+    {
+        Ok(items) => Some(!items.is_empty()),
+        Err(error) if error.code() == MACOS_ITEM_NOT_FOUND => Some(false),
+        Err(error)
+            if matches!(
+                error.code(),
+                MACOS_AUTH_FAILED | MACOS_INTERACTION_NOT_ALLOWED
+            ) =>
+        {
+            Some(true)
+        }
         Err(_) => None,
     }
 }
@@ -121,13 +155,42 @@ pub fn generic_password_service_exists(
 }
 
 #[cfg(target_os = "windows")]
+pub fn generic_password_exists(
+    service: &str,
+    account: &str,
+    _timeout: std::time::Duration,
+) -> Option<bool> {
+    use std::ptr;
+    use windows_sys::Win32::Security::Credentials::{
+        CredFree, CredReadW, CREDENTIALW, CRED_TYPE_GENERIC,
+    };
+
+    let target = format!("{service}:{account}")
+        .encode_utf16()
+        .chain(Some(0))
+        .collect::<Vec<_>>();
+    let mut credential: *mut CREDENTIALW = ptr::null_mut();
+    let found = unsafe { CredReadW(target.as_ptr(), CRED_TYPE_GENERIC, 0, &mut credential) };
+    if found == 0 {
+        return match std::io::Error::last_os_error().raw_os_error() {
+            Some(1168) => Some(false),
+            _ => None,
+        };
+    }
+    if !credential.is_null() {
+        unsafe { CredFree(credential.cast()) };
+    }
+    Some(true)
+}
+
+#[cfg(target_os = "windows")]
 pub fn read_owned_password(service: &str, account: &str) -> Result<Option<Vec<u8>>, String> {
     read_generic_password(service, account)
 }
 
 #[cfg(target_os = "windows")]
 pub fn write_generic_password(_service: &str, _account: &str, _value: &[u8]) -> Result<(), String> {
-    Err("OpenQuota does not overwrite credentials owned by another Windows application.".into())
+    Err("OpenQuota01 does not overwrite credentials owned by another Windows application.".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -142,7 +205,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
         .chain(Some(0))
         .collect::<Vec<_>>();
     let username = account.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
-    let comment = format!("OpenQuota {account} API key")
+    let comment = format!("OpenQuota01 {account} API key")
         .encode_utf16()
         .chain(Some(0))
         .collect::<Vec<_>>();
@@ -259,6 +322,39 @@ pub fn generic_password_service_exists(
 }
 
 #[cfg(target_os = "linux")]
+pub fn generic_password_exists(
+    service: &str,
+    account: &str,
+    timeout: std::time::Duration,
+) -> Option<bool> {
+    use std::collections::HashMap;
+    use std::sync::mpsc;
+
+    use secret_service::{blocking::SecretService, EncryptionType};
+
+    if timeout.is_zero() {
+        return None;
+    }
+    let service = service.to_owned();
+    let account = account.to_owned();
+    let (sender, receiver) = mpsc::sync_channel(1);
+    std::thread::spawn(move || {
+        let result = (|| {
+            let secret_service = SecretService::connect(EncryptionType::Dh).ok()?;
+            let matches = secret_service
+                .search_items(HashMap::from([
+                    ("service", service.as_str()),
+                    ("username", account.as_str()),
+                ]))
+                .ok()?;
+            Some(!matches.unlocked.is_empty() || !matches.locked.is_empty())
+        })();
+        let _ = sender.send(result);
+    });
+    receiver.recv_timeout(timeout).ok().flatten()
+}
+
+#[cfg(target_os = "linux")]
 pub fn read_owned_password(service: &str, account: &str) -> Result<Option<Vec<u8>>, String> {
     read_generic_password(service, account)
 }
@@ -295,7 +391,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
         .map_err(|_| linux_secret_service_unavailable())?;
     let collection = secret_service
         .get_default_collection()
-        .or_else(|_| secret_service.create_collection("OpenQuota", "default"))
+        .or_else(|_| secret_service.create_collection("OpenQuota01", "default"))
         .map_err(|_| {
             "The Linux Secret Service has no usable default collection. Start or unlock your keyring and try again."
         })?;
@@ -304,7 +400,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
     })?;
     collection
         .create_item(
-            &format!("OpenQuota {account} API Key"),
+            &format!("OpenQuota01 {account} API Key"),
             HashMap::from([("service", service), ("username", account)]),
             value,
             true,
@@ -352,6 +448,15 @@ fn linux_secret_service_unavailable() -> String {
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub fn generic_password_service_exists(
     _service: &str,
+    _timeout: std::time::Duration,
+) -> Option<bool> {
+    Some(false)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+pub fn generic_password_exists(
+    _service: &str,
+    _account: &str,
     _timeout: std::time::Duration,
 ) -> Option<bool> {
     Some(false)
@@ -420,13 +525,18 @@ mod tests {
         }
 
         let service = format!(
-            "io.github.deviffyy.openquota.credential-test.{}",
+            "com.lingyi.openquota01.credential-test.{}",
             std::process::id()
         );
         let account = "round-trip";
         let result = (|| -> Result<(), String> {
             super::delete_owned_password(&service, account)?;
             super::write_owned_password(&service, account, b"first-value")?;
+            if super::generic_password_exists(&service, account, std::time::Duration::from_secs(2))
+                != Some(true)
+            {
+                return Err("The created credential was not found by the presence probe.".into());
+            }
             if super::read_owned_password(&service, account)?.as_deref()
                 != Some(b"first-value".as_slice())
             {
@@ -444,6 +554,10 @@ mod tests {
 
         result.unwrap();
         cleanup.unwrap();
+        assert_eq!(
+            super::generic_password_exists(&service, account, std::time::Duration::from_secs(2)),
+            Some(false)
+        );
         assert!(super::read_owned_password(&service, account)
             .unwrap()
             .is_none());

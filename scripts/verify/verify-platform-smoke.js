@@ -13,7 +13,7 @@ const linuxPackages = read('.github/actions/platform-smoke/scripts/linux-package
 const linuxdeploySetup = read('.github/scripts/setup-linuxdeploy.sh');
 const windowsSigningSetup = read('.github/scripts/setup-windows-signing.ps1');
 const windowsSigner = read('.github/scripts/sign-windows.ps1');
-const windowsSignShim = read('.github/scripts/openquota-sign-windows.cmd');
+const windowsSignShim = read('.github/scripts/openquota01-sign-windows.cmd');
 const windowsSigningConfig = JSON.parse(read('src-tauri/tauri.windows-signing.conf.json'));
 const releaseTagVerification = read('.github/scripts/verify-release-tag.sh');
 const readme = read('README.md');
@@ -265,7 +265,7 @@ requireContracts('release tag verification', releaseTagVerification, [
 requireContracts('Windows package smoke', windows, [
   '*-setup.exe',
   'RUNNER_TEMP is required for the Windows installer smoke test',
-  'Refusing to disturb an existing OpenQuota installation',
+  'Refusing to disturb an existing OpenQuota01 installation',
   '@(\'/S\', "/D=$installRoot")',
   'OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT',
   'Get-AuthenticodeSignature',
@@ -273,7 +273,7 @@ requireContracts('Windows package smoke', windows, [
   'verify /pa /all /tw',
   'SignerCertificate.Thumbprint',
   'system tray integration ready',
-  'OpenQuota startup completed',
+  'OpenQuota01 startup completed',
   'for ($attempt = 0; $attempt -lt 60; $attempt++)',
   'Expected Windows GUI subsystem (2)',
   "-ArgumentList '/S'",
@@ -299,7 +299,7 @@ requireContracts('macOS package smoke', macos, [
   'xcrun stapler validate "${candidate}"',
   'syspolicy_check distribution',
   'system tray integration ready',
-  'OpenQuota startup completed',
+  'OpenQuota01 startup completed',
 ]);
 
 for (const bundle of ['source_app', 'app']) {
@@ -338,10 +338,10 @@ requireContracts('Linux X11 package smoke', linuxX11, [
   'org.freedesktop.DBus.NameHasOwner',
   'desktop integration detected (tray=true)',
   'system tray integration ready',
-  'OpenQuota startup completed',
+  'OpenQuota01 startup completed',
   'kill "${watcher_pid}"',
   'system tray became unavailable; using standalone window',
-  'xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^OpenQuota$"',
+  'xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^OpenQuota01$"',
   'xdotool windowclose',
   'close_attempted=false',
   'close_requested=false',
@@ -353,7 +353,7 @@ requireContracts('Linux X11 package smoke', linuxX11, [
 requireContracts('Linux Wayland package smoke', linuxWayland, [
   'weston --backend=headless-backend.so',
   'desktop integration detected (tray=false)',
-  'OpenQuota startup completed',
+  'OpenQuota01 startup completed',
   'system tray integration ready',
 ]);
 
@@ -383,14 +383,14 @@ requireContracts('Windows signer', windowsSigner, [
 requireContracts('Windows signing shim', windowsSignShim, [
   'sign-windows.ps1',
   '-FilePath "%~1"',
-  'exit /b %openquota_exit_code%',
+  'exit /b %openquota01_exit_code%',
 ]);
 
 const signCommand = windowsSigningConfig.bundle?.windows?.signCommand;
 if (
   signCommand?.cmd !== 'cmd.exe' ||
   JSON.stringify(signCommand.args) !==
-    JSON.stringify(['/d', '/s', '/c', 'openquota-sign-windows.cmd', '%1'])
+    JSON.stringify(['/d', '/s', '/c', 'openquota01-sign-windows.cmd', '%1'])
 ) {
   throw new Error('Windows Tauri signing command does not use the reviewed signing shim.');
 }
@@ -404,7 +404,7 @@ for (const obsoleteContract of ['smoke-binary:', 'binary-path:', 'bundle-directo
 }
 
 for (const removedReleaseNoteContract of [
-  'openquota-native-trust:start',
+  'openquota01-native-trust:start',
   '## Native package trust',
   'Verify native trust release notes',
 ]) {

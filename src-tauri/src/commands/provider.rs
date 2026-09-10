@@ -137,7 +137,7 @@ fn reconcile_provider_credential_state(
 
 fn incomplete_mutation_warning(action: &str) -> String {
     format!(
-        "The API key was {action}, but OpenQuota could not finish updating provider status. Restart OpenQuota or try again."
+        "The API key was {action}, but OpenQuota01 could not finish updating provider status. Restart OpenQuota01 or try again."
     )
 }
 

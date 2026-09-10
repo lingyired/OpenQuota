@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "OpenQuota",
+  "productName": "OpenQuota01",
   "version": "0.7.5",
-  "identifier": "io.github.deviffyy.openquota",
+  "identifier": "com.lingyi.openquota01",
   "build": {
     "beforeDevCommand": "corepack pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "OpenQuota",
+        "title": "OpenQuota01",
         "width": 320,
         "height": 800,
         "minWidth": 320,

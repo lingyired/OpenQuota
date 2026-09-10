@@ -98,7 +98,7 @@ describe('native UI language contract', () => {
 
   it('keeps dashboard onboarding, empty state, and menus on the shared wording', () => {
     const dashboardLabels: Record<string, string> = {
-      'dashboard.welcome': 'Welcome to OpenQuota',
+      'dashboard.welcome': 'Welcome to OpenQuota01',
       'dashboard.openCustomize': 'Open Customize',
       'dashboard.empty': 'Turn on Customize to choose what to show.',
       'dashboard.customize': 'Customize…',

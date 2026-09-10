@@ -5,7 +5,7 @@ use crate::{
 
 use super::ZaiError;
 
-const CONFIG_PATHS: &[&str] = &["~/.config/openquota/zai.json", "~/.config/zai/key.json"];
+const CONFIG_PATHS: &[&str] = &["~/.config/openquota01/zai.json", "~/.config/zai/key.json"];
 const ENVIRONMENT_NAMES: &[&str] = &["ZAI_API_KEY", "GLM_API_KEY"];
 
 #[derive(Clone)]
@@ -30,7 +30,7 @@ impl ZaiAuthStore {
     }
 
     pub fn has_local_credentials(&self) -> bool {
-        self.load().is_ok_and(|secret| secret.is_some())
+        self.store.has_credentials()
     }
 
     pub fn status(&self) -> Result<ApiKeyStatus, ZaiError> {

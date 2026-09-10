@@ -9,6 +9,7 @@ interface WindowControllerOptions {
   screen: () => AppScreen;
   refreshing: () => boolean;
   reordering: () => boolean;
+  fixedHeight?: () => boolean;
   automatic: () => boolean;
   reducedMotion: () => boolean;
   onError: (message: string) => void;
@@ -31,7 +32,11 @@ export function createWindowController(options: WindowControllerOptions) {
   let dashboardBodyHeight: number | null = null;
 
   function shouldDefer() {
-    return options.reordering() || shouldDeferPanelFit(options.screen(), options.refreshing());
+    return (
+      options.reordering() ||
+      (options.fixedHeight?.() ?? false) ||
+      shouldDeferPanelFit(options.screen(), options.refreshing())
+    );
   }
 
   function cancelPendingResize() {
@@ -157,7 +162,7 @@ export function createWindowController(options: WindowControllerOptions) {
     } catch {
       pendingResizeHeight = null;
       resizeAvailable = false;
-      options.onError('OpenQuota window could not adapt to its content.');
+      options.onError('OpenQuota01 window could not adapt to its content.');
     } finally {
       resizeInFlight = false;
     }

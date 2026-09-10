@@ -62,11 +62,11 @@ test "${#dmgs[@]}" -eq 1 || {
 dmg="${dmgs[0]}"
 
 runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required for the macOS package smoke test}"
-mount_dir="$(mktemp -d "${runner_temp}/openquota-macos-dmg.XXXXXX")"
-install_root="$(mktemp -d "${runner_temp}/openquota-macos-install.XXXXXX")"
+mount_dir="$(mktemp -d "${runner_temp}/openquota01-macos-dmg.XXXXXX")"
+install_root="$(mktemp -d "${runner_temp}/openquota01-macos-install.XXXXXX")"
 app="${install_root}/Applications/OpenQuota.app"
-binary="${app}/Contents/MacOS/openquota"
-launch_log="${runner_temp}/openquota-macos-${RANDOM}.log"
+binary="${app}/Contents/MacOS/openquota01"
+launch_log="${runner_temp}/openquota01-macos-${RANDOM}.log"
 app_log="${HOME}/Library/Logs/OpenQuota/OpenQuota.log"
 app_pid=''
 mounted=false
@@ -83,17 +83,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if pgrep -x openquota >/dev/null 2>&1; then
-  echo 'Refusing to disturb an existing OpenQuota process on the macOS runner.' >&2
+if pgrep -x openquota01 >/dev/null 2>&1; then
+  echo 'Refusing to disturb an existing OpenQuota01 process on the macOS runner.' >&2
   exit 1
 fi
 if test -e "${app_log}"; then
-  echo "Refusing to use an existing OpenQuota log for the macOS smoke test: ${app_log}" >&2
+  echo "Refusing to use an existing OpenQuota01 log for the macOS smoke test: ${app_log}" >&2
   exit 1
 fi
 
 if test "${release_validation}" = true; then
-  quarantine_value="0081;$(printf '%x' "$(date +%s)");OpenQuotaSmoke;"
+  quarantine_value="0081;$(printf '%x' "$(date +%s)");OpenQuota01Smoke;"
   xattr -w com.apple.quarantine "${quarantine_value}" "${dmg}"
   codesign --verify --strict --verbose=2 "${dmg}"
   dmg_details="$(codesign -dv --verbose=4 "${dmg}" 2>&1)"
@@ -117,7 +117,7 @@ fi
 hdiutil attach "${dmg}" -mountpoint "${mount_dir}" -nobrowse -readonly >/dev/null
 mounted=true
 source_app="${mount_dir}/OpenQuota.app"
-source_binary="${source_app}/Contents/MacOS/openquota"
+source_binary="${source_app}/Contents/MacOS/openquota01"
 test -x "${source_binary}"
 verify_app_signature "${source_app}"
 if test "${release_validation}" = true; then
@@ -149,7 +149,7 @@ for _ in $(seq 1 30); do
   app_pid="$(pgrep -f "${binary}" | head -n 1 || true)"
   if test -f "${app_log}"; then
     grep -Fq 'system tray integration ready' "${app_log}" && tray_ready=true
-    grep -Fq 'OpenQuota startup completed' "${app_log}" && startup_complete=true
+    grep -Fq 'OpenQuota01 startup completed' "${app_log}" && startup_complete=true
   fi
   if test -n "${app_pid}" && test "${tray_ready}" = true && test "${startup_complete}" = true; then
     break
@@ -159,6 +159,6 @@ done
 if test -z "${app_pid}" || test "${tray_ready}" != true || test "${startup_complete}" != true; then
   cat "${launch_log}" >&2 || true
   cat "${app_log}" >&2 || true
-  echo 'OpenQuota did not report a ready macOS tray before the startup deadline.' >&2
+  echo 'OpenQuota01 did not report a ready macOS tray before the startup deadline.' >&2
   exit 1
 fi
