@@ -90,9 +90,8 @@ describe('ProviderRail', () => {
 
   it('renders provider icons at the larger rail size', () => {
     show();
-    expect(screen.getByRole('tab', { name: /Claude/ }).querySelector('svg')).toHaveAttribute(
-      'width',
-      '22',
-    );
+    expect(
+      screen.getByRole('tab', { name: /Claude/ }).querySelector('.provider-icon'),
+    ).toHaveAttribute('width', '22');
   });
 });
