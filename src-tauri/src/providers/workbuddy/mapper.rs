@@ -1,4 +1,5 @@
-use std::collections::HashMap;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde_json::Value;
@@ -74,7 +75,7 @@ const CODE_KEYS: &[&str] = &["PackageCode", "packageCode"];
 /// Extracts a package list from the response shapes observed in the WorkBuddy web client.
 /// An empty array is intentionally returned as a valid result instead of being treated as a
 /// missing response.
-pub fn extract_resources<'a>(body: &'a Value, list_name: &str) -> Option<&'a Vec<Value>> {
+pub fn extract_resources(body: &Value, list_name: &str) -> Option<Vec<Value>> {
     let names: &[&str] = match list_name {
         "Accounts" => &["Accounts", "accounts"],
         "Packages" => &["Packages", "packages"],
@@ -88,7 +89,19 @@ pub fn extract_resources<'a>(body: &'a Value, list_name: &str) -> Option<&'a Vec
     ];
     paths.iter().find_map(|path| {
         let object = path.iter().try_fold(body, |value, key| value.get(*key))?;
-        names.iter().find_map(|name| object.get(*name)?.as_array())
+        names.iter().find_map(|name| {
+            let value = object.get(*name)?;
+            match value {
+                Value::Array(items) => Some(items.clone()),
+                Value::Object(package) if looks_like_package(package) => {
+                    Some(vec![Value::Object(package.clone())])
+                }
+                Value::Object(wrapper) => ["items", "array", "list", "data"]
+                    .iter()
+                    .find_map(|key| wrapper.get(*key)?.as_array().cloned()),
+                _ => None,
+            }
+        })
     })
 }
 
@@ -108,34 +121,28 @@ pub fn map_resources(
 
     let mut details = Vec::new();
     if let Some(items) = paid_packages {
-        details.extend(parse_packages(items));
+        details.extend(parse_packages(&items));
     }
     if let Some(items) = free_packages {
-        details.extend(parse_packages(items));
+        details.extend(parse_packages(&items));
     }
 
     let detail_codes = details
         .iter()
         .map(|package| package.package_code.clone())
-        .collect::<std::collections::HashSet<_>>();
+        .collect::<HashSet<_>>();
     let mut packages = details;
     if let Some(items) = summary_packages {
         packages.extend(
-            parse_packages(items)
+            parse_packages(&items)
                 .into_iter()
                 .filter(|package| !detail_codes.contains(&package.package_code)),
         );
     }
 
-    // Keep the first detail record for a package code. Paid/free details are preferred over the
-    // summary because they usually carry the most accurate expiration timestamp.
-    let mut by_code = HashMap::new();
-    for package in packages {
-        by_code
-            .entry(package.package_code.clone())
-            .or_insert(package);
-    }
-    let mut packages = by_code.into_values().collect::<Vec<_>>();
+    // WorkBuddy may return historical rows and several current rows for the same package code.
+    // Do not keep the first row: that is often an expired zero-balance record.
+    let mut packages = merge_packages(packages, now);
     packages.sort_by(|left, right| {
         left.expire_at
             .cmp(&right.expire_at)
@@ -183,6 +190,82 @@ pub fn map_resources(
         expired_remaining: non_negative(expired_remaining),
         soonest_expire_at,
     })
+}
+
+fn looks_like_package(object: &serde_json::Map<String, Value>) -> bool {
+    CODE_KEYS.iter().any(|key| object.contains_key(*key))
+        || NAME_KEYS.iter().any(|key| object.contains_key(*key))
+        || TOTAL_KEYS.iter().any(|key| object.contains_key(*key))
+        || REMAINING_KEYS.iter().any(|key| object.contains_key(*key))
+        || USED_KEYS.iter().any(|key| object.contains_key(*key))
+}
+
+fn merge_packages(packages: Vec<ResourcePackage>, now: DateTime<Local>) -> Vec<ResourcePackage> {
+    let mut groups: HashMap<String, Vec<ResourcePackage>> = HashMap::new();
+    for package in packages {
+        groups
+            .entry(package.package_code.clone())
+            .or_default()
+            .push(package);
+    }
+
+    groups
+        .into_values()
+        .map(|group| merge_package_group(&group, now))
+        .collect()
+}
+
+fn merge_package_group(group: &[ResourcePackage], now: DateTime<Local>) -> ResourcePackage {
+    let mut current = group
+        .iter()
+        .filter(|package| !is_expired(package, now) && package.status != Some(3))
+        .collect::<Vec<_>>();
+
+    if current.is_empty() {
+        current = vec![group
+            .iter()
+            .max_by(|left, right| compare_expiration(left, right))
+            .expect("package group cannot be empty")];
+    }
+
+    let first = current[0];
+    let package_name = current
+        .iter()
+        .find_map(|package| {
+            (!package.package_name.is_empty()).then(|| package.package_name.clone())
+        })
+        .unwrap_or_else(|| first.package_name.clone());
+    let status = current
+        .iter()
+        .find_map(|package| (package.status == Some(0)).then_some(0))
+        .or(first.status);
+    let expire_at = if current.iter().all(|package| package.expire_at.is_some()) {
+        current.iter().filter_map(|package| package.expire_at).min()
+    } else {
+        None
+    };
+
+    ResourcePackage {
+        package_code: first.package_code.clone(),
+        package_name,
+        total: current.iter().map(|package| package.total).sum(),
+        remaining: current.iter().map(|package| package.remaining).sum(),
+        used: current.iter().map(|package| package.used).sum(),
+        status,
+        expire_at,
+    }
+}
+
+fn is_expired(package: &ResourcePackage, now: DateTime<Local>) -> bool {
+    package
+        .expire_at
+        .is_some_and(|expire_at| expire_at <= now.with_timezone(&Utc))
+}
+
+fn compare_expiration(left: &ResourcePackage, right: &ResourcePackage) -> Ordering {
+    left.expire_at
+        .cmp(&right.expire_at)
+        .then_with(|| left.remaining.total_cmp(&right.remaining))
 }
 
 fn parse_packages(items: &[Value]) -> Vec<ResourcePackage> {
@@ -337,6 +420,23 @@ mod tests {
     }
 
     #[test]
+    fn extracts_a_single_package_object_as_a_resource() {
+        let body = json!({
+            "data": {
+                "Packages": {
+                    "PackageCode": "summary",
+                    "CapacitySize": 100,
+                    "CapacityRemain": 40
+                }
+            }
+        });
+
+        let resources = extract_resources(&body, "Packages").unwrap();
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0]["PackageCode"], "summary");
+    }
+
+    #[test]
     fn maps_numbers_dates_and_detail_fallbacks() {
         let now = Local.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
         let body = json!({"data":{"Packages":[{
@@ -358,6 +458,41 @@ mod tests {
             Some(Utc.with_ymd_and_hms(2026, 9, 18, 15, 59, 59).unwrap())
         );
         assert_eq!(mapped.expiring_soon_remaining, 75.25);
+    }
+
+    #[test]
+    fn aggregates_active_duplicate_details_instead_of_using_a_stale_first_record() {
+        let now = Local.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let free = json!({"data":{"Accounts":[
+            {
+                "PackageCode":"same",
+                "CapacitySize":508,
+                "CapacityRemain":0,
+                "Status":3,
+                "ExpiredTime":"2026-01-01"
+            },
+            {
+                "PackageCode":"same",
+                "CapacitySize":3000,
+                "CapacityRemain":733.0400047,
+                "Status":0,
+                "ExpiredTime":""
+            },
+            {
+                "PackageCode":"same",
+                "CapacitySize":100,
+                "CapacityRemain":100,
+                "Status":0,
+                "ExpiredTime":""
+            }
+        ]}});
+
+        let mapped = map_resources(None, None, Some(&free), now).unwrap();
+
+        assert_eq!(mapped.packages.len(), 1);
+        assert!((mapped.total - 3100.0).abs() < 0.0001);
+        assert!((mapped.remaining - 833.0400047).abs() < 0.0001);
+        assert!((mapped.used - 2266.9599953).abs() < 0.0001);
     }
 
     #[test]
