@@ -756,27 +756,42 @@ impl Default for TaskbandPreferences {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum LanguagePreference {
     #[default]
+    #[serde(rename = "system", alias = "System")]
     System,
+    #[serde(alias = "En")]
     En,
-    #[serde(rename = "zh-CN")]
+    #[serde(rename = "zh-CN", alias = "ZhCn")]
     ZhCn,
-    #[serde(rename = "zh-TW")]
+    #[serde(rename = "zh-TW", alias = "ZhTw")]
     ZhTw,
+    #[serde(alias = "Es")]
     Es,
-    #[serde(rename = "pt-BR")]
+    #[serde(rename = "pt-BR", alias = "PtBr")]
     PtBr,
+    #[serde(alias = "Ja")]
     Ja,
+    #[serde(alias = "Ko")]
     Ko,
+    #[serde(alias = "De")]
     De,
+    #[serde(alias = "Fr")]
     Fr,
+    #[serde(alias = "Ru")]
     Ru,
+    #[serde(alias = "Hi")]
     Hi,
+    #[serde(alias = "Ar")]
     Ar,
+    #[serde(alias = "It")]
     It,
+    #[serde(alias = "Pl")]
     Pl,
+    #[serde(alias = "Tr")]
     Tr,
+    #[serde(alias = "Vi")]
     Vi,
 }
 
@@ -839,7 +854,7 @@ impl Default for AppSettings {
             usage_display: UsageDisplay::Left,
             reset_display: ResetDisplay::Countdown,
             time_format: TimeFormatPreference::System,
-            always_show_pacing: false,
+            always_show_pacing: true,
             launch_at_login: false,
             auto_check_updates: true,
             dismissed_update_version: None,
@@ -881,10 +896,50 @@ pub struct SettingsViewState {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApiKeyMutationOutcome, ApiKeyStatus, AppSettings, LogLevel, ProviderApiKeyState,
-        ProviderErrorKind, ProviderLink, ProviderSnapshot, ProviderViewState, UsagePeriod,
-        WindowMode,
+        ApiKeyMutationOutcome, ApiKeyStatus, AppSettings, LanguagePreference, LogLevel,
+        ProviderApiKeyState, ProviderErrorKind, ProviderLink, ProviderSnapshot, ProviderViewState,
+        UsagePeriod, WindowMode,
     };
+
+    #[test]
+    fn language_preference_uses_frontend_contract_and_reads_legacy_rust_names() {
+        let cases = [
+            (LanguagePreference::System, "system", "System"),
+            (LanguagePreference::En, "en", "En"),
+            (LanguagePreference::ZhCn, "zh-CN", "ZhCn"),
+            (LanguagePreference::ZhTw, "zh-TW", "ZhTw"),
+            (LanguagePreference::Es, "es", "Es"),
+            (LanguagePreference::PtBr, "pt-BR", "PtBr"),
+            (LanguagePreference::Ja, "ja", "Ja"),
+            (LanguagePreference::Ko, "ko", "Ko"),
+            (LanguagePreference::De, "de", "De"),
+            (LanguagePreference::Fr, "fr", "Fr"),
+            (LanguagePreference::Ru, "ru", "Ru"),
+            (LanguagePreference::Hi, "hi", "Hi"),
+            (LanguagePreference::Ar, "ar", "Ar"),
+            (LanguagePreference::It, "it", "It"),
+            (LanguagePreference::Pl, "pl", "Pl"),
+            (LanguagePreference::Tr, "tr", "Tr"),
+            (LanguagePreference::Vi, "vi", "Vi"),
+        ];
+
+        for (preference, frontend_value, legacy_value) in cases {
+            assert_eq!(
+                serde_json::to_value(preference).unwrap(),
+                serde_json::json!(frontend_value)
+            );
+            assert_eq!(
+                serde_json::from_value::<LanguagePreference>(serde_json::json!(frontend_value))
+                    .unwrap(),
+                preference
+            );
+            assert_eq!(
+                serde_json::from_value::<LanguagePreference>(serde_json::json!(legacy_value))
+                    .unwrap(),
+                preference
+            );
+        }
+    }
 
     #[test]
     fn older_settings_default_new_update_state_fields() {
@@ -904,6 +959,11 @@ mod tests {
         assert_eq!(settings.log_level, LogLevel::Info);
         assert_eq!(settings.window_mode, WindowMode::Popup);
         assert!(!settings.reduce_animations);
+    }
+
+    #[test]
+    fn always_show_pacing_defaults_to_enabled() {
+        assert!(AppSettings::default().always_show_pacing);
     }
 
     #[test]

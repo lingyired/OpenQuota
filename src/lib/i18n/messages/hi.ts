@@ -70,6 +70,8 @@ export const hi = {
     },
   },
   dashboard: {
+    all: 'सभी',
+    providerTabs: 'प्रदाता नेविगेशन',
     updateAvailable: 'Update Available',
     updateReady: 'OpenQuota01 {version} is ready to download.',
     whatsNew: 'What’s new',
@@ -103,6 +105,7 @@ export const hi = {
     providerUsage: '{provider} usage',
     metricOptions: '{label} options',
     configureProvider: 'Configure {provider}',
+    providerSettings: '{provider} की सेटिंग्स',
     retryingProvider: 'Retrying {provider}',
     retryProvider: 'Retry {provider}',
     hideProvider: 'Hide {provider}',

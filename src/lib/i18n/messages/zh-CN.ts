@@ -66,6 +66,8 @@ export const zhCn = {
     },
   },
   dashboard: {
+    all: '全部',
+    providerTabs: '提供方导航',
     updateAvailable: '有可用更新',
     updateReady: 'OpenQuota01 {version} 可以下载了。',
     whatsNew: '更新内容',
@@ -98,6 +100,7 @@ export const zhCn = {
     providerUsage: '{provider} 用量',
     metricOptions: '{label} 选项',
     configureProvider: '配置 {provider}',
+    providerSettings: '{provider} 设置',
     retryingProvider: '正在重试 {provider}',
     retryProvider: '重试 {provider}',
     hideProvider: '隐藏 {provider}',

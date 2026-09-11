@@ -70,6 +70,8 @@ export const tr = {
     },
   },
   dashboard: {
+    all: 'Tümü',
+    providerTabs: 'Sağlayıcı gezintisi',
     updateAvailable: 'Update Available',
     updateReady: 'OpenQuota01 {version} is ready to download.',
     whatsNew: 'What’s new',
@@ -103,6 +105,7 @@ export const tr = {
     providerUsage: '{provider} usage',
     metricOptions: '{label} options',
     configureProvider: 'Configure {provider}',
+    providerSettings: '{provider} ayarları',
     retryingProvider: 'Retrying {provider}',
     retryProvider: 'Retry {provider}',
     hideProvider: 'Hide {provider}',

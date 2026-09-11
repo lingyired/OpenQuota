@@ -531,6 +531,22 @@
           {/if}
         </span>
         <span class="provider-mark"><ProviderIcon providerId={provider.id} size={17} /></span>
+        <button
+          class="provider-settings-button"
+          type="button"
+          aria-label={$tStore('dashboard.providerSettings', {
+            provider: providerDisplayName(provider.id),
+          })}
+          data-tooltip={$tStore('dashboard.providerSettings', {
+            provider: providerDisplayName(provider.id),
+          })}
+          onpointerdown={(event) => event.stopPropagation()}
+          oncontextmenu={(event) => event.stopPropagation()}
+          onclick={(event) => {
+            event.stopPropagation();
+            onOpenProviderCustomize(provider.id);
+          }}><Icon name="gear" size={14} strokeWidth={1.8} /></button
+        >
       </header>
       <section
         class="provider-card"
@@ -619,22 +635,24 @@
           </div>
         {/each}
         {#if demandMetrics.length > 0 || links.length > 0}
-          <button
-            class="demand-divider"
-            data-reorder-group={`dashboard-metrics:${provider.id}`}
-            data-reorder-id="section:onDemand"
-            type="button"
-            aria-expanded={provider.expanded}
-            aria-label={$tStore(provider.expanded ? 'dashboard.showLess' : 'dashboard.showMore')}
-            onclick={() => toggleDemandMetrics(provider)}
-          >
-            <Icon
-              name={provider.expanded ? 'chevron-up' : 'chevron-down'}
-              size={10}
-              strokeWidth={2.2}
-            />
-          </button>
-          {#if provider.expanded}
+          {#if provider.id !== focusedProviderId}
+            <button
+              class="demand-divider"
+              data-reorder-group={`dashboard-metrics:${provider.id}`}
+              data-reorder-id="section:onDemand"
+              type="button"
+              aria-expanded={provider.expanded}
+              aria-label={$tStore(provider.expanded ? 'dashboard.showLess' : 'dashboard.showMore')}
+              onclick={() => toggleDemandMetrics(provider)}
+            >
+              <Icon
+                name={provider.expanded ? 'chevron-up' : 'chevron-down'}
+                size={10}
+                strokeWidth={2.2}
+              />
+            </button>
+          {/if}
+          {#if provider.id === focusedProviderId || provider.expanded}
             <div class="demand-metrics" transition:slide={springMotion(reducedMotion)}>
               {#each demandMetrics as metric (metric.id)}
                 <div
@@ -857,6 +875,32 @@
 
     .provider-header .provider-mark {
       margin-left: 0;
+    }
+
+    .provider-settings-button {
+      display: grid;
+      width: 20px;
+      height: 20px;
+      flex: 0 0 20px;
+      margin-left: 1px;
+      padding: 0;
+      border: 0;
+      border-radius: 5px;
+      color: var(--secondary);
+      background: transparent;
+      cursor: pointer;
+      place-items: center;
+    }
+
+    .provider-settings-button:hover,
+    .provider-settings-button:focus-visible {
+      color: var(--text);
+      background: var(--button-hover);
+    }
+
+    .provider-settings-button:focus-visible {
+      outline: 2px solid var(--meter-fill);
+      outline-offset: 1px;
     }
 
     .provider-warning,
