@@ -186,6 +186,13 @@ fn definition_exposes_the_complete_metric_contract() {
         .iter()
         .all(|metric| !metric.default_pinned));
     assert!(definition.metrics[0].source.session_window());
+    // OpenCode Go reports floored whole percentages, so `0` must not read as "unused".
+    assert!(definition.metrics[..3]
+        .iter()
+        .all(|metric| metric.floored_percent));
+    assert!(definition.metrics[3..]
+        .iter()
+        .all(|metric| !metric.floored_percent));
 }
 
 #[test]

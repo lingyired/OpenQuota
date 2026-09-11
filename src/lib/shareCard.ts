@@ -137,7 +137,7 @@ export function buildProviderShareRows(
     if (source.kind === 'quota' || source.kind === 'quotaOrValue') {
       const quota = snapshot.quotas.find((item) => item.id === source.sourceId);
       if (quota) {
-        rows.push(quotaShareRow(quota, settings, now));
+        rows.push(quotaShareRow(quota, settings, now, definition.flooredPercent ?? false));
       } else if (source.kind === 'quotaOrValue') {
         const valueMetric = snapshot.valueMetrics.find((item) => item.id === source.sourceId);
         rows.push({
@@ -362,11 +362,19 @@ function formatCreditExpiry(value: string | null) {
   });
 }
 
-function quotaShareRow(quota: QuotaWindow, settings: AppSettings, now: number): ShareRow {
+function quotaShareRow(
+  quota: QuotaWindow,
+  settings: AppSettings,
+  now: number,
+  percentFloored = false,
+): ShareRow {
   const used = clamp(quota.usedPercent, 0, 100);
   const remaining = Math.max(0, 100 - used);
   const displayWord = settings.usageDisplay === 'left' ? t('time.left') : t('time.used');
-  let reading = `${(settings.usageDisplay === 'used' ? used : remaining).toFixed(0)}% ${displayWord}`;
+  const flooredSubOnePercent = percentFloored && quota.format === 'percent' && used < 1;
+  let reading = flooredSubOnePercent
+    ? `${settings.usageDisplay === 'used' ? '<1%' : '>99%'} ${displayWord}`
+    : `${(settings.usageDisplay === 'used' ? used : remaining).toFixed(0)}% ${displayWord}`;
   let fillPercent = settings.usageDisplay === 'used' ? used : remaining;
   if (quota.format === 'count' && quota.usedValue !== null && quota.limitValue !== null) {
     const displayed =

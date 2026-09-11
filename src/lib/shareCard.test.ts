@@ -166,6 +166,83 @@ describe('share card layout', () => {
     expect(rows[0]).toMatchObject({ kind: 'quota', reading: '75 searches left' });
   });
 
+  it('renders floored sub-one-percent quotas in exported cards', () => {
+    const catalog = new ProviderCatalogIndex({
+      providers: [
+        {
+          id: 'opencode',
+          displayName: 'OpenCode',
+          shortName: 'OC',
+          fallbackEnabled: true,
+          localUsageSourceNote: null,
+          links: [],
+          metrics: [
+            {
+              id: 'opencode.session',
+              label: 'Session (5h)',
+              source: { kind: 'quota', sourceId: 'session', sessionWindow: true },
+              pinnable: true,
+              defaultEnabled: true,
+              defaultSection: 'alwaysVisible',
+              defaultPinned: true,
+              flooredPercent: true,
+              tray: { shortLabel: 'S', suffix: null },
+            },
+          ],
+        },
+      ],
+    });
+    const snapshot: ProviderSnapshot = {
+      providerId: 'opencode',
+      plan: 'Go',
+      quotas: [
+        {
+          id: 'session',
+          label: 'Session (5h)',
+          usedPercent: 0,
+          resetsAt: null,
+          periodSeconds: 18_000,
+          format: 'percent',
+          usedValue: null,
+          limitValue: null,
+          estimated: false,
+        },
+      ],
+      creditPackages: [],
+      valueMetrics: [],
+      statusMetrics: [],
+      notices: [],
+      usage: { today: null, yesterday: null, last30Days: null, daily: [], unknownModels: [] },
+      warnings: [],
+      refreshedAt: '2026-07-18T00:00:00Z',
+    };
+    const layout: ProviderLayout = {
+      id: 'opencode',
+      enabled: true,
+      detected: true,
+      expanded: false,
+      metrics: [{ id: 'opencode.session', enabled: true, section: 'alwaysVisible', pinned: true }],
+    };
+
+    const used = buildProviderShareRowsWithCatalog(
+      catalog,
+      snapshot,
+      layout,
+      { ...settingsState.settings, usageDisplay: 'used' },
+      Date.now(),
+    );
+    expect(used[0]).toMatchObject({ kind: 'quota', reading: '<1% used' });
+
+    const left = buildProviderShareRowsWithCatalog(
+      catalog,
+      snapshot,
+      layout,
+      { ...settingsState.settings, usageDisplay: 'left' },
+      Date.now(),
+    );
+    expect(left[0]).toMatchObject({ kind: 'quota', reading: '>99% left' });
+  });
+
   it('omits pacing copy for an unused non-session quota', () => {
     const now = Date.parse('2026-08-12T12:00:00Z');
     const snapshot = structuredClone(codexState.snapshot!);
