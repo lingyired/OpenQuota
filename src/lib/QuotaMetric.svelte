@@ -19,6 +19,7 @@
     timeFormat: 'system' | 'twelveHour' | 'twentyFourHour';
     alwaysShowPacing: boolean;
     isSessionWindow?: boolean;
+    percentFloored?: boolean;
     onToggleUsage: () => void;
     onToggleReset: () => void;
   }
@@ -31,12 +32,16 @@
     timeFormat,
     alwaysShowPacing,
     isSessionWindow = false,
+    percentFloored = false,
     onToggleUsage,
     onToggleReset,
   }: Props = $props();
   const currentLocale = $derived($locale);
   const used = $derived(Math.min(100, Math.max(0, quota.usedPercent)));
   const remaining = $derived(Math.max(0, 100 - used));
+  // Providers that floor their percentages report `0` for any usage below 1%, so a reported `0`
+  // says nothing about whether the window is actually unused.
+  const flooredSubOnePercent = $derived(percentFloored && quota.format === 'percent' && used < 1);
   const countUnit = $derived.by(() => {
     void currentLocale;
     const unit = quota.unit?.trim();
@@ -66,6 +71,9 @@
       }
       return `$${quota.usedValue.toFixed(2)} ${t('time.spent')}`;
     }
+    if (flooredSubOnePercent) {
+      return `${usageDisplay === 'used' ? '<1%' : '>99%'} ${usageDisplay === 'used' ? t('time.used') : t('time.left')}`;
+    }
     return `${(usageDisplay === 'used' ? used : remaining).toFixed(0)}% ${usageDisplay === 'used' ? t('time.used') : t('time.left')}`;
   });
   const readingTooltip = $derived.by(() => {
@@ -80,6 +88,9 @@
       if (quota.limitValue !== null)
         return `$${Math.max(0, quota.limitValue - quota.usedValue).toFixed(2)} ${t('time.left')}`;
       return null;
+    }
+    if (flooredSubOnePercent) {
+      return usageDisplay === 'left' ? `<1% ${t('time.used')}` : `>99% ${t('time.left')}`;
     }
     return usageDisplay === 'left'
       ? `${used.toFixed(0)}% ${t('time.used')}`
@@ -101,7 +112,9 @@
     }
     return Math.min(100, Math.max(0, Math.round(usageDisplay === 'used' ? used : remaining)));
   });
-  const freshSession = $derived(isFreshSessionWindow(quota, now, isSessionWindow));
+  const freshSession = $derived(
+    isFreshSessionWindow(quota, now, isSessionWindow && !flooredSubOnePercent),
+  );
   const pace = $derived(projectPace(quota, now));
   const paceDetail = $derived(paceTooltip(pace));
   const roundedUsed = $derived(Math.round(used));

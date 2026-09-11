@@ -39,6 +39,21 @@ function show(value: QuotaWindow, onToggleReset = vi.fn(), isSessionWindow = fal
   };
 }
 
+function showFloored(value: QuotaWindow, usageDisplay: 'used' | 'left', isSessionWindow: boolean) {
+  return render(QuotaMetric, {
+    quota: value,
+    now,
+    usageDisplay,
+    resetDisplay: 'countdown',
+    timeFormat: 'system',
+    alwaysShowPacing: false,
+    isSessionWindow,
+    percentFloored: true,
+    onToggleUsage: vi.fn(),
+    onToggleReset: vi.fn(),
+  });
+}
+
 function showAlways(value: QuotaWindow) {
   return render(QuotaMetric, {
     quota: value,
@@ -105,6 +120,29 @@ describe('quota pacing presentation', () => {
     );
     expect(container.querySelector('.pace-warning')).not.toBeInTheDocument();
     expect(container.querySelector('.meter-shell')).not.toHaveAttribute('data-tooltip');
+  });
+
+  it('treats a floored zero as sub-one-percent usage instead of a fresh session', () => {
+    const { container } = showFloored(quota(0), 'left', true);
+    expect(screen.queryByText('Not started')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '>99% left' })).toHaveAttribute(
+      'data-tooltip',
+      '<1% used',
+    );
+    expect(container.querySelector('.pace-warning')).not.toBeInTheDocument();
+  });
+
+  it('shows sub-one-percent usage when the display mode is used', () => {
+    showFloored(quota(0), 'used', false);
+    expect(screen.getByRole('button', { name: '<1% used' })).toHaveAttribute(
+      'data-tooltip',
+      '>99% left',
+    );
+  });
+
+  it('keeps whole-percent readings once a floored value reaches one percent', () => {
+    showFloored(quota(1), 'used', true);
+    expect(screen.getByRole('button', { name: '1% used' })).toBeInTheDocument();
   });
 
   it('does not decorate unused non-session quotas as healthy pacing', () => {

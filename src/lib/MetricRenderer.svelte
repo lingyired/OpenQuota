@@ -56,6 +56,7 @@
   <QuotaMetric
     {quota}
     {now}
+    percentFloored={definition.flooredPercent ?? false}
     usageDisplay={settings.usageDisplay}
     resetDisplay={settings.resetDisplay}
     timeFormat={settings.timeFormat}

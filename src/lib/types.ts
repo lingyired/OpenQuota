@@ -146,6 +146,7 @@ export interface MetricDefinition {
   defaultEnabled: boolean;
   defaultSection: MetricSection;
   defaultPinned: boolean;
+  flooredPercent?: boolean;
   tray: TrayMetricDefinition | null;
 }
 

@@ -251,9 +251,19 @@ fn tray_metric(
                     UsageDisplay::Used => "used",
                     UsageDisplay::Left => "left",
                 };
+                // Providers such as OpenCode Go report floored whole percentages, so a `0%`
+                // reading covers every value below one percent.
+                let value = if definition.floored_percent && quota.used_percent < 1.0 {
+                    match display {
+                        UsageDisplay::Used => "<1%".to_owned(),
+                        UsageDisplay::Left => ">99%".to_owned(),
+                    }
+                } else {
+                    format!("{percent:.0}%")
+                };
                 TrayMetric {
-                    value: format!("{percent:.0}%"),
-                    detail: format!("{} {percent:.0}% {word}", quota.label),
+                    value: value.clone(),
+                    detail: format!("{} {} {word}", quota.label, value),
                     gauge: Some(TrayGauge {
                         display_fraction,
                         #[cfg(any(not(target_os = "macos"), test))]
@@ -394,7 +404,7 @@ mod tests {
             ProviderViewState, QuotaWindow, SnapshotSource, StatusMetric, StatusTone, UsageHistory,
             ValueMetric,
         },
-        providers::{codex, cursor, ProviderRegistry},
+        providers::{codex, cursor, opencode, ProviderRegistry},
         settings::default_settings,
     };
 
@@ -548,6 +558,47 @@ mod tests {
                 remaining_fraction: 0.75,
             })
         );
+    }
+
+    #[test]
+    fn floored_percent_quotas_render_sub_one_percent_on_the_menubar() {
+        let snapshot = ProviderSnapshot {
+            provider_id: "opencode".into(),
+            plan: Some("Go".into()),
+            quotas: vec![QuotaWindow {
+                id: "session".into(),
+                label: "Session (5h)".into(),
+                used_percent: 0.0,
+                resets_at: None,
+                period_seconds: 18_000,
+                format: crate::models::QuotaFormat::Percent,
+                used_value: None,
+                limit_value: None,
+                unit: None,
+                estimated: false,
+                source_note: None,
+            }],
+            value_metrics: Vec::new(),
+            status_metrics: Vec::new(),
+            notices: Vec::new(),
+            usage: UsageHistory::default(),
+            warnings: Vec::new(),
+            refreshed_at: Utc::now(),
+        };
+        let catalog =
+            ProviderRegistry::from_definitions(vec![codex::definition(), opencode::definition()])
+                .unwrap();
+        let definition = catalog.metric("opencode.session").unwrap();
+
+        let left =
+            super::tray_metric(definition, &snapshot, crate::models::UsageDisplay::Left).unwrap();
+        let used =
+            super::tray_metric(definition, &snapshot, crate::models::UsageDisplay::Used).unwrap();
+
+        assert_eq!(left.value, ">99%");
+        assert_eq!(left.detail, "Session (5h) >99% left");
+        assert_eq!(used.value, "<1%");
+        assert_eq!(used.detail, "Session (5h) <1% used");
     }
 
     #[test]

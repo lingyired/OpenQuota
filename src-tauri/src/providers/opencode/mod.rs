@@ -45,7 +45,8 @@ pub(crate) fn definition() -> ProviderDefinition {
                 MetricSection::AlwaysVisible,
                 false,
                 "S",
-            ),
+            )
+            .with_floored_percent(),
             MetricDefinition::quota(
                 "opencode.weekly",
                 "Weekly",
@@ -55,7 +56,8 @@ pub(crate) fn definition() -> ProviderDefinition {
                 MetricSection::AlwaysVisible,
                 false,
                 "W",
-            ),
+            )
+            .with_floored_percent(),
             MetricDefinition::quota(
                 "opencode.monthly",
                 "Monthly",
@@ -65,7 +67,8 @@ pub(crate) fn definition() -> ProviderDefinition {
                 MetricSection::AlwaysVisible,
                 false,
                 "M",
-            ),
+            )
+            .with_floored_percent(),
             MetricDefinition::trend("opencode.trend"),
             MetricDefinition::usage(
                 "opencode.today",

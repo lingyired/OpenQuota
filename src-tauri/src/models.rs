@@ -342,6 +342,10 @@ pub struct MetricDefinition {
     pub default_enabled: bool,
     pub default_section: MetricSection,
     pub default_pinned: bool,
+    /// Set when the provider reports quota percentages as floored whole numbers, so a reported
+    /// `0` means "below 1%" rather than "no usage".
+    #[serde(default)]
+    pub floored_percent: bool,
     pub tray: Option<TrayMetricDefinition>,
 }
 
@@ -366,11 +370,19 @@ impl MetricDefinition {
             default_enabled,
             default_section,
             default_pinned,
+            floored_percent: false,
             tray: tray_short_label.map(|short_label| TrayMetricDefinition {
                 short_label: short_label.into(),
                 suffix: tray_suffix.map(str::to_owned),
             }),
         }
+    }
+
+    /// Marks the metric's percentage as floored by the provider so the UI can
+    /// render sub-1% usage instead of a misleading `0%`.
+    pub fn with_floored_percent(mut self) -> Self {
+        self.floored_percent = true;
+        self
     }
 
     #[allow(clippy::too_many_arguments)]
