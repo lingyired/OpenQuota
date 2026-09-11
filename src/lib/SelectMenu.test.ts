@@ -78,4 +78,20 @@ describe('SelectMenu', () => {
 
     expect(screen.getByRole('listbox', { name: 'Metric' })).toHaveClass('select-menu__list--above');
   });
+
+  it('removes a portaled listbox immediately when its screen unmounts', async () => {
+    const view = render(SelectMenu, {
+      label: 'Metric',
+      value: 'cost',
+      options,
+      onChange: vi.fn(),
+    });
+
+    await fireEvent.click(screen.getByRole('combobox', { name: 'Metric' }));
+    expect(screen.getByRole('listbox', { name: 'Metric' })).toBeInTheDocument();
+
+    view.unmount();
+
+    expect(screen.queryByRole('listbox', { name: 'Metric' })).not.toBeInTheDocument();
+  });
 });

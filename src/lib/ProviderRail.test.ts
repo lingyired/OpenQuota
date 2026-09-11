@@ -1,10 +1,13 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import ProviderTabs from './ProviderTabs.svelte';
+import ProviderRail from './ProviderRail.svelte';
 import type { SettingsViewState, UsageViewState } from './types';
 import { claudeState, codexState, providerCatalogIndex, settingsState } from '../test/appFixtures';
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
+});
 
 function show(selectedProviderId: string | null = null) {
   const settings: SettingsViewState['settings'] = {
@@ -24,7 +27,7 @@ function show(selectedProviderId: string | null = null) {
     providers: { claude: claudeState, codex: codexState },
   };
   const onSelect = vi.fn();
-  render(ProviderTabs, {
+  render(ProviderRail, {
     viewState,
     settings,
     catalog: providerCatalogIndex,
@@ -34,7 +37,7 @@ function show(selectedProviderId: string | null = null) {
   return { onSelect };
 }
 
-describe('ProviderTabs', () => {
+describe('ProviderRail', () => {
   it('renders All and enabled providers with their pinned readings', () => {
     show();
     expect(screen.getAllByRole('tab')).toHaveLength(3);
@@ -45,14 +48,14 @@ describe('ProviderTabs', () => {
     ).toBeInTheDocument();
   });
 
-  it('selects a provider on click and activates adjacent tabs with arrow keys', async () => {
+  it('selects a provider on click and activates adjacent tabs with vertical arrow keys', async () => {
     const { onSelect } = show();
     const all = screen.getByRole('tab', { name: 'All' });
     const claude = screen.getByRole('tab', { name: /Claude/ });
     await fireEvent.click(claude);
     expect(onSelect).toHaveBeenLastCalledWith('claude');
 
-    await fireEvent.keyDown(all, { key: 'ArrowRight' });
+    await fireEvent.keyDown(all, { key: 'ArrowDown' });
     expect(onSelect).toHaveBeenLastCalledWith('claude');
     expect(claude).toHaveFocus();
     await fireEvent.keyDown(claude, { key: 'End' });
@@ -60,9 +63,36 @@ describe('ProviderTabs', () => {
     expect(screen.getByRole('tab', { name: /Codex/ })).toHaveFocus();
   });
 
+  it('exposes a vertical tablist', () => {
+    show();
+    expect(screen.getByRole('tablist')).toHaveAttribute('aria-orientation', 'vertical');
+  });
+
+  it('scrolls the active provider square into view', async () => {
+    const scrollIntoView = vi.fn();
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      configurable: true,
+      value: scrollIntoView,
+    });
+
+    show('codex');
+
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenCalledWith({ block: 'nearest', inline: 'nearest' }),
+    );
+  });
+
   it('keeps only the selected tab tabbable', () => {
     show('codex');
     expect(screen.getByRole('tab', { name: /Codex/ })).toHaveAttribute('tabindex', '0');
     expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('tabindex', '-1');
+  });
+
+  it('renders provider icons at the larger rail size', () => {
+    show();
+    expect(screen.getByRole('tab', { name: /Claude/ }).querySelector('svg')).toHaveAttribute(
+      'width',
+      '22',
+    );
   });
 });

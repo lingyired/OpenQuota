@@ -30,6 +30,10 @@ const HAPTIC_INTERVAL = 120;
 let activeCleanup: (() => void) | null = null;
 let lastHapticAt = Number.NEGATIVE_INFINITY;
 
+export function cancelActiveReorder() {
+  activeCleanup?.();
+}
+
 function hapticSnap(pointerType: string) {
   if (pointerType !== 'touch' || typeof navigator.vibrate !== 'function') return;
   const now = performance.now();

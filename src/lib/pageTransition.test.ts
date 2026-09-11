@@ -40,6 +40,24 @@ describe('page transition', () => {
     expect(transition.css?.(0, 1)).toContain('translate3d(-292px, 0, 0)');
   });
 
+  it('keeps the incoming page above the outgoing page during a transition', () => {
+    const incoming = horizontalPageTransition(page(), {
+      direction: 1,
+      duration: 420,
+      easing: linear,
+      zIndex: 2,
+    });
+    const outgoing = horizontalPageTransition(page(), {
+      direction: -1,
+      duration: 420,
+      easing: linear,
+      zIndex: 1,
+    });
+
+    expect(incoming.css?.(0, 1)).toContain('z-index: 2');
+    expect(outgoing.css?.(1, 0)).toContain('z-index: 1');
+  });
+
   it('slides every navigation inside the stable user-sized panel', () => {
     expect(shouldSlideBetweenScreens('dashboard', 'settings')).toBe(true);
     expect(shouldSlideBetweenScreens('settings', 'dashboard')).toBe(true);

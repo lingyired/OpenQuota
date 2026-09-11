@@ -27,7 +27,7 @@ describe('hybrid window controller', () => {
     document.body.innerHTML = `
       <main class="content" style="padding: 10px 0">
         <header class="screen-header"></header>
-        <div class="screen-stage">
+        <div class="screen-stage" style="padding: 0">
           <div class="screen-page" data-screen="dashboard"></div>
         </div>
         <footer class="footer"></footer>
@@ -88,7 +88,26 @@ describe('hybrid window controller', () => {
 
     await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(430));
     expect(mocks.getCurrentWindow).not.toHaveBeenCalled();
-    expect(document.querySelector<HTMLElement>('.screen-stage')).toHaveStyle({ height: '300px' });
+    expect(document.querySelector<HTMLElement>('.screen-stage')!.style.height).toBe('');
+    controller.dispose();
+  });
+
+  it('includes stage padding when the dashboard scrolls inside the stage', async () => {
+    const stage = document.querySelector<HTMLElement>('.screen-stage')!;
+    stage.style.padding = '14px 14px 12px';
+    const controller = createWindowController({
+      screen: () => 'dashboard',
+      refreshing: () => false,
+      reordering: () => false,
+      automatic: () => true,
+      reducedMotion: () => true,
+      onError: vi.fn(),
+    });
+
+    controller.scheduleFit();
+
+    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(456));
+    expect(stage.style.height).toBe('');
     controller.dispose();
   });
 
@@ -105,7 +124,7 @@ describe('hybrid window controller', () => {
     controller.scheduleFit();
 
     await waitFor(() =>
-      expect(document.querySelector<HTMLElement>('.screen-stage')).toHaveStyle({ height: '300px' }),
+      expect(document.querySelector<HTMLElement>('.screen-stage')!.style.height).toBe(''),
     );
     expect(mocks.fitPanelToContent).not.toHaveBeenCalled();
     controller.dispose();
@@ -137,7 +156,7 @@ describe('hybrid window controller', () => {
 
     controller.scheduleFit();
 
-    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(850));
+    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(800));
     controller.dispose();
   });
 

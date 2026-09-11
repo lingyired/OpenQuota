@@ -40,9 +40,10 @@
   import { emptyProviderCatalog, ProviderCatalogIndex } from './lib/metrics';
   import { springMotion } from './lib/motion';
   import OpenQuota01Mark from './lib/OpenQuota01Mark.svelte';
-  import ProviderTabs from './lib/ProviderTabs.svelte';
+  import ProviderRail from './lib/ProviderRail.svelte';
   import { horizontalPageTransition, shouldSlideBetweenScreens } from './lib/pageTransition';
   import { desktopPlatform, shortcutLabels } from './lib/platform';
+  import { cancelActiveReorder } from './lib/pointerReorder';
   import { withProviderName } from './lib/providerNames';
   import RenameProviderSheet from './lib/RenameProviderSheet.svelte';
   import {
@@ -70,6 +71,7 @@
   // shows only this agent (other agents stay hidden).
   let focusedProviderId = $state<string | null>(null);
   let screen = $state<Screen>('dashboard');
+  let providerReturnScreen: Screen = 'customize';
   let now = $state(Date.now());
   let settingsError = $state<string | null>(null);
   let automaticUpdatesReady = $state(false);
@@ -182,19 +184,20 @@
     navigate('dashboard');
     void dismissMainWindow();
   }
-  function resetTransientUi() {
+  function closeTransientLayers() {
     closeOptionsMenu();
     showAbout = false;
     resetConfirmationOpen = false;
     settingsResetConfirmationOpen = false;
     renameCard = null;
+    confirmationMessage = null;
+  }
+  function resetTransientUi() {
+    closeTransientLayers();
     resettingCustomization = false;
     resettingAllSettings = false;
     resettingProviderId = null;
-    confirmationMessage = null;
-    const content = document.querySelector<HTMLElement>('.content');
-    if (content && typeof content.scrollTo === 'function') content.scrollTo({ top: 0 });
-    else if (content) content.scrollTop = 0;
+    scrollScreenToTop();
   }
   function quitApp() {
     void quitApplication();
@@ -205,11 +208,15 @@
   }
   function navigate(next: Screen) {
     if (next === screen) return;
+    cancelActiveReorder();
+    closeTransientLayers();
     slidePageTransition = shouldSlideBetweenScreens(screen, next);
     slideDirection = screenRank(next) >= screenRank(screen) ? 1 : -1;
     screen = next;
+    if (!next.startsWith('provider:')) providerReturnScreen = 'customize';
   }
   async function openProviderCustomization(providerId: string, focusBack = false) {
+    providerReturnScreen = screen === 'dashboard' ? 'dashboard' : 'customize';
     navigate(`provider:${providerId}`);
     if (!focusBack) return;
     await tick();
@@ -224,15 +231,21 @@
   async function selectDashboardProvider(providerId: string | null) {
     focusedProviderId = providerId;
     await tick();
-    const content = document.querySelector<HTMLElement>('.content');
-    if (content && typeof content.scrollTo === 'function') content.scrollTo({ top: 0 });
-    else if (content) content.scrollTop = 0;
+    scrollScreenToTop();
     // The filtered dashboard has a different natural height; fit immediately instead of relying on
     // the platform webview to emit a later resize-observer pass.
     scheduleWindowFit();
   }
+
+  function scrollScreenToTop() {
+    for (const selector of ['.content', '.screen-stage']) {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (element && typeof element.scrollTo === 'function') element.scrollTo({ top: 0 });
+      else if (element) element.scrollTop = 0;
+    }
+  }
   function back() {
-    if (screen.startsWith('provider:')) navigate('customize');
+    if (screen.startsWith('provider:')) navigate(providerReturnScreen);
     else if (screen !== 'dashboard') navigate('dashboard');
     else closeMainWindow();
   }
@@ -783,8 +796,9 @@
     );
     listeners.add(
       onOpenScreen((target) => {
-        if (target.startsWith('provider:')) navigate(target as Screen);
-        else navigate(target === 'settings' ? 'settings' : 'customize');
+        if (target.startsWith('provider:')) {
+          void openProviderCustomization(target.slice(9));
+        } else navigate(target === 'settings' ? 'settings' : 'customize');
       }),
     );
     listeners.add(onTaskbandOpen((providerId) => void focusTaskbandProvider(providerId)));
@@ -898,12 +912,16 @@
         {/if}
       </header>
     {/if}
-    <div class="content" class:content--chrome={screen !== 'dashboard'}>
+    <div
+      class="content"
+      class:content--chrome={screen !== 'dashboard'}
+      class:content--dashboard={screen === 'dashboard'}
+    >
       {#if settingsError}<div class="notice notice--blocking" role="alert">
           {$tBackendStore(settingsError)}
         </div>{/if}
       {#if screen === 'dashboard'}
-        <ProviderTabs
+        <ProviderRail
           {viewState}
           settings={settingsState.settings}
           {catalog}
@@ -918,10 +936,7 @@
             data-screen={screen}
             in:horizontalPageTransition={{
               direction: slideDirection,
-              ...springMotion(reducedMotion || !slidePageTransition),
-            }}
-            out:horizontalPageTransition={{
-              direction: -slideDirection,
+              zIndex: 2,
               ...springMotion(reducedMotion || !slidePageTransition),
             }}
           >
@@ -1475,21 +1490,57 @@
       padding-top: 12px;
     }
 
+    .content--dashboard {
+      display: grid;
+      min-height: 0;
+      grid-template-columns: 80px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      padding: 0;
+      overflow: hidden;
+    }
+
+    :root[data-density='compact'] .content--dashboard {
+      padding: 0;
+    }
+
+    .content--dashboard > .notice {
+      grid-row: 1;
+      grid-column: 1 / -1;
+      margin: 8px 14px 0;
+    }
+
+    .content--dashboard > .provider-rail {
+      grid-row: 2;
+      grid-column: 1;
+    }
+
+    .content--dashboard > .screen-stage {
+      min-height: 0;
+      grid-row: 2;
+      grid-column: 2;
+      padding: 14px 14px 12px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
     .screen-stage {
       display: grid;
       width: 100%;
       min-width: 0;
       min-height: 0;
       overflow: clip;
+      isolation: isolate;
       background: var(--tray);
     }
 
     .screen-page {
+      position: relative;
       width: 100%;
       min-width: 0;
       min-height: 0;
       grid-area: 1 / 1;
       align-self: start;
+      background: var(--tray);
       transform-origin: 50% 45%;
     }
 
@@ -1870,7 +1921,7 @@
     .popover {
       width: 100%;
       min-width: 0;
-      max-width: 320px;
+      max-width: 440px;
     }
   }
 </style>
