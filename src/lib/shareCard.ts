@@ -21,6 +21,7 @@ import type {
   DailyUsage,
   ProviderLayout,
   ProviderSnapshot,
+  CreditPackage,
   QuotaWindow,
   UsagePeriod,
 } from './types';
@@ -34,6 +35,8 @@ const CARD_GUTTER = 5;
 const CARD_RADIUS = 12;
 const ROW_HORIZONTAL_PADDING = 14;
 const HEADER_HEIGHT = 22;
+
+const creditNumberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
 export const TOTAL_SPEND_PERIOD_LABELS = [
   t('share.today'),
@@ -162,6 +165,14 @@ export function buildProviderShareRows(
           paceLabel: null,
         });
       }
+      previousTextSection = null;
+      continue;
+    }
+    if (source.kind === 'creditPackages') {
+      const packages = snapshot.creditPackages
+        .filter((item) => item.remaining > 0)
+        .slice(0, layout.expanded ? undefined : 3);
+      rows.push(...packages.map(creditPackageShareRow));
       previousTextSection = null;
       continue;
     }
@@ -319,6 +330,36 @@ export function renderTotalSpendShareCard(
     width,
   );
   return canvas;
+}
+
+function creditPackageShareRow(item: CreditPackage): ShareRow {
+  const remaining = Number.isFinite(item.remaining) ? Math.max(0, item.remaining) : 0;
+  const total = Number.isFinite(item.total) ? Math.max(0, item.total) : 0;
+  const fillPercent = total > 0 ? clamp((remaining / total) * 100, 0, 100) : 0;
+  return {
+    kind: 'quota',
+    label: item.name || item.code,
+    reading: `${formatCreditNumber(remaining)} / ${formatCreditNumber(total)}`,
+    trailing: `到期 ${formatCreditExpiry(item.expiresAt)}`,
+    fillPercent,
+    severity: 'normal',
+    paceLabel: null,
+  };
+}
+
+function formatCreditNumber(value: number) {
+  return creditNumberFormatter.format(value);
+}
+
+function formatCreditExpiry(value: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
 }
 
 function quotaShareRow(quota: QuotaWindow, settings: AppSettings, now: number): ShareRow {

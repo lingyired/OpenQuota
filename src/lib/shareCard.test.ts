@@ -216,6 +216,7 @@ describe('share card layout', () => {
       providerId: 'grok',
       plan: null,
       quotas: [],
+      creditPackages: [],
       valueMetrics: [],
       statusMetrics: [
         {
@@ -254,6 +255,207 @@ describe('share card layout', () => {
         Date.now(),
       ),
     ).toEqual([{ kind: 'text', label: 'Extra Usage', value: '2500 cap', condensed: false }]);
+  });
+
+  it('exports positive credit packages and respects the provider expanded state', () => {
+    const catalog = new ProviderCatalogIndex({
+      providers: [
+        {
+          id: 'workbuddy',
+          displayName: 'Workbuddy CN',
+          shortName: 'WB',
+          fallbackEnabled: false,
+          localUsageSourceNote: null,
+          links: [],
+          metrics: [
+            {
+              id: 'workbuddy.creditPackages',
+              label: '可用积分包',
+              source: { kind: 'creditPackages' },
+              pinnable: false,
+              defaultEnabled: true,
+              defaultSection: 'alwaysVisible',
+              defaultPinned: false,
+              tray: null,
+            },
+          ],
+        },
+      ],
+    });
+    const packages = [
+      {
+        code: 'first',
+        name: '第一个积分包',
+        total: 100,
+        remaining: 71.38,
+        used: 28.62,
+        expiresAt: '2026-10-08T15:59:59Z',
+      },
+      {
+        code: 'second',
+        name: '第二个积分包',
+        total: 100,
+        remaining: 60,
+        used: 40,
+        expiresAt: '2026-10-15T15:59:59Z',
+      },
+      {
+        code: 'third',
+        name: '第三个积分包',
+        total: 100,
+        remaining: 50,
+        used: 50,
+        expiresAt: '2026-10-22T15:59:59Z',
+      },
+      {
+        code: 'fourth',
+        name: '第四个积分包',
+        total: 100,
+        remaining: 40,
+        used: 60,
+        expiresAt: '2026-10-29T15:59:59Z',
+      },
+      {
+        code: 'empty',
+        name: '已用完积分包',
+        total: 100,
+        remaining: 0,
+        used: 100,
+        expiresAt: '2026-10-30T15:59:59Z',
+      },
+    ];
+    const snapshot: ProviderSnapshot = {
+      providerId: 'workbuddy',
+      plan: null,
+      quotas: [],
+      creditPackages: packages,
+      valueMetrics: [],
+      statusMetrics: [],
+      notices: [],
+      usage: { today: null, yesterday: null, last30Days: null, daily: [], unknownModels: [] },
+      warnings: [],
+      refreshedAt: '2026-09-11T00:00:00Z',
+    };
+    const layout: ProviderLayout = {
+      id: 'workbuddy',
+      enabled: true,
+      detected: true,
+      expanded: false,
+      metrics: [
+        {
+          id: 'workbuddy.creditPackages',
+          enabled: true,
+          section: 'alwaysVisible',
+          pinned: false,
+        },
+      ],
+    };
+
+    const collapsed = buildProviderShareRowsWithCatalog(
+      catalog,
+      snapshot,
+      layout,
+      settingsState.settings,
+      Date.now(),
+    );
+    expect(collapsed).toHaveLength(3);
+    expect(collapsed.map((row) => (row.kind === 'quota' ? row.label : row.kind))).toEqual([
+      '第一个积分包',
+      '第二个积分包',
+      '第三个积分包',
+    ]);
+    expect(collapsed[0]).toMatchObject({
+      kind: 'quota',
+      reading: '71.38 / 100',
+      fillPercent: 71.38,
+    });
+
+    const expanded = buildProviderShareRowsWithCatalog(
+      catalog,
+      snapshot,
+      { ...layout, expanded: true },
+      settingsState.settings,
+      Date.now(),
+    );
+    expect(expanded).toHaveLength(4);
+    expect(expanded.map((row) => (row.kind === 'quota' ? row.label : row.kind))).toEqual([
+      '第一个积分包',
+      '第二个积分包',
+      '第三个积分包',
+      '第四个积分包',
+    ]);
+  });
+
+  it('omits credit packages when no package has a remaining balance', () => {
+    const catalog = new ProviderCatalogIndex({
+      providers: [
+        {
+          id: 'workbuddy',
+          displayName: 'Workbuddy CN',
+          shortName: 'WB',
+          fallbackEnabled: false,
+          localUsageSourceNote: null,
+          links: [],
+          metrics: [
+            {
+              id: 'workbuddy.creditPackages',
+              label: '可用积分包',
+              source: { kind: 'creditPackages' },
+              pinnable: false,
+              defaultEnabled: true,
+              defaultSection: 'alwaysVisible',
+              defaultPinned: false,
+              tray: null,
+            },
+          ],
+        },
+      ],
+    });
+    const snapshot: ProviderSnapshot = {
+      providerId: 'workbuddy',
+      plan: null,
+      quotas: [],
+      creditPackages: [
+        {
+          code: 'empty',
+          name: '已用完积分包',
+          total: 100,
+          remaining: 0,
+          used: 100,
+          expiresAt: '2026-10-08T15:59:59Z',
+        },
+      ],
+      valueMetrics: [],
+      statusMetrics: [],
+      notices: [],
+      usage: { today: null, yesterday: null, last30Days: null, daily: [], unknownModels: [] },
+      warnings: [],
+      refreshedAt: '2026-09-11T00:00:00Z',
+    };
+    const layout: ProviderLayout = {
+      id: 'workbuddy',
+      enabled: true,
+      detected: true,
+      expanded: false,
+      metrics: [
+        {
+          id: 'workbuddy.creditPackages',
+          enabled: true,
+          section: 'alwaysVisible',
+          pinned: false,
+        },
+      ],
+    };
+
+    expect(
+      buildProviderShareRowsWithCatalog(
+        catalog,
+        snapshot,
+        layout,
+        settingsState.settings,
+        Date.now(),
+      ),
+    ).toEqual([]);
   });
 
   it('keeps always-visible rows ahead of expanded rows like the dashboard', () => {
