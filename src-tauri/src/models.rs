@@ -810,27 +810,42 @@ impl Default for TaskbandPreferences {
 }
 
 #[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub enum LanguagePreference {
     #[default]
+    #[serde(alias = "System")]
     System,
+    #[serde(alias = "En")]
     En,
-    #[serde(rename = "zh-CN")]
+    #[serde(rename = "zh-CN", alias = "ZhCn")]
     ZhCn,
-    #[serde(rename = "zh-TW")]
+    #[serde(rename = "zh-TW", alias = "ZhTw")]
     ZhTw,
+    #[serde(alias = "Es")]
     Es,
-    #[serde(rename = "pt-BR")]
+    #[serde(rename = "pt-BR", alias = "PtBr")]
     PtBr,
+    #[serde(alias = "Ja")]
     Ja,
+    #[serde(alias = "Ko")]
     Ko,
+    #[serde(alias = "De")]
     De,
+    #[serde(alias = "Fr")]
     Fr,
+    #[serde(alias = "Ru")]
     Ru,
+    #[serde(alias = "Hi")]
     Hi,
+    #[serde(alias = "Ar")]
     Ar,
+    #[serde(alias = "It")]
     It,
+    #[serde(alias = "Pl")]
     Pl,
+    #[serde(alias = "Tr")]
     Tr,
+    #[serde(alias = "Vi")]
     Vi,
 }
 
@@ -935,9 +950,9 @@ pub struct SettingsViewState {
 #[cfg(test)]
 mod tests {
     use super::{
-        ApiKeyMutationOutcome, ApiKeyStatus, AppSettings, LogLevel, ProviderApiKeyState,
-        ProviderErrorKind, ProviderLink, ProviderSnapshot, ProviderViewState, UsageCompleteness,
-        UsagePeriod, WindowMode,
+        ApiKeyMutationOutcome, ApiKeyStatus, AppSettings, LanguagePreference, LogLevel,
+        ProviderApiKeyState, ProviderErrorKind, ProviderLink, ProviderSnapshot, ProviderViewState,
+        UsageCompleteness, UsagePeriod, WindowMode,
     };
 
     #[test]
@@ -958,6 +973,22 @@ mod tests {
         assert_eq!(settings.log_level, LogLevel::Info);
         assert_eq!(settings.window_mode, WindowMode::Popup);
         assert!(!settings.reduce_animations);
+    }
+
+    #[test]
+    fn language_preferences_read_legacy_and_current_disk_values() {
+        assert_eq!(
+            serde_json::from_str::<LanguagePreference>(r#""system""#).unwrap(),
+            LanguagePreference::System
+        );
+        assert_eq!(
+            serde_json::from_str::<LanguagePreference>(r#""System""#).unwrap(),
+            LanguagePreference::System
+        );
+        assert_eq!(
+            serde_json::to_string(&LanguagePreference::System).unwrap(),
+            r#""system""#
+        );
     }
 
     #[test]
