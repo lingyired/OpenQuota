@@ -15,6 +15,7 @@ import {
 } from './providerIconPaths';
 import { fillRingSector, spendRingArcs } from './spendRing';
 import type { SpendProjection } from './totalSpend';
+import { usageAmount, usageUnit } from './usageAmount';
 import type {
   AppSettings,
   DailyUsage,
@@ -392,9 +393,15 @@ function usagePeriod(snapshot: ProviderSnapshot, sourceId: string) {
 
 function usageReading(period: UsagePeriod | null) {
   if (!period) return t('metric.noData');
-  const tokens = formatMetricValue(period.tokens, 'count', 'row', t('units.tokens'));
-  if (period.estimatedCostUsd === null) return tokens;
-  return `${formatMetricNumber(period.estimatedCostUsd, 'dollars', 'row')} · ${tokens}`;
+  const unit = usageUnit(period);
+  const amount = formatMetricValue(
+    usageAmount(period),
+    'count',
+    'row',
+    t(unit === 'credits' ? 'units.credits' : 'units.tokens'),
+  );
+  if (unit === 'credits' || period.estimatedCostUsd === null) return amount;
+  return `${formatMetricNumber(period.estimatedCostUsd, 'dollars', 'row')} · ${amount}`;
 }
 
 function shareRowHeight(row: ShareRow) {
@@ -538,7 +545,7 @@ function drawTrend(
   height: number,
 ) {
   const points = daily.slice(-30);
-  const values = points.length ? points.map((point) => point.tokens) : [0];
+  const values = points.length ? points.map((point) => usageAmount(point)) : [0];
   const max = Math.max(1, ...values);
   const gap = 1.5;
   const barWidth = Math.max(1, (width - gap * (values.length - 1)) / values.length);

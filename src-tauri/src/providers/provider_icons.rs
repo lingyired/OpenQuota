@@ -27,6 +27,7 @@ const OPENROUTER: &str = brand_icon!("openrouter");
 const ZAI: &str = brand_icon!("zai");
 const KIMI: &str = brand_icon!("kimi");
 const MINIMAX: &str = brand_icon!("minimax");
+const WORKBUDDY: &str = brand_icon!("workbuddy");
 
 /// Raw SVG source of a provider's brand icon, or `None` if none is bundled.
 /// Keyed by provider family, so account ids (`id@…`) share the family's mark.
@@ -44,6 +45,7 @@ pub(crate) fn provider_icon_svg(provider_id: &str) -> Option<&'static str> {
         "zai" => Some(ZAI),
         "kimi" => Some(KIMI),
         "minimax" => Some(MINIMAX),
+        "workbuddy" => Some(WORKBUDDY),
         _ => None,
     }
 }

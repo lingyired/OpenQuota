@@ -56,7 +56,7 @@ use crate::{
         codex::CodexProvider, copilot::CopilotProvider, cursor::CursorProvider,
         detect_local_credentials, devin::DevinProvider, grok::GrokProvider, kimi::KimiProvider,
         minimax::MiniMaxProvider, opencode::OpenCodeProvider, openrouter::OpenRouterProvider,
-        zai::ZaiProvider, ProviderRegistry, UsageProvider,
+        workbuddy::WorkBuddyProvider, zai::ZaiProvider, ProviderRegistry, UsageProvider,
     },
     storage::Storage,
     window::{
@@ -432,6 +432,7 @@ pub fn run() {
                     as Arc<dyn UsageProvider>,
                 Arc::new(OpenCodeProvider::new(pricing.clone())) as Arc<dyn UsageProvider>,
                 Arc::new(OpenRouterProvider::new()?) as Arc<dyn UsageProvider>,
+                Arc::new(WorkBuddyProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(ZaiProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(KimiProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(MiniMaxProvider::new()?) as Arc<dyn UsageProvider>,

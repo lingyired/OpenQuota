@@ -36,6 +36,41 @@ describe('Total Spend projection', () => {
     });
   });
 
+  it('excludes credit-based usage from token and cost projections', () => {
+    const providers = [
+      {
+        id: 'workbuddy',
+        usage: usage({
+          tokens: 0,
+          amount: 1250,
+          unit: 'credits',
+          estimatedCostUsd: 999,
+          costEstimated: false,
+          estimateComplete: true,
+        }),
+      },
+      {
+        id: 'claude',
+        usage: usage({
+          tokens: 1_000_000,
+          estimatedCostUsd: 4,
+          costEstimated: true,
+          estimateComplete: true,
+        }),
+      },
+    ];
+
+    expect(projectSpend(providers, 'today', 'tokens')).toMatchObject({
+      centerValue: 1_000_000,
+      slices: [{ id: 'claude', value: 1_000_000 }],
+    });
+    expect(projectSpend(providers, 'today', 'cost')).toMatchObject({
+      centerValue: 4,
+      slices: [{ id: 'claude', value: 4 }],
+    });
+    expect(projectSpend(providers, 'today', 'costPerMillion').centerValue).toBe(4);
+  });
+
   it('does not let a token-only provider erase another provider cost', () => {
     const providers = [
       {

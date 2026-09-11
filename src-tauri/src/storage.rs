@@ -520,6 +520,8 @@ mod tests {
             usage: UsageHistory {
                 today: Some(UsagePeriod {
                     tokens: 42,
+                    amount: None,
+                    unit: crate::models::UsageUnit::Tokens,
                     estimated_cost_usd: Some(0.12),
                     cost_estimated: true,
                     estimate_complete: true,
@@ -527,16 +529,20 @@ mod tests {
                         models: vec![ModelUsageEntry {
                             model: "gpt-5.4".into(),
                             total_tokens: 42,
+                            amount: None,
                             cost_usd: Some(0.12),
                             variants: None,
                         }],
                         source_note: "From your Codex logs (estimated)".into(),
+                        unit: crate::models::UsageUnit::Tokens,
                     }),
                     unknown_models: Vec::new(),
                 }),
                 daily: vec![DailyUsage {
                     date: "2026-07-10".into(),
                     tokens: 42,
+                    amount: None,
+                    unit: crate::models::UsageUnit::Tokens,
                     estimated_cost_usd: Some(0.12),
                     estimate_complete: true,
                 }],

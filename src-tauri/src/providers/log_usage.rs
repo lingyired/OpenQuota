@@ -237,6 +237,8 @@ mod tests {
             daily: vec![DailyUsage {
                 date: "2026-07-18".into(),
                 tokens: 42,
+                amount: None,
+                unit: crate::models::UsageUnit::Tokens,
                 estimated_cost_usd: Some(0.5),
                 estimate_complete: true,
             }],

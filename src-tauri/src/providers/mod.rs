@@ -20,6 +20,7 @@ mod provider_icons;
 mod registry;
 #[cfg(test)]
 pub mod test_http;
+pub mod workbuddy;
 pub mod zai;
 
 pub use detection::{detect_local_credentials, CredentialProbeResults, CredentialProbeStatus};

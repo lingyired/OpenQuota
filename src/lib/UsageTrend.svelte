@@ -1,30 +1,44 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
+  import { locale } from 'svelte-i18n';
   import { SvelteDate } from 'svelte/reactivity';
-  import { tBackendStore, tStore } from './i18n';
+  import { t, tBackendStore, tStore } from './i18n';
   import { formatMetricNumber } from './metricFormat';
   import type { DailyUsage } from './types';
+  import { usageAmount, usageUnit } from './usageAmount';
 
   interface Props {
     daily: DailyUsage[];
     sourceNote: string;
   }
   let { daily, sourceNote }: Props = $props();
+  const currentLocale = $derived($locale);
   const points = $derived(fillDays(daily));
-  const max = $derived(Math.max(1, ...points.map((point) => point.tokens)));
-  const total = $derived(points.reduce((sum, point) => sum + point.tokens, 0));
+  const unit = $derived(usageUnit(points.find((point) => point.unit === 'credits') ?? points[0]));
+  const unitLabel = $derived.by(() => {
+    void currentLocale;
+    return t(unit === 'credits' ? 'units.credits' : 'units.tokens');
+  });
+  const max = $derived(Math.max(1, ...points.map((point) => usageAmount(point))));
+  const total = $derived(points.reduce((sum, point) => sum + usageAmount(point), 0));
   const peak = $derived(
-    points.reduce((best, point) => (point.tokens > best.tokens ? point : best), points[0]),
+    points.reduce(
+      (best, point) => (usageAmount(point) > usageAmount(best) ? point : best),
+      points[0],
+    ),
   );
+  const peakAmount = $derived(usageAmount(peak));
   let detailVisible = $state(false);
   let hoveredDate = $state<string | null>(null);
   let hoverTimer: ReturnType<typeof setTimeout> | undefined;
   const highlightedPoint = $derived(
     hoveredDate === null ? peak : (points.find((point) => point.date === hoveredDate) ?? peak),
   );
+  const highlightedAmount = $derived(usageAmount(highlightedPoint));
 
   function fillDays(entries: DailyUsage[]) {
     const byDate = new Map(entries.map((entry) => [entry.date, entry]));
+    const sourceUnit = entries.find((entry) => entry.unit === 'credits')?.unit ?? 'tokens';
     const result: DailyUsage[] = [];
     const today = new SvelteDate();
     today.setHours(12, 0, 0, 0);
@@ -33,7 +47,14 @@
       date.setDate(today.getDate() - offset);
       const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
       result.push(
-        byDate.get(key) ?? { date: key, tokens: 0, estimatedCostUsd: null, estimateComplete: true },
+        byDate.get(key) ?? {
+          date: key,
+          tokens: 0,
+          amount: sourceUnit === 'credits' ? 0 : null,
+          unit: sourceUnit,
+          estimatedCostUsd: null,
+          estimateComplete: true,
+        },
       );
     }
     return result;
@@ -79,15 +100,17 @@
         class="trend-bars"
         class:trend-bars--active={detailVisible}
         role="img"
-        aria-label={$tStore('metric.thirtyDayTokenChart', {
-          peak: compact(peak.tokens),
-          date: peak.date,
-        })}
+        aria-label={unit === 'credits'
+          ? `${$tStore('metric.usageTrend')}: ${compact(peakAmount)} ${unitLabel}, ${peak.date}`
+          : $tStore('metric.thirtyDayTokenChart', {
+              peak: compact(peakAmount),
+              date: peak.date,
+            })}
       >
         {#each points as point (point.date)}
           <span
-            style={`height: ${Math.max(point.tokens > 0 ? 18 : 2, (point.tokens / max) * 100)}%`}
-            title={`${point.date}: ${compact(point.tokens)} ${$tStore('units.tokens')}`}
+            style={`height: ${Math.max(usageAmount(point) > 0 ? 18 : 2, (usageAmount(point) / max) * 100)}%`}
+            title={`${point.date}: ${compact(usageAmount(point))} ${unitLabel}`}
           ></span>
         {/each}
       </div>
@@ -96,8 +119,10 @@
           <header>
             <strong>{$tStore('metric.usageTrend')}</strong><span
               >{hoveredDate
-                ? `${dayLabel(highlightedPoint.date)} · ${compact(highlightedPoint.tokens)} ${$tStore('units.tokens')}`
-                : $tStore('metric.peakTokens', { value: compact(peak.tokens) })}</span
+                ? `${dayLabel(highlightedPoint.date)} · ${compact(highlightedAmount)} ${unitLabel}`
+                : unit === 'credits'
+                  ? `${$tStore('metric.usageTrend')} · ${compact(peakAmount)} ${unitLabel}`
+                  : $tStore('metric.peakTokens', { value: compact(peakAmount) })}</span
             >
           </header>
           <div
@@ -109,7 +134,7 @@
               <i
                 role="presentation"
                 class:muted={hoveredDate !== null && hoveredDate !== point.date}
-                style={`height: ${Math.max(point.tokens > 0 ? 8 : 2, (point.tokens / max) * 100)}%`}
+                style={`height: ${Math.max(usageAmount(point) > 0 ? 8 : 2, (usageAmount(point) / max) * 100)}%`}
                 onmouseenter={() => (hoveredDate = point.date)}
               ></i>
             {/each}

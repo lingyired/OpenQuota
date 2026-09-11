@@ -2,6 +2,7 @@
   import { tBackendStore, tStore } from './i18n';
   import { formatMetricNumber, formatMetricValue } from './metricFormat';
   import type { ModelUsageBreakdown } from './types';
+  import { usageAmount } from './usageAmount';
 
   interface Props {
     title: string;
@@ -13,7 +14,16 @@
 
   let { title, breakdown, top, onEnter, onLeave }: Props = $props();
 
+  const unit = $derived(breakdown.unit ?? 'tokens');
+
   const shares = $derived.by(() => {
+    if (unit === 'credits') {
+      const creditTotal = breakdown.models.reduce((sum, model) => sum + usageAmount(model), 0);
+      return breakdown.models.map((model) =>
+        creditTotal > 0 ? Math.max(0, usageAmount(model) / creditTotal) : 0,
+      );
+    }
+
     const allPriced = breakdown.models.every((model) => model.costUsd !== null);
     const costTotal = breakdown.models.reduce((sum, model) => sum + (model.costUsd ?? 0), 0);
     const tokenTotal = breakdown.models.reduce((sum, model) => sum + model.totalTokens, 0);
@@ -56,15 +66,31 @@
       <div class="model-usage-row">
         <div class="model-usage-primary">
           <strong title={model.model}>{model.model}</strong>
-          <span
-            >{model.costUsd === null
-              ? '—'
-              : formatMetricNumber(model.costUsd, 'dollars', 'row')}</span
-          >
+          {#if unit === 'credits'}
+            <span
+              >{formatMetricValue(
+                usageAmount(model),
+                'count',
+                'row',
+                $tStore('units.credits'),
+              )}</span
+            >
+          {:else}
+            <span
+              >{model.costUsd === null
+                ? '—'
+                : formatMetricNumber(model.costUsd, 'dollars', 'row')}</span
+            >
+          {/if}
         </div>
         <div class="model-usage-secondary">
           <span>{percents[index]}%</span><span
-            >{formatMetricValue(model.totalTokens, 'count', 'row', 'tokens')}</span
+            >{formatMetricValue(
+              usageAmount(model),
+              'count',
+              'row',
+              $tStore(unit === 'credits' ? 'units.credits' : 'units.tokens'),
+            )}</span
           >
         </div>
         <div class="model-usage-meter" aria-hidden="true">

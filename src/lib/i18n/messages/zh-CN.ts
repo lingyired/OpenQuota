@@ -549,6 +549,7 @@ export const zhCn = {
     million: '百万',
     billion: '十亿',
     tokens: 'tokens',
+    credits: '积分',
     mtok: 'MTok',
     dollars: '美元',
     requests: '次请求',

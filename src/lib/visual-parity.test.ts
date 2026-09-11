@@ -20,6 +20,7 @@ describe('native visual contract', () => {
     'opencode',
     'openrouter',
     'zai',
+    'workbuddy',
   ])('packages the exact %s provider icon', (providerId) => {
     const { container } = render(ProviderIcon, { providerId });
     const icon = container.querySelector('.provider-icon');
@@ -58,6 +59,9 @@ describe('native visual contract', () => {
     cleanup();
     const zai = render(ProviderIcon, { providerId: 'zai' });
     expect(zai.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
+    cleanup();
+    const workbuddy = render(ProviderIcon, { providerId: 'workbuddy' });
+    expect(workbuddy.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
   });
 
   it('reuses the Claude mark for Claude account cards', () => {

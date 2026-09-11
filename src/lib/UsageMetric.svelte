@@ -6,6 +6,7 @@
   import { formatMetricNumber, formatMetricValue } from './metricFormat';
   import ModelUsageDetail from './ModelUsageDetail.svelte';
   import type { UsagePeriod } from './types';
+  import { usageAmount, usageUnit } from './usageAmount';
 
   interface Props {
     label: string;
@@ -20,25 +21,39 @@
 
   function reading(value: UsagePeriod | null) {
     if (!value) return t('metric.noData');
-    const tokens = formatMetricValue(value.tokens, 'count', 'row', t('units.tokens'));
-    if (value.estimatedCostUsd === null) return tokens;
-    return `${formatMetricNumber(value.estimatedCostUsd, 'dollars', 'row')} · ${tokens}`;
+    const unit = usageUnit(value);
+    const amount = formatMetricValue(
+      usageAmount(value),
+      'count',
+      'row',
+      t(unit === 'credits' ? 'units.credits' : 'units.tokens'),
+    );
+    if (unit === 'credits' || value.estimatedCostUsd === null) return amount;
+    return `${formatMetricNumber(value.estimatedCostUsd, 'dollars', 'row')} · ${amount}`;
   }
   function valueTooltip(value: UsagePeriod | null) {
     if (!value) return undefined;
     if (value.modelBreakdown?.models.length) return undefined;
+    const unit = usageUnit(value);
     const note =
-      value.estimatedCostUsd !== null && value.costEstimated
+      unit === 'tokens' && value.estimatedCostUsd !== null && value.costEstimated
         ? t('metric.estimatedLocally')
         : undefined;
+    const amount = usageAmount(value);
     const abbreviated =
-      Math.abs(value.tokens) >= 1000 || Math.abs(value.estimatedCostUsd ?? 0) >= 1000;
+      Math.abs(amount) >= 1000 ||
+      (unit === 'tokens' && Math.abs(value.estimatedCostUsd ?? 0) >= 1000);
     if (!abbreviated && !note) return undefined;
     const figures = [
-      value.estimatedCostUsd === null
-        ? undefined
-        : formatMetricNumber(value.estimatedCostUsd, 'dollars', 'full'),
-      formatMetricValue(value.tokens, 'count', 'full', t('units.tokens')),
+      unit === 'tokens' && value.estimatedCostUsd !== null
+        ? formatMetricNumber(value.estimatedCostUsd, 'dollars', 'full')
+        : undefined,
+      formatMetricValue(
+        amount,
+        'count',
+        'full',
+        t(unit === 'credits' ? 'units.credits' : 'units.tokens'),
+      ),
     ].filter(Boolean);
     return [...figures, note].filter(Boolean).join('\n');
   }

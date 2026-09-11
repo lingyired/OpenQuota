@@ -126,10 +126,49 @@ pub enum QuotaFormat {
     Count,
 }
 
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum UsageUnit {
+    #[default]
+    Tokens,
+    Credits,
+}
+
+impl UsageUnit {
+    pub fn is_tokens(value: &Self) -> bool {
+        matches!(value, Self::Tokens)
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum UsageCompleteness {
+    #[default]
+    Unavailable,
+    Complete,
+    Partial,
+}
+
+fn default_cached_usage_completeness() -> UsageCompleteness {
+    // Before completeness was persisted, every successfully cached usage history was complete.
+    // Keep that meaning when loading snapshots written by older versions.
+    UsageCompleteness::Complete
+}
+
+impl UsageCompleteness {
+    pub fn is_complete(value: &Self) -> bool {
+        matches!(value, Self::Complete)
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct UsagePeriod {
     pub tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
+    #[serde(default, skip_serializing_if = "UsageUnit::is_tokens")]
+    pub unit: UsageUnit,
     pub estimated_cost_usd: Option<f64>,
     #[serde(default = "default_true")]
     pub cost_estimated: bool,
@@ -149,6 +188,8 @@ fn default_true() -> bool {
 pub struct ModelUsageEntry {
     pub model: String,
     pub total_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
     pub cost_usd: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub variants: Option<Vec<ModelUsageVariant>>,
@@ -159,6 +200,8 @@ pub struct ModelUsageEntry {
 pub struct ModelUsageVariant {
     pub model: String,
     pub total_tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
     pub cost_usd: Option<f64>,
 }
 
@@ -167,6 +210,8 @@ pub struct ModelUsageVariant {
 pub struct ModelUsageBreakdown {
     pub models: Vec<ModelUsageEntry>,
     pub source_note: String,
+    #[serde(default, skip_serializing_if = "UsageUnit::is_tokens")]
+    pub unit: UsageUnit,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -174,6 +219,10 @@ pub struct ModelUsageBreakdown {
 pub struct DailyUsage {
     pub date: String,
     pub tokens: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub amount: Option<f64>,
+    #[serde(default, skip_serializing_if = "UsageUnit::is_tokens")]
+    pub unit: UsageUnit,
     pub estimated_cost_usd: Option<f64>,
     pub estimate_complete: bool,
 }
@@ -186,6 +235,11 @@ pub struct UsageHistory {
     pub last_30_days: Option<UsagePeriod>,
     pub daily: Vec<DailyUsage>,
     pub unknown_models: Vec<String>,
+    #[serde(
+        default = "default_cached_usage_completeness",
+        skip_serializing_if = "UsageCompleteness::is_complete"
+    )]
+    pub completeness: UsageCompleteness,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -882,8 +936,8 @@ pub struct SettingsViewState {
 mod tests {
     use super::{
         ApiKeyMutationOutcome, ApiKeyStatus, AppSettings, LogLevel, ProviderApiKeyState,
-        ProviderErrorKind, ProviderLink, ProviderSnapshot, ProviderViewState, UsagePeriod,
-        WindowMode,
+        ProviderErrorKind, ProviderLink, ProviderSnapshot, ProviderViewState, UsageCompleteness,
+        UsagePeriod, WindowMode,
     };
 
     #[test]
@@ -1014,6 +1068,7 @@ mod tests {
         assert!(!snapshot.value_metrics[0].values[0].estimated);
         assert!(snapshot.status_metrics.is_empty());
         assert!(snapshot.notices.is_empty());
+        assert_eq!(snapshot.usage.completeness, UsageCompleteness::Complete);
     }
 
     #[test]

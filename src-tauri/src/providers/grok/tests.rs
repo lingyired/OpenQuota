@@ -327,6 +327,8 @@ fn local_scan_failure_keeps_cached_history_and_live_limits() {
     let cached_usage = UsageHistory {
         today: Some(UsagePeriod {
             tokens: 42,
+            amount: None,
+            unit: crate::models::UsageUnit::Tokens,
             estimated_cost_usd: Some(0.5),
             cost_estimated: true,
             estimate_complete: true,

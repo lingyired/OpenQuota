@@ -165,6 +165,8 @@ impl DailyUsageAccumulator {
             .map(|(date, day)| DailyUsage {
                 date: date.to_string(),
                 tokens: day.tokens,
+                amount: None,
+                unit: crate::models::UsageUnit::Tokens,
                 estimated_cost_usd: Some(day.cost),
                 estimate_complete: self
                     .unknown_models_by_day
@@ -204,6 +206,7 @@ impl DailyUsageAccumulator {
             last_30_days,
             daily,
             unknown_models,
+            completeness: crate::models::UsageCompleteness::Complete,
         }
     }
 
@@ -230,6 +233,8 @@ impl DailyUsageAccumulator {
         unknown_models.sort();
         Some(UsagePeriod {
             tokens: total.tokens,
+            amount: None,
+            unit: crate::models::UsageUnit::Tokens,
             estimated_cost_usd: Some(total.cost),
             cost_estimated: total.cost_estimated,
             estimate_complete: unknown_models.is_empty(),
@@ -265,6 +270,7 @@ fn model_breakdown(day: &DayAccumulator, source_note: &str) -> Option<ModelUsage
                 .map(|(name, variant)| ModelUsageVariant {
                     model: name.clone(),
                     total_tokens: variant.tokens,
+                    amount: None,
                     cost_usd: Some(round_to_cents(variant.cost)),
                 })
                 .collect::<Vec<_>>();
@@ -279,6 +285,7 @@ fn model_breakdown(day: &DayAccumulator, source_note: &str) -> Option<ModelUsage
             ModelUsageEntry {
                 model: display_name,
                 total_tokens: model.tokens,
+                amount: None,
                 cost_usd: Some(round_to_cents(model.cost)),
                 variants,
             }
@@ -321,6 +328,7 @@ fn model_breakdown(day: &DayAccumulator, source_note: &str) -> Option<ModelUsage
             other_variants.push(ModelUsageVariant {
                 model: entry.model,
                 total_tokens: entry.total_tokens,
+                amount: None,
                 cost_usd: entry.cost_usd,
             });
         } else {
@@ -333,6 +341,7 @@ fn model_breakdown(day: &DayAccumulator, source_note: &str) -> Option<ModelUsage
         visible.push(ModelUsageEntry {
             model: "Other".to_owned(),
             total_tokens: other_tokens,
+            amount: None,
             cost_usd: Some(round_to_cents(other_cost)),
             variants: Some(other_variants),
         });
@@ -340,6 +349,7 @@ fn model_breakdown(day: &DayAccumulator, source_note: &str) -> Option<ModelUsage
     Some(ModelUsageBreakdown {
         models: visible,
         source_note: source_note.to_owned(),
+        unit: crate::models::UsageUnit::Tokens,
     })
 }
 

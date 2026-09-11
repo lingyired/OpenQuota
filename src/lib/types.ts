@@ -43,8 +43,13 @@ export interface ProviderNotice {
   tone: 'info' | 'warning';
 }
 
+export type UsageUnit = 'tokens' | 'credits';
+export type UsageCompleteness = 'unavailable' | 'complete' | 'partial';
+
 export interface UsagePeriod {
   tokens: number;
+  amount?: number | null;
+  unit?: UsageUnit;
   estimatedCostUsd: number | null;
   costEstimated: boolean;
   estimateComplete: boolean;
@@ -55,6 +60,7 @@ export interface UsagePeriod {
 export interface ModelUsageEntry {
   model: string;
   totalTokens: number;
+  amount?: number | null;
   costUsd: number | null;
   variants?: ModelUsageVariant[] | null;
 }
@@ -62,17 +68,21 @@ export interface ModelUsageEntry {
 export interface ModelUsageVariant {
   model: string;
   totalTokens: number;
+  amount?: number | null;
   costUsd: number | null;
 }
 
 export interface ModelUsageBreakdown {
   models: ModelUsageEntry[];
   sourceNote: string;
+  unit?: UsageUnit;
 }
 
 export interface DailyUsage {
   date: string;
   tokens: number;
+  amount?: number | null;
+  unit?: UsageUnit;
   estimatedCostUsd: number | null;
   estimateComplete: boolean;
 }
@@ -83,6 +93,7 @@ export interface UsageHistory {
   last30Days: UsagePeriod | null;
   daily: DailyUsage[];
   unknownModels: string[];
+  completeness?: UsageCompleteness;
 }
 
 export interface ProviderSnapshot {

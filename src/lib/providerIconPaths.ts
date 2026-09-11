@@ -10,6 +10,7 @@ import minimax from '../assets/provider-icons/minimax.svg?raw';
 import opencode from '../assets/provider-icons/opencode.svg?raw';
 import openrouter from '../assets/provider-icons/openrouter.svg?raw';
 import zai from '../assets/provider-icons/zai.svg?raw';
+import workbuddy from '../assets/provider-icons/workbuddy.svg?raw';
 
 const visuals: Record<string, { source: string; color: string | null }> = {
   antigravity: { source: antigravity, color: '#4285F4' },
@@ -24,6 +25,7 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   opencode: { source: opencode, color: null },
   openrouter: { source: openrouter, color: null },
   zai: { source: zai, color: null },
+  workbuddy: { source: workbuddy, color: null },
 };
 
 export function providerFamily(providerId: string) {

@@ -576,6 +576,7 @@ export const ko = {
     million: 'million',
     billion: 'billion',
     tokens: 'tokens',
+    credits: 'credits',
     mtok: 'MTok',
     dollars: 'dollars',
     requests: 'requests',
