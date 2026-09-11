@@ -828,7 +828,7 @@ impl Default for TaskbandPreferences {
 #[serde(rename_all = "camelCase")]
 pub enum LanguagePreference {
     #[default]
-    #[serde(alias = "System")]
+    #[serde(rename = "system", alias = "System")]
     System,
     #[serde(alias = "En")]
     En,
@@ -923,7 +923,7 @@ impl Default for AppSettings {
             usage_display: UsageDisplay::Left,
             reset_display: ResetDisplay::Countdown,
             time_format: TimeFormatPreference::System,
-            always_show_pacing: false,
+            always_show_pacing: true,
             launch_at_login: false,
             auto_check_updates: true,
             dismissed_update_version: None,
@@ -971,6 +971,46 @@ mod tests {
     };
 
     #[test]
+    fn language_preference_uses_frontend_contract_and_reads_legacy_rust_names() {
+        let cases = [
+            (LanguagePreference::System, "system", "System"),
+            (LanguagePreference::En, "en", "En"),
+            (LanguagePreference::ZhCn, "zh-CN", "ZhCn"),
+            (LanguagePreference::ZhTw, "zh-TW", "ZhTw"),
+            (LanguagePreference::Es, "es", "Es"),
+            (LanguagePreference::PtBr, "pt-BR", "PtBr"),
+            (LanguagePreference::Ja, "ja", "Ja"),
+            (LanguagePreference::Ko, "ko", "Ko"),
+            (LanguagePreference::De, "de", "De"),
+            (LanguagePreference::Fr, "fr", "Fr"),
+            (LanguagePreference::Ru, "ru", "Ru"),
+            (LanguagePreference::Hi, "hi", "Hi"),
+            (LanguagePreference::Ar, "ar", "Ar"),
+            (LanguagePreference::It, "it", "It"),
+            (LanguagePreference::Pl, "pl", "Pl"),
+            (LanguagePreference::Tr, "tr", "Tr"),
+            (LanguagePreference::Vi, "vi", "Vi"),
+        ];
+
+        for (preference, frontend_value, legacy_value) in cases {
+            assert_eq!(
+                serde_json::to_value(preference).unwrap(),
+                serde_json::json!(frontend_value)
+            );
+            assert_eq!(
+                serde_json::from_value::<LanguagePreference>(serde_json::json!(frontend_value))
+                    .unwrap(),
+                preference
+            );
+            assert_eq!(
+                serde_json::from_value::<LanguagePreference>(serde_json::json!(legacy_value))
+                    .unwrap(),
+                preference
+            );
+        }
+    }
+
+    #[test]
     fn older_settings_default_new_update_state_fields() {
         let mut value = serde_json::to_value(AppSettings::default()).unwrap();
         let object = value.as_object_mut().unwrap();
@@ -1004,6 +1044,11 @@ mod tests {
             serde_json::to_string(&LanguagePreference::System).unwrap(),
             r#""system""#
         );
+    }
+
+    #[test]
+    fn always_show_pacing_defaults_to_enabled() {
+        assert!(AppSettings::default().always_show_pacing);
     }
 
     #[test]

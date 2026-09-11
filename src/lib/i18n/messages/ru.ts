@@ -70,6 +70,8 @@ export const ru = {
     },
   },
   dashboard: {
+    all: 'Все',
+    providerTabs: 'Навигация по провайдерам',
     updateAvailable: 'Update Available',
     updateReady: 'OpenQuota01 {version} is ready to download.',
     whatsNew: 'What’s new',
@@ -103,6 +105,7 @@ export const ru = {
     providerUsage: '{provider} usage',
     metricOptions: '{label} options',
     configureProvider: 'Configure {provider}',
+    providerSettings: 'Настройки {provider}',
     retryingProvider: 'Retrying {provider}',
     retryProvider: 'Retry {provider}',
     hideProvider: 'Hide {provider}',

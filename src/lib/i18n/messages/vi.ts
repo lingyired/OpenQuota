@@ -70,6 +70,8 @@ export const vi = {
     },
   },
   dashboard: {
+    all: 'Tất cả',
+    providerTabs: 'Điều hướng nhà cung cấp',
     updateAvailable: 'Update Available',
     updateReady: 'OpenQuota01 {version} is ready to download.',
     whatsNew: 'What’s new',
@@ -103,6 +105,7 @@ export const vi = {
     providerUsage: '{provider} usage',
     metricOptions: '{label} options',
     configureProvider: 'Configure {provider}',
+    providerSettings: 'Cài đặt {provider}',
     retryingProvider: 'Retrying {provider}',
     retryProvider: 'Retry {provider}',
     hideProvider: 'Hide {provider}',

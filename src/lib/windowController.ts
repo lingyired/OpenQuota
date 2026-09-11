@@ -86,7 +86,9 @@ export function createWindowController(options: WindowControllerOptions) {
     if (!page || !content || !stage) return;
 
     const renderedHeight = page.getBoundingClientRect().height;
-    const pageHeight = renderedHeight > 0 ? renderedHeight : page.offsetHeight || page.scrollHeight;
+    // The stage height constrains the grid item, so its rendered height can be shorter than the
+    // actual page content. Include scrollHeight to keep long screens fully reachable.
+    const pageHeight = Math.max(renderedHeight, page.offsetHeight, page.scrollHeight);
     stage.style.height = `${pageHeight}px`;
 
     if (!options.automatic() || !('__TAURI_INTERNALS__' in window) || !resizeAvailable) return;

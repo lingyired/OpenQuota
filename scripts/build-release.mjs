@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 本地打包脚本：构建指定平台并归档到仓库根目录 release-<platform>/。
+// 本地打包脚本：版本号 patch +1，构建指定平台并归档到仓库根目录 release-<platform>/。
 //
 // 用法（仓库根目录）：
 //   node scripts/build-release.mjs macos                 # 本机构建 macOS（app + dmg）
@@ -61,7 +61,83 @@ if (!planArg || !(planArg in TARGETS)) {
   console.error(`用法: node scripts/build-release.mjs <macos|windows|windows-x64|windows-arm64>`);
   process.exit(1);
 }
-const version = JSON.parse(readFileSync(path.join(srcTauri, 'tauri.conf.json'), 'utf8')).version;
+
+function replaceRequired(content, pattern, replacement, label) {
+  const updated = content.replace(pattern, replacement);
+  if (updated === content) {
+    throw new Error(`无法更新 ${label} 中的版本号`);
+  }
+  return updated;
+}
+
+function bumpPatchVersion() {
+  const packageJsonPath = path.join(root, 'package.json');
+  const tauriConfigPath = path.join(srcTauri, 'tauri.conf.json');
+  const cargoManifestPath = path.join(srcTauri, 'Cargo.toml');
+  const cargoLockPath = path.join(srcTauri, 'Cargo.lock');
+
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, 'utf8'));
+  const tauriConfig = JSON.parse(readFileSync(tauriConfigPath, 'utf8'));
+  const cargoManifest = readFileSync(cargoManifestPath, 'utf8');
+  const cargoLock = readFileSync(cargoLockPath, 'utf8');
+  const cargoVersion = cargoManifest.match(/\[package\][\s\S]*?^version\s*=\s*"([^"]+)"/m)?.[1];
+  const versions = [packageJson.version, tauriConfig.version, cargoVersion];
+
+  if (!cargoVersion || new Set(versions).size !== 1) {
+    throw new Error(`打包前版本号不一致: package=${packageJson.version}, tauri=${tauriConfig.version}, cargo=${cargoVersion}`);
+  }
+
+  const match = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.exec(packageJson.version);
+  if (!match) {
+    throw new Error(`不支持自动递增的版本号: ${packageJson.version}`);
+  }
+
+  const currentVersion = packageJson.version;
+  const nextVersion = `${match[1]}.${match[2]}.${Number(match[3]) + 1}`;
+  const versionPattern = /^(\s*"version"\s*:\s*")[^"]+("\s*,?\s*$)/m;
+
+  writeFileSync(
+    packageJsonPath,
+    replaceRequired(
+      readFileSync(packageJsonPath, 'utf8'),
+      versionPattern,
+      (_, prefix, suffix) => `${prefix}${nextVersion}${suffix}`,
+      'package.json',
+    ),
+  );
+  writeFileSync(
+    tauriConfigPath,
+    replaceRequired(
+      readFileSync(tauriConfigPath, 'utf8'),
+      versionPattern,
+      (_, prefix, suffix) => `${prefix}${nextVersion}${suffix}`,
+      'tauri.conf.json',
+    ),
+  );
+  writeFileSync(
+    cargoManifestPath,
+    replaceRequired(
+      cargoManifest,
+      /(\[package\][\s\S]*?^version\s*=\s*")[^"]+("\s*$)/m,
+      (_, prefix, suffix) => `${prefix}${nextVersion}${suffix}`,
+      'Cargo.toml',
+    ),
+  );
+  writeFileSync(
+    cargoLockPath,
+    replaceRequired(
+      cargoLock,
+      /(name = "openquota01"\nversion = ")[^"]+(")/,
+      (_, prefix, suffix) => `${prefix}${nextVersion}${suffix}`,
+      'Cargo.lock',
+    ),
+  );
+
+  console.log(`版本号: ${currentVersion} -> ${nextVersion}`);
+  return nextVersion;
+}
+
+const version = bumpPatchVersion();
 
 function run(cmd, extraEnv) {
   console.log(`\n▶ ${cmd}`);

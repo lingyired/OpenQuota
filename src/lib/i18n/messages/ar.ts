@@ -70,6 +70,8 @@ export const ar = {
     },
   },
   dashboard: {
+    all: 'الكل',
+    providerTabs: 'تنقل مقدمي الخدمة',
     updateAvailable: 'Update Available',
     updateReady: 'OpenQuota01 {version} is ready to download.',
     whatsNew: 'What’s new',
@@ -103,6 +105,7 @@ export const ar = {
     providerUsage: '{provider} usage',
     metricOptions: '{label} options',
     configureProvider: 'Configure {provider}',
+    providerSettings: 'إعدادات {provider}',
     retryingProvider: 'Retrying {provider}',
     retryProvider: 'Retry {provider}',
     hideProvider: 'Hide {provider}',

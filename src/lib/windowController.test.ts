@@ -180,6 +180,40 @@ describe('hybrid window controller', () => {
     controller.dispose();
   });
 
+  it('uses the full scroll height when the stage constrains a long screen page', async () => {
+    const page = document.querySelector<HTMLElement>('.screen-page')!;
+    page.dataset.screen = 'settings';
+    page.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          width: 292,
+          height: 300,
+          top: 0,
+          right: 292,
+          bottom: 300,
+          left: 0,
+          x: 0,
+          y: 0,
+        }) as DOMRect,
+    );
+    Object.defineProperty(page, 'scrollHeight', { configurable: true, value: 700 });
+    const controller = createWindowController({
+      screen: () => 'settings',
+      refreshing: () => false,
+      reordering: () => false,
+      automatic: () => false,
+      reducedMotion: () => true,
+      onError: vi.fn(),
+    });
+
+    controller.scheduleFit();
+
+    await waitFor(() =>
+      expect(document.querySelector<HTMLElement>('.screen-stage')).toHaveStyle({ height: '700px' }),
+    );
+    controller.dispose();
+  });
+
   it('keeps a fixed provider popup at its native size', async () => {
     let fixedHeight = false;
     const page = document.querySelector<HTMLElement>('.screen-page')!;

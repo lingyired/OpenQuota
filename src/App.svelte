@@ -40,6 +40,7 @@
   import { emptyProviderCatalog, ProviderCatalogIndex } from './lib/metrics';
   import { springMotion } from './lib/motion';
   import OpenQuota01Mark from './lib/OpenQuota01Mark.svelte';
+  import ProviderTabs from './lib/ProviderTabs.svelte';
   import { horizontalPageTransition, shouldSlideBetweenScreens } from './lib/pageTransition';
   import { desktopPlatform, shortcutLabels } from './lib/platform';
   import { withProviderName } from './lib/providerNames';
@@ -218,6 +219,9 @@
   }
   async function focusTaskbandProvider(providerId: string) {
     navigate('dashboard');
+    await selectDashboardProvider(providerId);
+  }
+  async function selectDashboardProvider(providerId: string | null) {
     focusedProviderId = providerId;
     await tick();
     const content = document.querySelector<HTMLElement>('.content');
@@ -898,6 +902,15 @@
       {#if settingsError}<div class="notice notice--blocking" role="alert">
           {$tBackendStore(settingsError)}
         </div>{/if}
+      {#if screen === 'dashboard'}
+        <ProviderTabs
+          {viewState}
+          settings={settingsState.settings}
+          {catalog}
+          selectedProviderId={focusedProviderId}
+          onSelect={selectDashboardProvider}
+        />
+      {/if}
       <div class="screen-stage">
         {#key screen}
           <div

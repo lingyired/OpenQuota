@@ -335,6 +335,21 @@ describe('OpenQuota01 dashboard', () => {
         name: 'Only includes Claude and Codex',
       }),
     ).toBeInTheDocument();
+
+    const claudeTab = screen.getByRole('tab', { name: /Claude/ });
+    expect(claudeTab).toHaveAttribute('aria-selected', 'false');
+    await fireEvent.click(claudeTab);
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Claude/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.queryByRole('group', { name: 'Codex provider' })).not.toBeInTheDocument();
+    });
+    expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('tab', { name: 'All' }));
+    await waitFor(() =>
+      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument(),
+    );
+    expect(screen.getByRole('region', { name: 'Total Spend' })).toBeInTheDocument();
   });
 
   it('renames an observed Claude card from its context menu', async () => {
@@ -1371,6 +1386,18 @@ describe('OpenQuota01 dashboard', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toHaveFocus());
   });
 
+  it('opens provider settings directly from the card header', async () => {
+    render(App);
+    const provider = await screen.findByRole('group', { name: 'Codex provider' });
+    const settingsButton = within(provider).getByRole('button', { name: 'Settings for Codex' });
+
+    await fireEvent.pointerDown(settingsButton);
+    await fireEvent.click(settingsButton);
+
+    expect(await screen.findByRole('region', { name: 'Customize Codex' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toHaveFocus());
+  });
+
   it('restores stable provider chrome when a refresh request fails to start', async () => {
     const state = {
       ...liveState,
@@ -1869,13 +1896,31 @@ describe('OpenQuota01 Windows taskband focus', () => {
       await waitFor(() => {
         expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
       });
-      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+      const codex = screen.getByRole('group', { name: 'Codex provider' });
+      expect(codex).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Codex/ })).toHaveAttribute('aria-selected', 'true');
+      expect(within(codex).queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+      expect(within(codex).queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
+      expect(within(codex).getByText('Spark')).toBeInTheDocument();
+      expect(
+        within(codex).getByRole('button', { name: 'Status, opens in browser' }),
+      ).toBeInTheDocument();
       expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
+      expect(mocks.invoke).not.toHaveBeenCalledWith('save_app_settings', expect.anything());
       await waitFor(() =>
         expect(
           mocks.invoke.mock.calls.filter(([command]) => command === 'fit_panel_to_content').length,
         ).toBeGreaterThan(fitCallsBeforeOpen),
       );
+
+      const hideWindow = eventHandlers.get('main-window-hidden');
+      expect(hideWindow).toBeDefined();
+      hideWindow?.({ payload: undefined });
+      await waitFor(() => {
+        const globalCodex = screen.getByRole('group', { name: 'Codex provider' });
+        const toggle = within(globalCodex).getByRole('button', { name: 'Show more' });
+        expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      });
     } finally {
       delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     }
