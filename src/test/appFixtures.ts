@@ -200,6 +200,7 @@ export const codexState: ProviderViewState = {
         estimated: false,
       },
     ],
+    creditPackages: [],
     valueMetrics: [
       {
         id: 'rateLimitResets',
@@ -284,6 +285,7 @@ export const claudeState: ProviderViewState = {
         estimated: false,
       },
     ],
+    creditPackages: [],
     valueMetrics: [],
     statusMetrics: [],
     notices: [],
@@ -327,6 +329,7 @@ export const antigravityState: ProviderViewState = {
         estimated: false,
       },
     ],
+    creditPackages: [],
     valueMetrics: [],
     statusMetrics: [],
     notices: [],

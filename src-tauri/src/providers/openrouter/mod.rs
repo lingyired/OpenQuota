@@ -186,6 +186,7 @@ impl OpenRouterProvider {
         }
         if !quotas.is_empty() || !values.is_empty() {
             return Ok(ProviderSnapshot {
+                credit_packages: Vec::new(),
                 provider_id: "openrouter".into(),
                 plan,
                 quotas,

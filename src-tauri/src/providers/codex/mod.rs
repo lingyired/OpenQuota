@@ -289,6 +289,7 @@ impl CodexProvider {
         );
         Self::ensure_candidate_source_current(auth, account_identity)?;
         Ok(ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "codex".into(),
             plan: mapped.plan,
             quotas: mapped.quotas,

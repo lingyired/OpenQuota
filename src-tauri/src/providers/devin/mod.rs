@@ -158,6 +158,7 @@ impl DevinProvider {
         require_success(&response)?;
         let mapped = map_user_status_response(&response.body)?;
         Ok(ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "devin".into(),
             plan: mapped.plan,
             quotas: mapped.quotas,

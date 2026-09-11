@@ -810,6 +810,7 @@ mod tests {
             .unwrap()
             .clone();
         let snapshot = crate::models::ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "opencode".into(),
             plan: None,
             quotas: [("session", 75.0), ("weekly", 80.0), ("monthly", 40.0)]

@@ -405,6 +405,7 @@ impl ClaudeProvider {
 
         if credential.inference_only {
             return Ok(ProviderSnapshot {
+                credit_packages: Vec::new(),
                 provider_id: self.provider_id().into(),
                 plan: plan_name(credential),
                 quotas: Vec::new(),
@@ -422,6 +423,7 @@ impl ClaudeProvider {
                     .into(),
             );
             return Ok(ProviderSnapshot {
+                credit_packages: Vec::new(),
                 provider_id: self.provider_id().into(),
                 plan: plan_name(credential),
                 quotas: Vec::new(),
@@ -470,6 +472,7 @@ impl ClaudeProvider {
                 retry_minutes(retry)
             ));
             return Ok(ProviderSnapshot {
+                credit_packages: Vec::new(),
                 provider_id: self.provider_id().into(),
                 plan: plan_name(credential),
                 quotas: Vec::new(),
@@ -522,6 +525,7 @@ impl ClaudeProvider {
                 retry_minutes(retry)
             ));
             return Ok(ProviderSnapshot {
+                credit_packages: Vec::new(),
                 provider_id: self.provider_id().into(),
                 plan: plan_name(credential),
                 quotas: Vec::new(),
@@ -547,6 +551,7 @@ impl ClaudeProvider {
     ) -> Result<ProviderSnapshot, ClaudeError> {
         let mapped = map_usage(status, body, &credential.oauth)?;
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: self.provider_id().into(),
             plan: mapped.plan,
             quotas: mapped.quotas,
@@ -884,6 +889,7 @@ mod tests {
         let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
         let provider = ClaudeProvider::new(storage, pricing).unwrap();
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "claude".into(),
             plan: None,
             quotas: Vec::new(),

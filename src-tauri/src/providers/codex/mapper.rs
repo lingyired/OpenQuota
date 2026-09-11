@@ -514,6 +514,7 @@ mod tests {
             )
             .unwrap();
             ProviderSnapshot {
+                credit_packages: Vec::new(),
                 provider_id: "codex".into(),
                 plan: mapped.plan,
                 quotas: mapped.quotas,

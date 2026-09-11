@@ -102,6 +102,7 @@
       providerId,
       plan: null,
       quotas: [],
+      creditPackages: [],
       valueMetrics: [],
       statusMetrics: [],
       notices: [],
@@ -615,6 +616,7 @@
               {now}
               {catalog}
               {onSettingsChange}
+              expanded={provider.expanded}
             />
           </div>
         {/each}
@@ -678,6 +680,7 @@
                     {now}
                     {catalog}
                     {onSettingsChange}
+                    expanded={provider.expanded}
                   />
                 </div>
               {/each}

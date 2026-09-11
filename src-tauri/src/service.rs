@@ -890,6 +890,7 @@ mod tests {
 
     fn test_snapshot(provider_id: &str) -> ProviderSnapshot {
         ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: provider_id.into(),
             plan: None,
             quotas: Vec::new(),
@@ -933,6 +934,7 @@ mod tests {
     #[test]
     fn failed_refresh_preserves_last_successful_snapshot_without_forcing_stale() {
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "codex".into(),
             plan: None,
             quotas: Vec::new(),

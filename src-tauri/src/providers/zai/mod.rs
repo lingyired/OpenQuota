@@ -143,6 +143,7 @@ impl ZaiProvider {
             subscription.as_ref().map(|response| &response.body),
         )?;
         Ok(ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "zai".into(),
             plan: mapped.plan,
             quotas: mapped.quotas,

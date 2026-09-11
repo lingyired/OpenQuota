@@ -96,10 +96,20 @@ export interface UsageHistory {
   completeness?: UsageCompleteness;
 }
 
+export interface CreditPackage {
+  code: string;
+  name: string;
+  total: number;
+  remaining: number;
+  used: number;
+  expiresAt: string | null;
+}
+
 export interface ProviderSnapshot {
   providerId: string;
   plan: string | null;
   quotas: QuotaWindow[];
+  creditPackages: CreditPackage[];
   valueMetrics: ValueMetric[];
   statusMetrics: StatusMetric[];
   notices: ProviderNotice[];
@@ -141,6 +151,7 @@ export type MetricSource =
   | { kind: 'quotaOrValue'; sourceId: string; sessionWindow: boolean }
   | { kind: 'value'; sourceId: string }
   | { kind: 'status'; sourceId: string }
+  | { kind: 'creditPackages' }
   | { kind: 'usage'; period: 'today' | 'yesterday' | 'last30Days' }
   | { kind: 'trend' };
 

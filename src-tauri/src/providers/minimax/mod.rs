@@ -119,6 +119,7 @@ impl MiniMaxProvider {
         let response = required_response(self.client.fetch(api_key))?;
         let mapped = map_usage(&response.body)?;
         Ok(ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "minimax".into(),
             plan: mapped.plan,
             quotas: mapped.quotas,

@@ -214,6 +214,7 @@ impl GrokProvider {
             &mut warnings,
         );
         Ok(ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "grok".into(),
             plan,
             quotas: mapped.quotas,

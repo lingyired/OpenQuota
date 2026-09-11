@@ -1,5 +1,4 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use chrono::{DateTime, Local, NaiveDate, NaiveDateTime, TimeZone, Utc};
 use serde_json::Value;
@@ -28,9 +27,11 @@ pub struct MappedResources {
     pub total: f64,
     pub remaining: f64,
     pub used: f64,
-    pub expiring_soon_remaining: f64,
+    pub available_packages: Vec<ResourcePackage>,
+    pub nearest_expiring_remaining: f64,
     pub expired_remaining: f64,
     pub soonest_expire_at: Option<DateTime<Utc>>,
+    pub nearest_expiring_at: Option<DateTime<Utc>>,
 }
 
 const TOTAL_KEYS: &[&str] = &[
@@ -140,55 +141,62 @@ pub fn map_resources(
         );
     }
 
-    // WorkBuddy may return historical rows and several current rows for the same package code.
-    // Do not keep the first row: that is often an expired zero-balance record.
-    let mut packages = merge_packages(packages, now);
+    // Keep every detail row as an independent package. WorkBuddy can return multiple
+    // active credit packages with the same PackageCode but different expiry dates;
+    // grouping by code would incorrectly collapse them into one balance.
     packages.sort_by(|left, right| {
         left.expire_at
             .cmp(&right.expire_at)
             .then_with(|| left.package_code.cmp(&right.package_code))
     });
 
-    // Treat the seventh calendar day as part of the "expiring soon" window.
-    // WorkBuddy commonly returns date-only expirations, which represent the end of
-    // that local calendar day rather than the exact current time plus seven days.
-    let soon_limit = now.date_naive() + chrono::Days::new(7);
     let mut total = 0.0;
     let mut remaining = 0.0;
     let mut used = 0.0;
-    let mut expiring_soon_remaining = 0.0;
+    let mut available_packages = Vec::new();
+    let mut nearest_expiring_remaining = 0.0;
+    let mut nearest_expiring_at = None;
     let mut expired_remaining = 0.0;
     let mut soonest_expire_at = None;
     for package in &packages {
-        total += package.total;
-        remaining += package.remaining;
-        used += package.used;
-        if package.remaining <= 0.0 {
+        if package.remaining <= 0.0 || package.status == Some(3) {
             continue;
         }
         if let Some(expire_at) = package.expire_at {
             if expire_at <= now.with_timezone(&Utc) {
                 expired_remaining += package.remaining;
-            } else {
-                soonest_expire_at = Some(
-                    soonest_expire_at
-                        .map_or(expire_at, |current: DateTime<Utc>| current.min(expire_at)),
-                );
-                if expire_at.with_timezone(&Local).date_naive() <= soon_limit {
-                    expiring_soon_remaining += package.remaining;
-                }
+                continue;
+            }
+            soonest_expire_at = Some(
+                soonest_expire_at
+                    .map_or(expire_at, |current: DateTime<Utc>| current.min(expire_at)),
+            );
+            if nearest_expiring_at.is_none_or(|current| expire_at < current) {
+                nearest_expiring_at = Some(expire_at);
+                nearest_expiring_remaining = package.remaining;
             }
         }
+        total += package.total;
+        remaining += package.remaining;
+        used += package.used;
+        available_packages.push(package.clone());
     }
+    available_packages.sort_by(|left, right| {
+        left.expire_at
+            .cmp(&right.expire_at)
+            .then_with(|| left.package_code.cmp(&right.package_code))
+    });
 
     Ok(MappedResources {
         packages,
+        available_packages,
         total: non_negative(total),
         remaining: non_negative(remaining),
         used: non_negative(used),
-        expiring_soon_remaining: non_negative(expiring_soon_remaining),
+        nearest_expiring_remaining: non_negative(nearest_expiring_remaining),
         expired_remaining: non_negative(expired_remaining),
         soonest_expire_at,
+        nearest_expiring_at,
     })
 }
 
@@ -198,74 +206,6 @@ fn looks_like_package(object: &serde_json::Map<String, Value>) -> bool {
         || TOTAL_KEYS.iter().any(|key| object.contains_key(*key))
         || REMAINING_KEYS.iter().any(|key| object.contains_key(*key))
         || USED_KEYS.iter().any(|key| object.contains_key(*key))
-}
-
-fn merge_packages(packages: Vec<ResourcePackage>, now: DateTime<Local>) -> Vec<ResourcePackage> {
-    let mut groups: HashMap<String, Vec<ResourcePackage>> = HashMap::new();
-    for package in packages {
-        groups
-            .entry(package.package_code.clone())
-            .or_default()
-            .push(package);
-    }
-
-    groups
-        .into_values()
-        .map(|group| merge_package_group(&group, now))
-        .collect()
-}
-
-fn merge_package_group(group: &[ResourcePackage], now: DateTime<Local>) -> ResourcePackage {
-    let mut current = group
-        .iter()
-        .filter(|package| !is_expired(package, now) && package.status != Some(3))
-        .collect::<Vec<_>>();
-
-    if current.is_empty() {
-        current = vec![group
-            .iter()
-            .max_by(|left, right| compare_expiration(left, right))
-            .expect("package group cannot be empty")];
-    }
-
-    let first = current[0];
-    let package_name = current
-        .iter()
-        .find_map(|package| {
-            (!package.package_name.is_empty()).then(|| package.package_name.clone())
-        })
-        .unwrap_or_else(|| first.package_name.clone());
-    let status = current
-        .iter()
-        .find_map(|package| (package.status == Some(0)).then_some(0))
-        .or(first.status);
-    let expire_at = if current.iter().all(|package| package.expire_at.is_some()) {
-        current.iter().filter_map(|package| package.expire_at).min()
-    } else {
-        None
-    };
-
-    ResourcePackage {
-        package_code: first.package_code.clone(),
-        package_name,
-        total: current.iter().map(|package| package.total).sum(),
-        remaining: current.iter().map(|package| package.remaining).sum(),
-        used: current.iter().map(|package| package.used).sum(),
-        status,
-        expire_at,
-    }
-}
-
-fn is_expired(package: &ResourcePackage, now: DateTime<Local>) -> bool {
-    package
-        .expire_at
-        .is_some_and(|expire_at| expire_at <= now.with_timezone(&Utc))
-}
-
-fn compare_expiration(left: &ResourcePackage, right: &ResourcePackage) -> Ordering {
-    left.expire_at
-        .cmp(&right.expire_at)
-        .then_with(|| left.remaining.total_cmp(&right.remaining))
 }
 
 fn parse_packages(items: &[Value]) -> Vec<ResourcePackage> {
@@ -457,11 +397,12 @@ mod tests {
             mapped.packages[0].expire_at,
             Some(Utc.with_ymd_and_hms(2026, 9, 18, 15, 59, 59).unwrap())
         );
-        assert_eq!(mapped.expiring_soon_remaining, 75.25);
+        assert_eq!(mapped.nearest_expiring_remaining, 75.25);
+        assert_eq!(mapped.available_packages.len(), 1);
     }
 
     #[test]
-    fn aggregates_active_duplicate_details_instead_of_using_a_stale_first_record() {
+    fn keeps_active_duplicate_details_as_separate_packages() {
         let now = Local.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
         let free = json!({"data":{"Accounts":[
             {
@@ -489,10 +430,70 @@ mod tests {
 
         let mapped = map_resources(None, None, Some(&free), now).unwrap();
 
-        assert_eq!(mapped.packages.len(), 1);
+        assert_eq!(mapped.packages.len(), 3);
+        assert_eq!(mapped.available_packages.len(), 2);
         assert!((mapped.total - 3100.0).abs() < 0.0001);
         assert!((mapped.remaining - 833.0400047).abs() < 0.0001);
         assert!((mapped.used - 2266.9599953).abs() < 0.0001);
+    }
+
+    #[test]
+    fn selects_only_the_nearest_expiring_positive_balance_package() {
+        let now = Local.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let body = json!({"data":{"Packages":[
+            {"PackageCode":"later","PackageName":"Later","CapacitySize":100,"CapacityRemain":80,"ExpiredTime":"2026-12-31","Status":0},
+            {"PackageCode":"soon","PackageName":"Soon","CapacitySize":50,"CapacityRemain":12.5,"ExpiredTime":"2026-09-20","Status":0},
+            {"PackageCode":"zero","PackageName":"Zero","CapacitySize":40,"CapacityRemain":0,"ExpiredTime":"2026-09-12","Status":0},
+            {"PackageCode":"expired","PackageName":"Expired","CapacitySize":30,"CapacityRemain":25,"ExpiredTime":"2026-09-10","Status":0}
+        ]}});
+
+        let mapped = map_resources(Some(&body), None, None, now).unwrap();
+
+        assert_eq!(mapped.available_packages.len(), 2);
+        assert_eq!(mapped.available_packages[0].package_code, "soon");
+        assert_eq!(mapped.available_packages[1].package_code, "later");
+        assert_eq!(mapped.nearest_expiring_remaining, 12.5);
+        assert_eq!(
+            mapped.nearest_expiring_at,
+            Some(Utc.with_ymd_and_hms(2026, 9, 20, 15, 59, 59).unwrap())
+        );
+    }
+
+    #[test]
+    fn preserves_six_same_code_packages_and_selects_the_nearest_package_only() {
+        let now = Local.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let body = json!({"data":{"Accounts":[
+            {"PackageCode":"same-code","PackageName":"积分包","CapacitySize":100,"CapacityRemain":71.38,"ExpiredTime":"2026-10-08","Status":0},
+            {"PackageCode":"same-code","PackageName":"积分包","CapacitySize":100,"CapacityRemain":20,"ExpiredTime":"2026-10-15","Status":0},
+            {"PackageCode":"same-code","PackageName":"积分包","CapacitySize":100,"CapacityRemain":30,"ExpiredTime":"2026-10-22","Status":0},
+            {"PackageCode":"same-code","PackageName":"积分包","CapacitySize":100,"CapacityRemain":40,"ExpiredTime":"2026-10-29","Status":0},
+            {"PackageCode":"same-code","PackageName":"积分包","CapacitySize":100,"CapacityRemain":50,"ExpiredTime":"2026-11-05","Status":0},
+            {"PackageCode":"same-code","PackageName":"积分包","CapacitySize":100,"CapacityRemain":60,"ExpiredTime":"2026-11-12","Status":0}
+        ]}});
+
+        let mapped = map_resources(None, None, Some(&body), now).unwrap();
+
+        assert_eq!(mapped.available_packages.len(), 6);
+        assert!((mapped.remaining - 271.38).abs() < 0.0001);
+        assert_eq!(mapped.nearest_expiring_remaining, 71.38);
+        assert_eq!(
+            mapped.nearest_expiring_at,
+            Some(Utc.with_ymd_and_hms(2026, 10, 8, 15, 59, 59).unwrap())
+        );
+    }
+
+    #[test]
+    fn nearest_expiring_package_ignores_packages_without_an_expiry() {
+        let now = Local.with_ymd_and_hms(2026, 9, 11, 12, 0, 0).unwrap();
+        let body = json!({"data":{"Packages":[
+            {"PackageCode":"unlimited","CapacitySize":100,"CapacityRemain":90,"Status":0},
+            {"PackageCode":"dated","CapacitySize":50,"CapacityRemain":12,"ExpiredTime":"2026-09-20","Status":0}
+        ]}});
+
+        let mapped = map_resources(Some(&body), None, None, now).unwrap();
+
+        assert_eq!(mapped.available_packages.len(), 2);
+        assert_eq!(mapped.nearest_expiring_remaining, 12.0);
     }
 
     #[test]

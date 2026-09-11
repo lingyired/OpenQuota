@@ -366,6 +366,7 @@ fn remote_plan(value: &Value) -> Option<String> {
 
 fn snapshot(plan: Option<String>, quotas: Vec<crate::models::QuotaWindow>) -> ProviderSnapshot {
     ProviderSnapshot {
+        credit_packages: Vec::new(),
         provider_id: "antigravity".into(),
         plan,
         quotas,

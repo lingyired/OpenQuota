@@ -2191,6 +2191,7 @@ mod tests {
             )
             .unwrap();
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "codex".into(),
             plan: Some("Plus".into()),
             quotas: Vec::new(),

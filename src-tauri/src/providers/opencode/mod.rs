@@ -268,6 +268,7 @@ fn snapshot(
     refreshed_at: DateTime<Utc>,
 ) -> ProviderSnapshot {
     ProviderSnapshot {
+        credit_packages: Vec::new(),
         provider_id: "opencode".into(),
         plan,
         quotas,

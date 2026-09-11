@@ -248,6 +248,7 @@ mod tests {
 
     fn codex_snapshot(usage: UsageHistory) -> ProviderSnapshot {
         ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "codex".into(),
             plan: None,
             quotas: Vec::new(),

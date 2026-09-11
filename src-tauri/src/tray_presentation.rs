@@ -274,6 +274,7 @@ fn tray_metric(
         MetricSource::Usage { period } => {
             usage_metric(&definition.label, usage_period(snapshot, *period))
         }
+        MetricSource::CreditPackages => None,
         MetricSource::Trend => None,
     }
 }
@@ -394,7 +395,7 @@ mod tests {
             ProviderViewState, QuotaWindow, SnapshotSource, StatusMetric, StatusTone, UsageHistory,
             ValueMetric,
         },
-        providers::{codex, cursor, ProviderRegistry},
+        providers::{codex, cursor, workbuddy, ProviderRegistry},
         settings::default_settings,
     };
 
@@ -414,6 +415,7 @@ mod tests {
     #[test]
     fn pinned_quota_metrics_resolve_in_layout_order() {
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "codex".into(),
             plan: None,
             quotas: vec![
@@ -500,6 +502,7 @@ mod tests {
     #[test]
     fn count_quota_display_changes_text_and_fill_but_not_status_fraction() {
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "cursor".into(),
             plan: None,
             quotas: vec![QuotaWindow {
@@ -556,6 +559,7 @@ mod tests {
         // weekly this round: session must stay visible as NA on both the
         // macOS menubar and Windows taskband paths instead of being dropped.
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "codex".into(),
             plan: None,
             quotas: vec![QuotaWindow {
@@ -661,6 +665,7 @@ mod tests {
     #[test]
     fn pinned_value_metrics_keep_numeric_values_outside_quota_bars() {
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "codex".into(),
             plan: None,
             quotas: Vec::new(),
@@ -702,8 +707,96 @@ mod tests {
     }
 
     #[test]
+    fn workbuddy_nearest_expiring_tray_value_is_a_bare_count() {
+        let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
+            provider_id: "workbuddy".into(),
+            plan: None,
+            quotas: Vec::new(),
+            value_metrics: vec![ValueMetric {
+                id: "nearestExpiring".into(),
+                label: "近期到期的积分包".into(),
+                values: vec![MetricValue {
+                    number: 71.38,
+                    kind: MetricValueKind::Count,
+                    label: None,
+                    estimated: false,
+                }],
+                expiries_at: Vec::new(),
+            }],
+            status_metrics: Vec::new(),
+            notices: Vec::new(),
+            usage: UsageHistory::default(),
+            warnings: Vec::new(),
+            refreshed_at: Utc::now(),
+        };
+        let catalog =
+            ProviderRegistry::from_definitions(vec![workbuddy::definition(), codex::definition()])
+                .unwrap();
+        let metric = super::tray_metric(
+            catalog.metric("workbuddy.nearestExpiring").unwrap(),
+            &snapshot,
+            crate::models::UsageDisplay::Left,
+        )
+        .unwrap();
+
+        assert_eq!(metric.value, "71");
+    }
+
+    #[test]
+    fn workbuddy_credits_tray_value_tracks_the_remaining_balance() {
+        let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
+            provider_id: "workbuddy".into(),
+            plan: None,
+            quotas: vec![QuotaWindow {
+                id: "credits".into(),
+                label: "Credits".into(),
+                used_percent: 69.24826527662142,
+                resets_at: None,
+                period_seconds: 0,
+                format: crate::models::QuotaFormat::Count,
+                used_value: Some(2295.57999392),
+                limit_value: Some(3315.0),
+                unit: Some("credits".into()),
+                estimated: false,
+                source_note: None,
+            }],
+            value_metrics: vec![ValueMetric {
+                id: "balance".into(),
+                label: "Balance".into(),
+                values: vec![MetricValue {
+                    number: 1019.42000608,
+                    kind: MetricValueKind::Count,
+                    label: None,
+                    estimated: false,
+                }],
+                expiries_at: Vec::new(),
+            }],
+            status_metrics: Vec::new(),
+            notices: Vec::new(),
+            usage: UsageHistory::default(),
+            warnings: Vec::new(),
+            refreshed_at: Utc::now(),
+        };
+        let catalog =
+            ProviderRegistry::from_definitions(vec![workbuddy::definition(), codex::definition()])
+                .unwrap();
+
+        let metric = super::tray_metric(
+            catalog.metric("workbuddy.credits").unwrap(),
+            &snapshot,
+            crate::models::UsageDisplay::Used,
+        )
+        .unwrap();
+
+        assert_eq!(metric.value, "1.0K");
+    }
+
+    #[test]
     fn pinned_status_metrics_keep_text_and_never_create_a_gauge() {
         let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
             provider_id: "grok".into(),
             plan: None,
             quotas: Vec::new(),

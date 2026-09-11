@@ -244,10 +244,24 @@ pub struct UsageHistory {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
+pub struct CreditPackage {
+    pub code: String,
+    pub name: String,
+    pub total: f64,
+    pub remaining: f64,
+    pub used: f64,
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
 pub struct ProviderSnapshot {
     pub provider_id: String,
     pub plan: Option<String>,
     pub quotas: Vec<QuotaWindow>,
+    #[serde(default)]
+    pub credit_packages: Vec<CreditPackage>,
     #[serde(default)]
     pub value_metrics: Vec<ValueMetric>,
     #[serde(default)]
@@ -347,6 +361,7 @@ pub enum MetricSource {
         #[serde(rename = "sourceId")]
         source_id: String,
     },
+    CreditPackages,
     Usage {
         period: UsagePeriodSelection,
     },
@@ -360,7 +375,7 @@ impl MetricSource {
             | Self::QuotaOrValue { source_id, .. }
             | Self::Value { source_id }
             | Self::Status { source_id } => Some(source_id),
-            Self::Usage { .. } | Self::Trend => None,
+            Self::CreditPackages | Self::Usage { .. } | Self::Trend => None,
         }
     }
 

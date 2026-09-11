@@ -441,6 +441,7 @@ fn snapshot(
     refreshed_at: chrono::DateTime<Utc>,
 ) -> ProviderSnapshot {
     ProviderSnapshot {
+        credit_packages: Vec::new(),
         provider_id: "cursor".into(),
         plan: mapped.plan,
         quotas: mapped.quotas,

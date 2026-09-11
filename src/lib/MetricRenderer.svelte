@@ -2,6 +2,7 @@
   import { locale } from 'svelte-i18n';
   import { tBackend, tStore } from './i18n';
   import { usageSourceNote, type ProviderCatalogIndex } from './metrics';
+  import CreditPackageList from './CreditPackageList.svelte';
   import QuotaMetric from './QuotaMetric.svelte';
   import StatusMetric from './StatusMetric.svelte';
   import UsageMetric from './UsageMetric.svelte';
@@ -16,8 +17,17 @@
     now: number;
     catalog: ProviderCatalogIndex;
     onSettingsChange: (settings: AppSettings) => void;
+    expanded?: boolean;
   }
-  let { layout, snapshot, settings, now, catalog, onSettingsChange }: Props = $props();
+  let {
+    layout,
+    snapshot,
+    settings,
+    now,
+    catalog,
+    onSettingsChange,
+    expanded = false,
+  }: Props = $props();
   const definition = $derived(catalog.metric(layout.id));
   const currentLocale = $derived($locale);
   const localizedLabel = $derived.by(() => {
@@ -102,6 +112,8 @@
   </section>
 {:else if definition?.source.kind === 'trend'}
   <UsageTrend daily={snapshot.usage.daily} sourceNote={resolvedUsageSourceNote} />
+{:else if definition?.source.kind === 'creditPackages'}
+  <CreditPackageList packages={snapshot.creditPackages} {expanded} />
 {:else if definition?.source.kind === 'status'}
   <StatusMetric label={localizedLabel} metric={statusMetric} />
 {:else if definition?.source.kind === 'usage'}

@@ -10,10 +10,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::models::{
-    MetricDefinition, MetricSection, MetricValue, MetricValueKind, ProviderDefinition,
-    ProviderErrorKind, ProviderLink, ProviderNotice, ProviderNoticeTone, ProviderSnapshot,
-    QuotaFormat, QuotaWindow, StatusMetric, UsageCompleteness, UsageHistory, UsagePeriodSelection,
-    ValueMetric,
+    CreditPackage, MetricDefinition, MetricSection, MetricSource, MetricValue, MetricValueKind,
+    ProviderDefinition, ProviderErrorKind, ProviderLink, ProviderNotice, ProviderNoticeTone,
+    ProviderSnapshot, QuotaWindow, StatusMetric, UsageCompleteness, UsageHistory,
+    UsagePeriodSelection, ValueMetric,
 };
 
 use self::{
@@ -30,7 +30,7 @@ const SOURCE_NOTE: &str = "WorkBuddy official usage";
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
         id: PROVIDER_ID.into(),
-        display_name: "WorkBuddy".into(),
+        display_name: "Workbuddy CN".into(),
         short_name: "WB".into(),
         fallback_enabled: false,
         local_usage_source_note: None,
@@ -39,25 +39,36 @@ pub(crate) fn definition() -> ProviderDefinition {
             ProviderLink::new("WorkBuddy", "https://www.workbuddy.cn/"),
         ],
         metrics: vec![
-            MetricDefinition::quota(
+            MetricDefinition::value(
                 "workbuddy.credits",
                 "Credits",
-                "credits",
-                false,
+                "balance",
                 true,
                 MetricSection::AlwaysVisible,
                 true,
                 "C",
+                None,
             ),
             MetricDefinition::value(
-                "workbuddy.balance",
-                "Balance",
-                "balance",
+                "workbuddy.nearestExpiring",
+                "近期到期的积分包",
+                "nearestExpiring",
                 true,
                 MetricSection::AlwaysVisible,
                 false,
-                "B",
-                Some("credits"),
+                "近",
+                None,
+            ),
+            MetricDefinition::new(
+                "workbuddy.creditPackages",
+                "可用积分包",
+                MetricSource::CreditPackages,
+                false,
+                true,
+                MetricSection::AlwaysVisible,
+                false,
+                None,
+                None,
             ),
             MetricDefinition::usage(
                 "workbuddy.today",
@@ -650,6 +661,22 @@ fn build_snapshot(
     now: DateTime<Local>,
 ) -> ProviderSnapshot {
     let (quotas, value_metrics) = resources.map(map_resource_metrics).unwrap_or_default();
+    let credit_packages = resources
+        .map(|resources| {
+            resources
+                .available_packages
+                .iter()
+                .map(|package| CreditPackage {
+                    code: package.package_code.clone(),
+                    name: package.package_name.clone(),
+                    total: package.total,
+                    remaining: package.remaining,
+                    used: package.used,
+                    expires_at: package.expire_at,
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let completeness = usage.completeness;
     let notices = match completeness {
         UsageCompleteness::Partial => vec![ProviderNotice {
@@ -668,6 +695,7 @@ fn build_snapshot(
         UsageCompleteness::Complete => Vec::new(),
     };
     ProviderSnapshot {
+        credit_packages,
         provider_id: PROVIDER_ID.into(),
         plan: None,
         quotas,
@@ -680,32 +708,14 @@ fn build_snapshot(
     }
 }
 
+/// WorkBuddy exposes its credits as a remaining-balance value metric rather than a
+/// consumed-versus-total quota: the snapshot contract requires every quota/value
+/// metric to be referenced by the provider definition, and the aggregate
+/// used/total split already lives in each credit package row. Returning no quota
+/// keeps "Credits" a single, unambiguous number (可用积分).
 fn map_resource_metrics(resources: &MappedResources) -> (Vec<QuotaWindow>, Vec<ValueMetric>) {
-    let used_percent = if resources.total > 0.0 {
-        (resources.used / resources.total * 100.0).clamp(0.0, 100.0)
-    } else {
-        0.0
-    };
-    let resets_at = resources.soonest_expire_at;
-    let period_seconds = resets_at
-        .and_then(|value| (value - Utc::now()).to_std().ok())
-        .map(|duration| duration.as_secs())
-        .unwrap_or(0);
-    let quota = QuotaWindow {
-        id: "credits".into(),
-        label: "Credits".into(),
-        used_percent,
-        resets_at,
-        period_seconds,
-        format: QuotaFormat::Count,
-        used_value: Some(resources.used),
-        limit_value: Some(resources.total),
-        unit: Some("credits".into()),
-        estimated: false,
-        source_note: Some("From WorkBuddy billing APIs".into()),
-    };
     let expiries_at = resources
-        .packages
+        .available_packages
         .iter()
         .filter_map(|package| package.expire_at)
         .collect();
@@ -715,12 +725,23 @@ fn map_resource_metrics(resources: &MappedResources) -> (Vec<QuotaWindow>, Vec<V
         values: vec![MetricValue {
             number: resources.remaining,
             kind: MetricValueKind::Count,
-            label: Some("credits".into()),
+            label: None,
             estimated: false,
         }],
         expiries_at,
     };
-    (vec![quota], vec![balance])
+    let nearest_expiring = ValueMetric {
+        id: "nearestExpiring".into(),
+        label: "近期到期的积分包".into(),
+        values: vec![MetricValue {
+            number: resources.nearest_expiring_remaining,
+            kind: MetricValueKind::Count,
+            label: None,
+            estimated: false,
+        }],
+        expiries_at: resources.nearest_expiring_at.into_iter().collect(),
+    };
+    (Vec::new(), vec![balance, nearest_expiring])
 }
 
 #[cfg(test)]
@@ -728,15 +749,38 @@ mod tests {
     use reqwest::StatusCode;
     use serde_json::json;
 
-    use super::{classify_endpoint, definition, EndpointResponse, ResourceOutcome, WorkBuddyError};
-    use crate::models::ProviderErrorKind;
+    use super::{
+        classify_endpoint, definition, map_resource_metrics, EndpointResponse, ResourceOutcome,
+        WorkBuddyError,
+    };
+    use crate::models::{MetricSection, MetricSource, ProviderErrorKind};
+    use crate::providers::workbuddy::mapper::{MappedResources, ResourcePackage};
     use crate::providers::ProviderError;
+    use chrono::{TimeZone, Utc};
 
     #[test]
     fn definition_exposes_credit_and_usage_metrics() {
         let definition = definition();
         assert_eq!(definition.id, "workbuddy");
         assert_eq!(definition.short_name, "WB");
+        assert_eq!(definition.display_name, "Workbuddy CN");
+        let nearest = definition
+            .metrics
+            .iter()
+            .find(|metric| metric.id == "workbuddy.nearestExpiring")
+            .expect("nearest expiring metric");
+        assert_eq!(nearest.label, "近期到期的积分包");
+        assert!(nearest.pinnable);
+        assert_eq!(nearest.tray.as_ref().unwrap().suffix, None);
+        let packages = definition
+            .metrics
+            .iter()
+            .find(|metric| metric.id == "workbuddy.creditPackages")
+            .expect("credit packages metric");
+        assert_eq!(packages.source, MetricSource::CreditPackages);
+        assert!(packages.default_enabled);
+        assert_eq!(packages.default_section, MetricSection::AlwaysVisible);
+        assert!(!packages.pinnable);
         assert!(definition
             .metrics
             .iter()
@@ -745,6 +789,27 @@ mod tests {
             .metrics
             .iter()
             .any(|metric| metric.id == "workbuddy.trend"));
+    }
+
+    #[test]
+    fn credits_metric_replaces_the_duplicate_balance_metric() {
+        let definition = definition();
+        let credits = definition
+            .metrics
+            .iter()
+            .find(|metric| metric.id == "workbuddy.credits")
+            .expect("credits metric");
+        assert_eq!(
+            credits.source,
+            MetricSource::Value {
+                source_id: "balance".into()
+            }
+        );
+        assert!(credits.default_pinned);
+        assert!(!definition
+            .metrics
+            .iter()
+            .any(|metric| metric.id == "workbuddy.balance"));
     }
 
     #[test]
@@ -766,5 +831,126 @@ mod tests {
             body: json!({"code": 403, "message": "token expired"}),
         }));
         assert!(matches!(body_unauthorized, ResourceOutcome::Unauthorized));
+    }
+
+    #[test]
+    fn mapped_metrics_are_all_exposed_by_the_definition() {
+        let resources = MappedResources {
+            packages: Vec::new(),
+            total: 3315.0,
+            remaining: 1019.42,
+            used: 2295.58,
+            available_packages: Vec::new(),
+            nearest_expiring_remaining: 71.38,
+            expired_remaining: 0.0,
+            soonest_expire_at: resources_expiry(),
+            nearest_expiring_at: resources_expiry(),
+        };
+
+        let (quotas, value_metrics) = map_resource_metrics(&resources);
+        let definition = definition();
+        let quota_sources = definition
+            .metrics
+            .iter()
+            .filter_map(|metric| match &metric.source {
+                MetricSource::Quota { source_id, .. }
+                | MetricSource::QuotaOrValue { source_id, .. } => Some(source_id.as_str()),
+                _ => None,
+            })
+            .collect::<std::collections::HashSet<_>>();
+        let value_sources = definition
+            .metrics
+            .iter()
+            .filter_map(|metric| match &metric.source {
+                MetricSource::Value { source_id } => Some(source_id.as_str()),
+                _ => None,
+            })
+            .collect::<std::collections::HashSet<_>>();
+
+        assert!(
+            quotas
+                .iter()
+                .all(|quota| quota_sources.contains(quota.id.as_str())),
+            "snapshot quotas must be referenced by the provider definition: {quotas:?}"
+        );
+        assert!(
+            value_metrics
+                .iter()
+                .all(|metric| value_sources.contains(metric.id.as_str())),
+            "snapshot value metrics must be referenced by the provider definition"
+        );
+    }
+
+    #[test]
+    fn balance_value_omits_the_redundant_credit_unit_label() {
+        let resources = MappedResources {
+            packages: Vec::new(),
+            total: 3315.0,
+            remaining: 1019.42,
+            used: 2295.58,
+            available_packages: Vec::new(),
+            nearest_expiring_remaining: 71.38,
+            expired_remaining: 0.0,
+            soonest_expire_at: resources_expiry(),
+            nearest_expiring_at: resources_expiry(),
+        };
+
+        let (_, value_metrics) = map_resource_metrics(&resources);
+        let balance = value_metrics
+            .iter()
+            .find(|metric| metric.id == "balance")
+            .expect("balance metric");
+
+        assert_eq!(balance.values[0].label, None);
+    }
+
+    #[test]
+    fn balance_expiries_only_include_current_credit_packages() {
+        let historical = ResourcePackage {
+            package_code: "historical".into(),
+            package_name: "历史积分包".into(),
+            total: 100.0,
+            remaining: 0.0,
+            used: 100.0,
+            status: Some(0),
+            expire_at: Some(Utc.with_ymd_and_hms(2026, 9, 1, 0, 0, 0).unwrap()),
+        };
+        let current = ResourcePackage {
+            package_code: "current".into(),
+            package_name: "当前积分包".into(),
+            total: 100.0,
+            remaining: 71.38,
+            used: 28.62,
+            status: Some(0),
+            expire_at: Some(Utc.with_ymd_and_hms(2026, 10, 8, 15, 59, 59).unwrap()),
+        };
+        let resources = MappedResources {
+            packages: vec![historical, current.clone()],
+            total: 100.0,
+            remaining: 71.38,
+            used: 28.62,
+            available_packages: vec![current],
+            nearest_expiring_remaining: 71.38,
+            expired_remaining: 0.0,
+            soonest_expire_at: resources_expiry(),
+            nearest_expiring_at: resources_expiry(),
+        };
+
+        let (_, value_metrics) = map_resource_metrics(&resources);
+        let balance = value_metrics
+            .iter()
+            .find(|metric| metric.id == "balance")
+            .expect("balance metric");
+        let nearest = value_metrics
+            .iter()
+            .find(|metric| metric.id == "nearestExpiring")
+            .expect("nearest expiring metric");
+
+        assert_eq!(balance.expiries_at, vec![resources_expiry().unwrap()]);
+        assert_eq!(nearest.values[0].label, None);
+    }
+
+    fn resources_expiry() -> Option<chrono::DateTime<Utc>> {
+        Some(Utc.with_ymd_and_hms(2026, 10, 8, 15, 59, 59).unwrap())
     }
 }
