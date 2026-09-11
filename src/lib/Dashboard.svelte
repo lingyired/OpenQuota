@@ -90,6 +90,8 @@
   };
   const providerDisplayName = (id: string) => catalog.displayName(id, settings.providerNames);
   const providerSupportsSpend = (id: string) => catalog.supportsSpend(id);
+  const providerExpanded = (provider: ProviderLayout) =>
+    provider.expanded || provider.id === focusedProviderId;
   const emptyUsage: UsageHistory = {
     today: null,
     yesterday: null,
@@ -632,7 +634,7 @@
               {now}
               {catalog}
               {onSettingsChange}
-              expanded={provider.expanded}
+              expanded={providerExpanded(provider)}
             />
           </div>
         {/each}
@@ -698,7 +700,7 @@
                     {now}
                     {catalog}
                     {onSettingsChange}
-                    expanded={provider.expanded}
+                    expanded={providerExpanded(provider)}
                   />
                 </div>
               {/each}
