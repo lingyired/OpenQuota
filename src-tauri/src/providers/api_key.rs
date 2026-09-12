@@ -3,9 +3,7 @@ use std::{fs, path::PathBuf, sync::Arc};
 use crate::models::ApiKeyStatus;
 use zeroize::Zeroizing;
 
-use super::credential_store::{delete_owned_password, read_owned_password, write_owned_password};
-
-const SERVICE: &str = "com.lingyi.usage01.api-key";
+use super::credential_vault;
 
 pub struct SecretBytes(Zeroizing<Vec<u8>>);
 
@@ -45,28 +43,23 @@ pub trait SecretBackend: Send + Sync {
 }
 
 #[derive(Default)]
-struct SystemSecretBackend;
+struct VaultSecretBackend;
 
-impl SecretBackend for SystemSecretBackend {
+impl SecretBackend for VaultSecretBackend {
     fn read(&self, account: &str) -> Result<Option<SecretBytes>, String> {
-        read_owned_password(SERVICE, account).map(|value| value.map(SecretBytes::new))
+        credential_vault::read(account).map(|value| value.map(SecretBytes::new))
     }
 
     fn exists(&self, account: &str) -> Result<bool, String> {
-        super::credential_store::generic_password_exists(
-            SERVICE,
-            account,
-            std::time::Duration::from_secs(2),
-        )
-        .ok_or_else(|| "The system credential store could not be searched.".into())
+        credential_vault::contains(account)
     }
 
     fn write(&self, account: &str, value: &[u8]) -> Result<(), String> {
-        write_owned_password(SERVICE, account, value)
+        credential_vault::write(account, value)
     }
 
     fn delete(&self, account: &str) -> Result<(), String> {
-        delete_owned_password(SERVICE, account)
+        credential_vault::delete(account)
     }
 }
 
@@ -124,7 +117,7 @@ impl ApiKeyStore {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect(),
-            secrets: Arc::new(SystemSecretBackend),
+            secrets: Arc::new(VaultSecretBackend),
             environment: Arc::new(ProcessEnvironment),
             config_files: Arc::new(ProcessConfigFiles),
         }

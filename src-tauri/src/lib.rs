@@ -53,7 +53,7 @@ use crate::{
     pricing::PricingStore,
     providers::{
         antigravity::AntigravityProvider, claude, codex::reset_claim::CodexResetClaimService,
-        codex::CodexProvider, copilot::CopilotProvider, cursor::CursorProvider,
+        codex::CodexProvider, copilot::CopilotProvider, credential_vault, cursor::CursorProvider,
         deepseek::DeepSeekProvider, detect_local_credentials, devin::DevinProvider,
         grok::GrokProvider, kimi::KimiProvider, minimax::MiniMaxProvider,
         opencode::OpenCodeProvider, openrouter::OpenRouterProvider, trae::TraeProvider,
@@ -412,6 +412,8 @@ pub fn run() {
             app.manage(desktop_integration.clone());
 
             let app_data_dir = app.path().app_data_dir()?;
+            credential_vault::initialize(app_data_dir.join("credentials.vault"))
+                .map_err(std::io::Error::other)?;
             let database_path = app_data_dir.join("usage01.db");
             let storage = Arc::new(Storage::open(&database_path)?);
             provider_environment::initialize(storage.load_provider_environment()?);

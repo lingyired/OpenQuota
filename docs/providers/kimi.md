@@ -12,7 +12,8 @@ Usage01 tracks the Session (rolling five-hour) and Weekly quotas of a Kimi Code 
 ## Setup
 
 Create a Kimi Code API key in the [Kimi Code Console](https://www.kimi.com/code/console), then add
-it in **Customize** in Usage01. Saved keys are stored in the operating system's credential store.
+it in **Customize** in Usage01. Saved keys are stored in the encrypted credential vault protected by the operating system
+credential store.
 Usage01 also checks `KIMI_API_KEY` and `~/.config/usage01/kimi.json`; a key saved in the app
 takes priority.
 

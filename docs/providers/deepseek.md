@@ -16,7 +16,8 @@ instead of combining or converting them.
 ## Setup
 
 Create an API key in the [DeepSeek Platform](https://platform.deepseek.com/api_keys), then add it in
-**Customize** in Usage01. Saved keys use the operating system credential store. Usage01 also
+**Customize** in Usage01. Saved keys use the encrypted credential vault protected by the operating
+system credential store. Usage01 also
 checks `DEEPSEEK_API_KEY` and `~/.config/usage01/deepseek.json`; a key saved in the app takes
 priority.
 

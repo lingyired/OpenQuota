@@ -24,9 +24,9 @@ The same controls remain available in **Customize**. Complete the login in the w
 Usage01 captures the session automatically when that window closes. **I Have Signed In** remains
 available as a manual fallback.
 
-Usage01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the
-operating system credential store. The session is never sent to the frontend, written to logs, or
-shared with a browser profile. Usage01 exchanges it for a short-lived JWT in Rust before
+Usage01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the encrypted
+credential vault protected by the operating system credential store. The session is never sent to
+the frontend, written to logs, or shared with a browser profile. Usage01 exchanges it for a short-lived JWT in Rust before
 requesting credits. Choosing **Disconnect** removes both the stored session and the matching cookie
 from the app's WebView data store.
 

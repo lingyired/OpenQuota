@@ -72,8 +72,9 @@ from this repository's official release page; on macOS, manual approval may be r
 
 Most providers use credentials already available on your computer. OpenRouter, Z.ai, Kimi, MiniMax,
 and DeepSeek require API keys, which you can add in Customize; Usage01 stores them securely in your
-operating system's credential store. TraeWork CN uses a WebView sign-in and stores only the session
-cookie in the credential store. Codex subscription limits require a ChatGPT login and are not
+encrypted credential vault protected by the operating system credential store. TraeWork CN uses a
+WebView sign-in and stores only the session cookie in the credential store. Codex subscription
+limits require a ChatGPT login and are not
 available in API-key-only sessions.
 
 ## Features

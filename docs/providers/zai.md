@@ -12,8 +12,8 @@ Usage01 tracks quota information for the Z.ai GLM Coding Plan.
 
 ## Setup
 
-Add a Z.ai API key from **Customize** in Usage01. Saved keys are kept in the operating system's
-credential store. Usage01 also checks `ZAI_API_KEY`, `GLM_API_KEY`,
+Add a Z.ai API key from **Customize** in Usage01. Saved keys are kept in the encrypted credential
+vault protected by the operating system credential store. Usage01 also checks `ZAI_API_KEY`, `GLM_API_KEY`,
 `~/.config/usage01/zai.json`, and `~/.config/zai/key.json`; a key saved in the app takes priority.
 
 The key must belong to an account with an active GLM Coding Plan.

@@ -4,6 +4,7 @@ pub mod claude;
 pub mod codex;
 pub mod copilot;
 pub mod credential_store;
+pub(crate) mod credential_vault;
 pub mod cursor;
 mod daily_usage;
 pub mod deepseek;
