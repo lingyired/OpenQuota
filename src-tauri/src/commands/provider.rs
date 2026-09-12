@@ -1,6 +1,9 @@
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    sync::{Arc, Mutex},
+};
 
-use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WindowEvent};
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
@@ -14,6 +17,38 @@ use crate::{
     settings::SettingsService,
     tray_presentation,
 };
+
+const PROVIDER_SESSION_WINDOW_CLOSED_EVENT: &str = "provider-session-window-closed";
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ProviderSessionWindowClosedEvent {
+    provider_id: String,
+}
+
+#[derive(Default)]
+pub struct ProviderSessionCloseGuard(Mutex<HashSet<String>>);
+
+impl ProviderSessionCloseGuard {
+    fn mark(&self, window_label: &str) {
+        if let Ok(mut labels) = self.0.lock() {
+            labels.insert(window_label.to_owned());
+        }
+    }
+
+    fn unmark(&self, window_label: &str) {
+        if let Ok(mut labels) = self.0.lock() {
+            labels.remove(window_label);
+        }
+    }
+
+    fn consume(&self, window_label: &str) -> bool {
+        self.0
+            .lock()
+            .map(|mut labels| labels.remove(window_label))
+            .unwrap_or(false)
+    }
+}
 
 fn resolve_provider_link<'a>(
     registry: &'a ProviderRegistry,
@@ -202,11 +237,32 @@ pub fn open_provider_webview_login(
         .parse::<tauri::Url>()
         .map_err(|_| "The provider sign-in URL is invalid.".to_owned())?;
     let provider_name = runtime.definition().display_name;
-    tauri::WebviewWindowBuilder::new(&app, &auth.window_label, WebviewUrl::External(url))
-        .title(format!("Sign in to {provider_name}"))
-        .inner_size(1000.0, 720.0)
-        .build()
-        .map_err(|_| "The provider sign-in window could not be opened.".to_owned())?;
+    let window =
+        tauri::WebviewWindowBuilder::new(&app, &auth.window_label, WebviewUrl::External(url))
+            .title(format!("Sign in to {provider_name}"))
+            .inner_size(1000.0, 720.0)
+            .build()
+            .map_err(|_| "The provider sign-in window could not be opened.".to_owned())?;
+    let event_app = app.clone();
+    let event_provider_id = provider_id.clone();
+    let event_window_label = auth.window_label.clone();
+    window.on_window_event(move |event| {
+        if !matches!(event, WindowEvent::Destroyed) {
+            return;
+        }
+        if event_app
+            .state::<ProviderSessionCloseGuard>()
+            .consume(&event_window_label)
+        {
+            return;
+        }
+        let _ = event_app.emit(
+            PROVIDER_SESSION_WINDOW_CLOSED_EVENT,
+            ProviderSessionWindowClosedEvent {
+                provider_id: event_provider_id.clone(),
+            },
+        );
+    });
     Ok(())
 }
 
@@ -225,13 +281,16 @@ pub async fn capture_provider_session(
     let auth = runtime
         .webview_auth()
         .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
-    let window = app
-        .get_webview_window(&auth.window_label)
+    let login_window = app.get_webview_window(&auth.window_label);
+    let cookie_window = login_window
+        .clone()
+        .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW))
         .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
     // `cookies_for_url` compares the cookie domain exactly on macOS, which misses
     // valid parent-domain cookies such as `.trae.cn`; this window is dedicated to
-    // one provider, so enumerate its cookies and match the declared name.
-    let session = window
+    // one provider, so enumerate its cookies and match the declared name. If the
+    // user closed the login window, the main window still shares the cookie store.
+    let session = cookie_window
         .cookies()
         .map_err(|_| "The provider sign-in could not be read.".to_owned())?
         .into_iter()
@@ -254,7 +313,13 @@ pub async fn capture_provider_session(
     drop(command_guard);
     drop(credential_guard);
 
-    let _ = window.close();
+    if let Some(window) = login_window {
+        let close_guard = app.state::<ProviderSessionCloseGuard>();
+        close_guard.mark(&auth.window_label);
+        if window.close().is_err() {
+            close_guard.unmark(&auth.window_label);
+        }
+    }
     service.refresh(&provider_id, true).await;
     let usage = service.state();
     let _ = app.emit("usage-state", &usage);

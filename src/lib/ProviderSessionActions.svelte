@@ -4,6 +4,7 @@
     captureProviderSession,
     deleteProviderSession,
     getProviderSessionState,
+    onProviderSessionWindowClosed,
     openProviderWebviewLogin,
   } from './backend';
   import Icon from './Icon.svelte';
@@ -74,6 +75,16 @@
   }
 
   onMount(() => {
+    let disposed = false;
+    let unlisten: (() => void) | undefined;
+    void onProviderSessionWindowClosed((event) => {
+      if (!disposed && event.providerId === providerId && busy === null) {
+        void capture();
+      }
+    }).then((stop) => {
+      if (disposed) stop();
+      else unlisten = stop;
+    });
     void getProviderSessionState(providerId)
       .then((next) => {
         credentialState = next;
@@ -84,6 +95,10 @@
       .finally(() => {
         loading = false;
       });
+    return () => {
+      disposed = true;
+      unlisten?.();
+    };
   });
 </script>
 

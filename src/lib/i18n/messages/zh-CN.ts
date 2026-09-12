@@ -629,7 +629,7 @@ export const zhCn = {
     capturing: '正在检查…',
     disconnect: '断开连接',
     disconnecting: '正在断开…',
-    hint: '请在打开的窗口中完成登录，然后返回这里确认。',
+    hint: '请在打开的窗口中完成登录；关闭窗口后会自动连接。',
     loadError: '无法加载连接状态。',
     captureError: '登录未能完成。请确认已登录后重试。',
     disconnectError: '无法移除已保存的连接。',

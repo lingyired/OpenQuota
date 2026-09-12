@@ -4,8 +4,9 @@ import CustomizeProviderDetail from './CustomizeProviderDetail.svelte';
 import { ProviderCatalogIndex } from './metrics';
 import type { AppSettings, ProviderCatalog } from './types';
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 
 const catalogData: ProviderCatalog = {
   webviewAuthProviderIds: ['trae-cn'],
@@ -92,6 +93,7 @@ const settings: AppSettings = {
 
 describe('CustomizeProviderDetail session authentication', () => {
   beforeEach(() => {
+    mocks.listen.mockReset().mockResolvedValue(vi.fn());
     mocks.invoke.mockReset().mockImplementation((command: string) => {
       if (command === 'get_provider_session_state') {
         return Promise.resolve({ providerId: 'trae-cn', status: 'notSet' });

@@ -2,11 +2,13 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/sv
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProviderSessionSection from './ProviderSessionSection.svelte';
 
-const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
+const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
+vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 
 describe('ProviderSessionSection', () => {
   beforeEach(() => {
+    mocks.listen.mockReset().mockResolvedValue(vi.fn());
     mocks.invoke.mockReset().mockImplementation((command: string) => {
       if (command === 'get_provider_session_state') {
         return Promise.resolve({ providerId: 'trae-cn', status: 'notSet' });
@@ -39,6 +41,30 @@ describe('ProviderSessionSection', () => {
     expect(mocks.invoke).toHaveBeenCalledWith('open_provider_webview_login', {
       providerId: 'trae-cn',
     });
+  });
+
+  it('captures automatically when the provider sign-in window closes', async () => {
+    let eventHandler: ((event: { payload: { providerId: string } }) => void) | undefined;
+    mocks.listen.mockImplementation(
+      (_name: string, handler: (event: { payload: { providerId: string } }) => void) => {
+        eventHandler = handler;
+        return Promise.resolve(vi.fn());
+      },
+    );
+    render(ProviderSessionSection, {
+      providerId: 'trae-cn',
+      providerName: 'Trae CN',
+    });
+
+    await screen.findByText('Not connected');
+    eventHandler?.({ payload: { providerId: 'trae-cn' } });
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('capture_provider_session', {
+        providerId: 'trae-cn',
+      }),
+    );
+    expect(await screen.findByRole('status')).toHaveTextContent('Connected');
   });
 
   it('captures the signed-in WebView session and reports connected state', async () => {

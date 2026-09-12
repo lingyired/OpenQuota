@@ -69,6 +69,16 @@ export function deleteProviderSession(providerId: string) {
   return invoke<ProviderApiKeyState>('delete_provider_session', { providerId });
 }
 
+export interface ProviderSessionWindowClosed {
+  providerId: string;
+}
+
+export function onProviderSessionWindowClosed(
+  handler: PayloadHandler<ProviderSessionWindowClosed>,
+) {
+  return onEvent('provider-session-window-closed', handler);
+}
+
 export function getAppSettings() {
   return invoke<SettingsViewState>('get_app_settings');
 }

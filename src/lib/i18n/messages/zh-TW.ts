@@ -659,7 +659,7 @@ export const zhTw = {
     capturing: '正在檢查…',
     disconnect: '中斷連線',
     disconnecting: '正在中斷…',
-    hint: '請在開啟的視窗中完成登入，然後返回這裡確認。',
+    hint: '請在開啟的視窗中完成登入；關閉視窗後會自動連線。',
     loadError: '無法載入連線狀態。',
     captureError: '登入未能完成。請確認已登入後重試。',
     disconnectError: '無法移除已儲存的連線。',

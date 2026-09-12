@@ -659,7 +659,7 @@ export const fr = {
     capturing: 'Checking…',
     disconnect: 'Disconnect',
     disconnecting: 'Disconnecting…',
-    hint: 'Sign in in the window that opens, then return here and confirm.',
+    hint: 'Sign in in the window that opens. Usage01 will connect automatically when you close it.',
     loadError: 'Connection status could not be loaded.',
     captureError: 'The sign-in could not be completed. Make sure you are signed in and try again.',
     disconnectError: 'The saved connection could not be removed.',
