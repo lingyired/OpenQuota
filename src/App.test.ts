@@ -60,7 +60,7 @@ function mockInvoke(
   });
 }
 
-describe('OpenQuota01 dashboard', () => {
+describe('Usage01 dashboard', () => {
   beforeEach(() => {
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
@@ -98,8 +98,7 @@ describe('OpenQuota01 dashboard', () => {
       if (command === 'set_panel_height_manual') return Promise.resolve();
       if (command === 'begin_panel_resize') return Promise.resolve('bottom');
       if (command === 'lock_panel_resize_axis') return Promise.resolve();
-      if (command === 'get_log_path')
-        return Promise.resolve('C:\\OpenQuota01\\logs\\OpenQuota01.log');
+      if (command === 'get_log_path') return Promise.resolve('C:\\Usage01\\logs\\Usage01.log');
       if (command === 'open_log_folder') return Promise.resolve();
       if (command === 'dismiss_main_window') return Promise.resolve();
       if (command === 'check_for_updates')
@@ -130,7 +129,7 @@ describe('OpenQuota01 dashboard', () => {
       'data-tooltip',
       '$3.84 · Estimated locally, so it may be off',
     );
-    expect(screen.getByText(`OpenQuota01 ${import.meta.env.APP_VERSION}`)).toBeInTheDocument();
+    expect(screen.getByText(`Usage01 ${import.meta.env.APP_VERSION}`)).toBeInTheDocument();
     expect(container.querySelector('.floating-chrome')).not.toBeInTheDocument();
   });
 
@@ -192,7 +191,7 @@ describe('OpenQuota01 dashboard', () => {
       await screen.findByText('Plus');
       const dragSurface = container.querySelector<HTMLElement>('.floating-chrome__drag');
       expect(dragSurface).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: 'Hide OpenQuota01' })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Hide Usage01' })).toBeInTheDocument();
       expect(screen.getByRole('separator', { name: 'Resize panel height' })).toHaveClass(
         'panel-resize-dragger--bottom',
       );
@@ -784,9 +783,7 @@ describe('OpenQuota01 dashboard', () => {
     );
 
     await fireEvent.click(screen.getByRole('button', { name: 'Copy Log Path' }));
-    await waitFor(() =>
-      expect(writeText).toHaveBeenCalledWith('C:\\OpenQuota01\\logs\\OpenQuota01.log'),
-    );
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('C:\\Usage01\\logs\\Usage01.log'));
     expect(mocks.invoke).toHaveBeenCalledWith('get_log_path');
     expect(screen.getByRole('status')).toHaveTextContent('Log path copied');
 
@@ -845,7 +842,7 @@ describe('OpenQuota01 dashboard', () => {
     });
     render(App);
     await screen.findByText('Plus');
-    expect(screen.getByRole('button', { name: 'Close OpenQuota01' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close Usage01' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Keep Window Open' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Return to Tray Popup' })).not.toBeInTheDocument();
     await fireEvent.click(screen.getByLabelText('Open options'));
@@ -1419,7 +1416,7 @@ describe('OpenQuota01 dashboard', () => {
     );
     expect(within(provider).getByRole('region', { name: 'Codex usage' })).toBe(card);
     expect(provider.querySelector('.provider-status-slot')).not.toHaveClass('active');
-    expect(screen.getByText('OpenQuota01 could not start a provider refresh.')).toBeInTheDocument();
+    expect(screen.getByText('Usage01 could not start a provider refresh.')).toBeInTheDocument();
     expect(screen.getByText('Next update in 1m')).toBeInTheDocument();
   });
 
@@ -1614,7 +1611,7 @@ describe('OpenQuota01 dashboard', () => {
     render(App);
     await screen.findByText('Plus');
     const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true });
-    screen.getByLabelText('OpenQuota01 usage dashboard').dispatchEvent(event);
+    screen.getByLabelText('Usage01 usage dashboard').dispatchEvent(event);
     expect(event.defaultPrevented).toBe(true);
   });
 
@@ -1709,9 +1706,9 @@ describe('OpenQuota01 dashboard', () => {
     render(App);
     await screen.findByText('Plus');
     await fireEvent.click(screen.getByLabelText('Open options'));
-    const trigger = screen.getByRole('button', { name: 'About OpenQuota01' });
+    const trigger = screen.getByRole('button', { name: 'About Usage01' });
     await fireEvent.click(trigger);
-    expect(screen.getByRole('dialog', { name: 'About OpenQuota01' })).toBeInTheDocument();
+    expect(screen.getByRole('dialog', { name: 'About Usage01' })).toBeInTheDocument();
     const close = screen.getByRole('button', { name: 'Close About' });
     await waitFor(() => expect(close).toHaveFocus());
     expect(close.querySelector('svg')).not.toBeNull();
@@ -1719,7 +1716,7 @@ describe('OpenQuota01 dashboard', () => {
     await fireEvent.keyDown(close, { key: 'Tab' });
     expect(close).toHaveFocus();
     await fireEvent.keyDown(close, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'About OpenQuota01' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('dialog', { name: 'About Usage01' })).not.toBeInTheDocument();
     await waitFor(() => expect(screen.getByLabelText('Open options')).toHaveFocus());
   });
 
@@ -1811,7 +1808,7 @@ describe('OpenQuota01 dashboard', () => {
   });
 });
 
-describe('OpenQuota01 Windows taskband focus', () => {
+describe('Usage01 Windows taskband focus', () => {
   const eventHandlers = new Map<string, (payload: unknown) => void>();
 
   beforeEach(() => {

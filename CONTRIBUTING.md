@@ -1,13 +1,13 @@
-# Contributing to OpenQuota01
+# Contributing to Usage01
 
-Thanks for helping improve OpenQuota01. Bug reports, feature ideas, documentation fixes, and focused
+Thanks for helping improve Usage01. Bug reports, feature ideas, documentation fixes, and focused
 pull requests are welcome.
 
 By participating, you agree to follow the project [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Project philosophy
 
-OpenQuota01 aims for clean design, fast performance, and a focused user experience. Its purpose is
+Usage01 aims for clean design, fast performance, and a focused user experience. Its purpose is
 simple: make AI coding subscription usage and quota limits easy to understand without interrupting
 the user's work.
 
@@ -18,8 +18,8 @@ abstractions, dependencies, or complexity. Keep changes small and focused; do no
 ## Before opening an issue
 
 - Search existing issues and pull requests first.
-- Use the latest OpenQuota01 release when reproducing a bug.
-- Include your operating system, architecture, OpenQuota01 version, and affected provider.
+- Use the latest Usage01 release when reproducing a bug.
+- Include your operating system, architecture, Usage01 version, and affected provider.
 - Never post credentials, access tokens, account identifiers, or unreviewed diagnostic logs.
 
 Security vulnerabilities should not be reported in a public issue. Follow

@@ -73,7 +73,7 @@ impl CursorClient {
     pub(super) fn with_endpoints(endpoints: Endpoints) -> Result<Self, CursorError> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(8))
-            .user_agent(concat!("OpenQuota01/", env!("CARGO_PKG_VERSION")))
+            .user_agent(concat!("Usage01/", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(|_| CursorError::ConnectionFailed)?;
         Ok(Self { client, endpoints })

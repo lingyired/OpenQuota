@@ -34,7 +34,7 @@ function mockInvoke(implementation: InvokeImplementation) {
   });
 }
 
-describe('OpenQuota01 update lifecycle', () => {
+describe('Usage01 update lifecycle', () => {
   beforeEach(() => {
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
@@ -77,7 +77,7 @@ describe('OpenQuota01 update lifecycle', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('check_for_updates'));
-    expect(await screen.findByText('OpenQuota01 0.1.0 is up to date.')).toBeInTheDocument();
+    expect(await screen.findByText('Usage01 0.1.0 is up to date.')).toBeInTheDocument();
     expect(document.querySelector('.settings-update-status')).toBeNull();
     expect(mocks.invoke).toHaveBeenCalledWith(
       'save_app_settings',
@@ -112,7 +112,7 @@ describe('OpenQuota01 update lifecycle', () => {
     await fireEvent.click(screen.getByLabelText('Open options'));
     await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
     expect(await screen.findByRole('region', { name: 'Update Available' })).toHaveTextContent(
-      'OpenQuota01 0.2.0 is ready to download.',
+      'Usage01 0.2.0 is ready to download.',
     );
     expect(screen.getByText('New release')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));

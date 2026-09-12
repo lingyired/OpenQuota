@@ -127,7 +127,7 @@ function bumpPatchVersion() {
     cargoLockPath,
     replaceRequired(
       cargoLock,
-      /(name = "openquota01"\nversion = ")[^"]+(")/,
+      /(name = "usage01"\nversion = ")[^"]+(")/,
       (_, prefix, suffix) => `${prefix}${nextVersion}${suffix}`,
       'Cargo.lock',
     ),
@@ -192,7 +192,7 @@ function buildWindows(target) {
   const arch = ARCHES[target];
   const setupExe = path.join(
     srcTauri,
-    `target/${target}/release/bundle/nsis/OpenQuota01_${version}_${arch}-setup.exe`,
+    `target/${target}/release/bundle/nsis/Usage01_${version}_${arch}-setup.exe`,
   );
   if (!existsSync(setupExe)) {
     console.error(`产物缺失：${setupExe}`);
@@ -204,8 +204,8 @@ function buildWindows(target) {
   console.log(`✓ 已归档: ${path.join(dstDir, path.basename(setupExe))}`);
 
   // Portable：直接归档编译出的裸 exe（无需安装，便于快速自测）。
-  const portableExe = path.join(srcTauri, `target/${target}/release/openquota01.exe`);
-  const portableName = `OpenQuota01_${version}_${arch}-portable.exe`;
+  const portableExe = path.join(srcTauri, `target/${target}/release/usage01.exe`);
+  const portableName = `Usage01_${version}_${arch}-portable.exe`;
   copyFileSync(portableExe, path.join(dstDir, portableName));
   console.log(`✓ 已归档: ${path.join(dstDir, portableName)}`);
 }

@@ -650,7 +650,7 @@ describe('share card layout', () => {
       expect.arrayContaining([
         'Cost',
         'Last 30 Days',
-        'Monitor Your AI Subscriptions with OpenQuota01',
+        'Monitor Your AI Subscriptions with Usage01',
       ]),
     );
   });

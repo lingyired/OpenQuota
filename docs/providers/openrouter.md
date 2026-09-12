@@ -1,6 +1,6 @@
 # OpenRouter
 
-OpenQuota01 tracks account credits, balance, and spending through an OpenRouter API key.
+Usage01 tracks account credits, balance, and spending through an OpenRouter API key.
 
 ## What it tracks
 
@@ -15,8 +15,8 @@ OpenQuota01 tracks account credits, balance, and spending through an OpenRouter 
 
 ## Setup
 
-Add an OpenRouter API key from **Customize** in OpenQuota01. Saved keys are kept in the operating
-system's credential store. OpenQuota01 can also use `OPENROUTER_API_KEY` or
+Add an OpenRouter API key from **Customize** in Usage01. Saved keys are kept in the operating
+system's credential store. Usage01 can also use `OPENROUTER_API_KEY` or
 `OPENROUTER_KEY`, or read `~/.config/openrouter/key.json`; a key saved in the app takes priority.
 
 ## Troubleshooting

@@ -2,7 +2,7 @@
 
 ## Supported versions
 
-Security fixes are provided for the latest published version of OpenQuota01. Before reporting a
+Security fixes are provided for the latest published version of Usage01. Before reporting a
 problem, check whether it is still present in the
 [latest release](https://github.com/deviffyy/OpenQuota/releases/latest).
 
@@ -16,7 +16,7 @@ to report the issue confidentially.
 
 Include:
 
-- The affected OpenQuota01 version and operating system
+- The affected Usage01 version and operating system
 - A clear description of the vulnerability and its impact
 - Reproduction steps or a proof of concept when available
 - Any suggested mitigation

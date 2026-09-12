@@ -1,5 +1,5 @@
-name: OpenQuota01 platform smoke
-description: Starts a packaged OpenQuota01 build with the native platform smoke harness.
+name: Usage01 platform smoke
+description: Starts a packaged Usage01 build with the native platform smoke harness.
 
 inputs:
   artifact-root:

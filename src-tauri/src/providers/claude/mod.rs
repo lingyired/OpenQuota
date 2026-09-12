@@ -152,7 +152,7 @@ pub enum ClaudeError {
     AuthWrite,
     #[error("Claude login changed during refresh. Refresh again.")]
     CredentialsChanged,
-    #[error("The Claude account changed while OpenQuota01 was running. Restart OpenQuota01 to reconnect it safely.")]
+    #[error("The Claude account changed while Usage01 was running. Restart Usage01 to reconnect it safely.")]
     AccountChanged,
     #[error("Claude usage request failed (HTTP {0}).")]
     RequestFailed(u16),
@@ -885,7 +885,7 @@ mod tests {
     #[test]
     fn account_change_clears_live_usage_and_rate_limit_cache() {
         let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("usage01.db")).unwrap());
         let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
         let provider = ClaudeProvider::new(storage, pricing).unwrap();
         let snapshot = ProviderSnapshot {
@@ -952,7 +952,7 @@ mod tests {
             authorization
         });
 
-        let storage = Arc::new(Storage::open(&directory.path().join("openquota01.db")).unwrap());
+        let storage = Arc::new(Storage::open(&directory.path().join("usage01.db")).unwrap());
         let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
         let credential_scope = ClaudeCredentialScope::ConfigDir {
             path: account_root.clone(),

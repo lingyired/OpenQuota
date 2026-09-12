@@ -5,7 +5,7 @@ use zeroize::Zeroizing;
 
 use super::credential_store::{delete_owned_password, read_owned_password, write_owned_password};
 
-const SERVICE: &str = "com.lingyi.openquota01.api-key";
+const SERVICE: &str = "com.lingyi.usage01.api-key";
 
 pub struct SecretBytes(Zeroizing<Vec<u8>>);
 

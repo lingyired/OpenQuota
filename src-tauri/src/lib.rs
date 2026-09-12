@@ -124,13 +124,13 @@ fn install_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
 
     let icon = app
         .default_window_icon()
-        .ok_or_else(|| std::io::Error::other("OpenQuota01 application icon is unavailable"))?
+        .ok_or_else(|| std::io::Error::other("Usage01 application icon is unavailable"))?
         .clone();
-    let tray = TrayIconBuilder::with_id("openquota01-tray")
+    let tray = TrayIconBuilder::with_id("usage01-tray")
         .icon(icon)
         .menu(&menu);
     #[cfg(not(target_os = "linux"))]
-    let tray = tray.tooltip("OpenQuota01").show_menu_on_left_click(false);
+    let tray = tray.tooltip("Usage01").show_menu_on_left_click(false);
     let tray = tray.on_menu_event(|app, event| match event.id.as_ref() {
         "open" => {
             app.state::<PopupDismissGuard>().cancel_pending();
@@ -189,7 +189,7 @@ fn apply_linux_tray_fallback(app: &AppHandle) {
         "lifecycle",
         "system tray became unavailable; using standalone window"
     );
-    let _ = app.remove_tray_by_id("openquota01-tray");
+    let _ = app.remove_tray_by_id("usage01-tray");
     app.state::<PopupDismissGuard>().cancel_pending();
 
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
@@ -218,7 +218,7 @@ fn spawn_status_notifier_monitor(app: AppHandle) {
     }
     let monitor_app = app.clone();
     if std::thread::Builder::new()
-        .name("openquota01-tray-monitor".to_owned())
+        .name("usage01-tray-monitor".to_owned())
         .spawn(move || {
             if let Err(error) = desktop_integration::wait_for_status_notifier_loss() {
                 app_warn!("lifecycle", "system tray monitor stopped: {error}");
@@ -411,7 +411,7 @@ pub fn run() {
             app.manage(desktop_integration.clone());
 
             let app_data_dir = app.path().app_data_dir()?;
-            let database_path = app_data_dir.join("openquota01.db");
+            let database_path = app_data_dir.join("usage01.db");
             let storage = Arc::new(Storage::open(&database_path)?);
             provider_environment::initialize(storage.load_provider_environment()?);
             provider_environment::refresh_for_next_launch(storage.clone());
@@ -450,7 +450,7 @@ pub fn run() {
             logging::set_level(settings.get().log_level);
             app_info!(
                 "config",
-                "OpenQuota01 v{} starting (level={}, log=OpenQuota01.log)",
+                "Usage01 v{} starting (level={}, log=Usage01.log)",
                 app.package_info().version,
                 logging::current_level().log_label()
             );
@@ -486,7 +486,7 @@ pub fn run() {
                             "system tray integration failed; using standalone window: {error}"
                         );
                         desktop_integration.disable_tray();
-                        let _ = app.remove_tray_by_id("openquota01-tray");
+                        let _ = app.remove_tray_by_id("usage01-tray");
                         false
                     }
                 }
@@ -539,7 +539,7 @@ pub fn run() {
                 credential_detection_plan,
             );
             refresh_loop::spawn(app.handle().clone(), service, settings, notifications);
-            app_info!("lifecycle", "OpenQuota01 startup completed");
+            app_info!("lifecycle", "Usage01 startup completed");
 
             Ok(())
         })
@@ -576,5 +576,5 @@ pub fn run() {
         ])
         .on_window_event(handle_window_event)
         .run(tauri::generate_context!())
-        .expect("error while running OpenQuota01");
+        .expect("error while running Usage01");
 }
