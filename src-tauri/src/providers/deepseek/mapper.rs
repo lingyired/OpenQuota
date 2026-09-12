@@ -1,12 +1,11 @@
 use serde_json::Value;
 
-use crate::models::{MetricValue, MetricValueKind, StatusMetric, StatusTone, ValueMetric};
+use crate::models::{MetricValue, MetricValueKind, ValueMetric};
 
 #[derive(Debug, Default, PartialEq)]
 pub struct BalanceMetrics {
     pub plan: Option<String>,
     pub values: Vec<ValueMetric>,
-    pub status: Option<StatusMetric>,
 }
 
 pub fn map_balance(body: &Value) -> Option<BalanceMetrics> {
@@ -38,14 +37,6 @@ pub fn map_balance(body: &Value) -> Option<BalanceMetrics> {
         values,
         expiries_at: Vec::new(),
     });
-    let status = (!is_available).then(|| StatusMetric {
-        id: "status".into(),
-        label: "Status".into(),
-        text: "Unavailable".into(),
-        tone: StatusTone::Danger,
-        subtitle: Some("The DeepSeek API key is unavailable for billing.".into()),
-    });
-
     Some(BalanceMetrics {
         plan: Some(if is_available {
             "Available".into()
@@ -53,7 +44,6 @@ pub fn map_balance(body: &Value) -> Option<BalanceMetrics> {
             "Unavailable".into()
         }),
         values: balance.into_iter().collect(),
-        status,
     })
 }
 
@@ -92,11 +82,10 @@ mod tests {
         assert_eq!(mapped.values[0].values[0].label.as_deref(), Some("CNY"));
         assert_eq!(mapped.values[0].values[1].number, 3.25);
         assert_eq!(mapped.values[0].values[1].label.as_deref(), Some("USD"));
-        assert!(mapped.status.is_none());
     }
 
     #[test]
-    fn unavailable_balance_without_wallets_returns_an_unavailable_status() {
+    fn unavailable_balance_without_wallets_keeps_plan_only() {
         let body = json!({"is_available": false, "balance_infos": []});
 
         assert_eq!(
@@ -104,13 +93,6 @@ mod tests {
             Some(BalanceMetrics {
                 plan: Some("Unavailable".into()),
                 values: Vec::new(),
-                status: Some(crate::models::StatusMetric {
-                    id: "status".into(),
-                    label: "Status".into(),
-                    text: "Unavailable".into(),
-                    tone: crate::models::StatusTone::Danger,
-                    subtitle: Some("The DeepSeek API key is unavailable for billing.".into()),
-                }),
             })
         );
     }

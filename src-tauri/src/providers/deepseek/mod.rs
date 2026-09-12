@@ -28,27 +28,16 @@ pub(crate) fn definition() -> ProviderDefinition {
             ProviderLink::new("Dashboard", "https://platform.deepseek.com/usage"),
             ProviderLink::new("API Keys", "https://platform.deepseek.com/api_keys"),
         ],
-        metrics: vec![
-            MetricDefinition::value(
-                "deepseek.balance",
-                "Balance",
-                "balance",
-                true,
-                MetricSection::AlwaysVisible,
-                true,
-                "B",
-                None,
-            ),
-            MetricDefinition::status(
-                "deepseek.status",
-                "Status",
-                "status",
-                true,
-                MetricSection::OnDemand,
-                false,
-                "S",
-            ),
-        ],
+        metrics: vec![MetricDefinition::value(
+            "deepseek.balance",
+            "Balance",
+            "balance",
+            true,
+            MetricSection::AlwaysVisible,
+            true,
+            "B",
+            None,
+        )],
     }
 }
 
@@ -128,7 +117,7 @@ impl DeepSeekProvider {
             quotas: Vec::new(),
             credit_packages: Vec::new(),
             value_metrics: mapped.values,
-            status_metrics: mapped.status.into_iter().collect(),
+            status_metrics: Vec::new(),
             notices: Vec::new(),
             usage: UsageHistory::default(),
             warnings: Vec::new(),

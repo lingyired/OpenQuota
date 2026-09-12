@@ -72,7 +72,7 @@ fn definition_exposes_balance_and_api_key_configuration() {
             .iter()
             .map(|metric| metric.id.as_str())
             .collect::<Vec<_>>(),
-        ["deepseek.balance", "deepseek.status"]
+        ["deepseek.balance"]
     );
 }
 
@@ -107,7 +107,7 @@ fn unavailable_balance_metadata_is_exposed_without_failing() {
     let url = test_http::serve_once(200, &[], r#"{"is_available":false,"balance_infos":[]}"#);
     let snapshot = provider(&url, Some("sk-test")).refresh().unwrap();
     assert_eq!(snapshot.plan.as_deref(), Some("Unavailable"));
-    assert_eq!(snapshot.status_metrics[0].text, "Unavailable");
+    assert!(snapshot.status_metrics.is_empty());
 }
 
 #[test]

@@ -89,7 +89,6 @@ describe('translation helpers', () => {
     expect(tBackend('Your TraeWork CN session expired. Sign in again.')).toBe(
       '你的 TraeWork CN 会话已过期。请重新登录。',
     );
-    expect(tBackend('No active credits')).toBe('没有可用积分');
     expect(tBackend('Could not reach Kimi. Check your internet connection.')).toBe(
       '无法访问 Kimi。请检查你的网络连接。',
     );

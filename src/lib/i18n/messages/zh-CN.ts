@@ -639,9 +639,6 @@ export const zhCn = {
     unavailable: '不可用',
     traeSignInRequired: '请先登录 TraeWork CN，以查看用量。',
     traeSessionExpired: '你的 TraeWork CN 会话已过期。请重新登录。',
-    traeNoActiveCredits: '没有可用积分',
-    traeNoActiveCreditsSubtitle: '此账号当前没有有效的 Trae 积分方案。',
-    deepseekUnavailableSubtitle: '此 DeepSeek API 密钥当前无法用于计费。',
   },
 } as const;
 

@@ -669,8 +669,5 @@ export const zhTw = {
     unavailable: '無法使用',
     traeSignInRequired: '請先登入 TraeWork CN，以查看用量。',
     traeSessionExpired: '你的 TraeWork CN 工作階段已過期。請重新登入。',
-    traeNoActiveCredits: '沒有可用點數',
-    traeNoActiveCreditsSubtitle: '此帳號目前沒有有效的 Trae 點數方案。',
-    deepseekUnavailableSubtitle: '此 DeepSeek API 金鑰目前無法用於計費。',
   },
 } satisfies Messages;

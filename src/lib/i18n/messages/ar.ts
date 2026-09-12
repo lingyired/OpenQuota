@@ -669,8 +669,5 @@ export const ar = {
     unavailable: 'Unavailable',
     traeSignInRequired: 'Sign in to TraeWork CN to view usage.',
     traeSessionExpired: 'Your TraeWork CN session expired. Sign in again.',
-    traeNoActiveCredits: 'No active credits',
-    traeNoActiveCreditsSubtitle: 'This account has no active Trae credit plan.',
-    deepseekUnavailableSubtitle: 'The DeepSeek API key is unavailable for billing.',
   },
 } satisfies Messages;
