@@ -1,6 +1,11 @@
 import { fireEvent, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { pointerReorder, reorderTargetAt, type ReorderFrame } from './pointerReorder';
+import {
+  cancelActiveReorder,
+  pointerReorder,
+  reorderTargetAt,
+  type ReorderFrame,
+} from './pointerReorder';
 
 afterEach(() => {
   document.body.innerHTML = '';
@@ -152,6 +157,38 @@ describe('pointer reorder interaction', () => {
         'Session move cancelled.',
       );
     });
+    action.destroy();
+  });
+
+  it('cancels an active gesture when navigation starts', async () => {
+    const { source, grip } = reorderFixture();
+    const onEnd = vi.fn();
+    const action = pointerReorder(source, {
+      id: 'first',
+      group: 'test',
+      onReorder: vi.fn(),
+      onEnd,
+    });
+
+    await fireEvent.pointerDown(grip, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      button: 0,
+      clientX: 20,
+      clientY: 20,
+    });
+    await fireEvent.pointerMove(window, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      clientX: 20,
+      clientY: 52,
+    });
+    expect(document.querySelector('.pointer-reorder-layer')).not.toBeNull();
+
+    cancelActiveReorder();
+
+    expect(document.querySelector('.pointer-reorder-layer')).toBeNull();
+    expect(onEnd).toHaveBeenCalledWith(true, true);
     action.destroy();
   });
 

@@ -54,6 +54,11 @@
     ),
   );
 
+  $effect(() => {
+    const tab = tabElements[activeIndex];
+    tab?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
+  });
+
   function providerAccent(providerId: string) {
     return providerIconColor(providerId) ?? 'var(--provider)';
   }
@@ -69,8 +74,8 @@
 
   function handleKeydown(event: KeyboardEvent, index: number) {
     let nextIndex: number | null = null;
-    if (event.key === 'ArrowRight') nextIndex = (index + 1) % tabs.length;
-    else if (event.key === 'ArrowLeft') nextIndex = (index - 1 + tabs.length) % tabs.length;
+    if (event.key === 'ArrowDown') nextIndex = (index + 1) % tabs.length;
+    else if (event.key === 'ArrowUp') nextIndex = (index - 1 + tabs.length) % tabs.length;
     else if (event.key === 'Home') nextIndex = 0;
     else if (event.key === 'End') nextIndex = tabs.length - 1;
 
@@ -87,178 +92,177 @@
   }
 </script>
 
-<nav class="provider-tabs" aria-label={$tStore('dashboard.providerTabs')}>
-  <div class="provider-tabs__scroller" role="tablist" aria-orientation="horizontal">
+<nav class="provider-rail" aria-label={$tStore('dashboard.providerTabs')}>
+  <div class="provider-rail__scroller" role="tablist" aria-orientation="vertical">
     {#each tabs as tab, index (tab.id ?? 'all')}
       <button
-        class="provider-tab"
-        class:provider-tab--active={tab.id === selectedProviderId}
+        class="provider-rail__tab"
+        class:provider-rail__tab--active={tab.id === selectedProviderId}
         type="button"
         role="tab"
         aria-selected={tab.id === selectedProviderId}
         aria-label={tabLabel(tab)}
         tabindex={index === activeIndex ? 0 : -1}
         style={tab.provider
-          ? `--provider-tab-accent: ${providerAccent(tab.provider.id)}`
+          ? `--provider-rail-accent: ${providerAccent(tab.provider.id)}`
           : undefined}
         bind:this={tabElements[index]}
         onclick={() => void onSelect(tab.id)}
         onkeydown={(event) => handleKeydown(event, index)}
       >
-        <span class="provider-tab__identity">
+        <span class="provider-rail__icon">
           {#if tab.provider}
-            <ProviderIcon providerId={tab.provider.id} size={16} />
+            <ProviderIcon providerId={tab.provider.id} size={22} />
           {:else}
-            <Icon name="grid" size={16} strokeWidth={1.8} />
+            <Icon name="grid" size={22} strokeWidth={1.8} />
           {/if}
-          <span class="provider-tab__name">{tab.name}</span>
         </span>
-        {#if tab.readings.length > 0}
-          <span class="provider-tab__readings" aria-hidden="true">
-            {#each tab.readings as reading (reading.id)}
-              <span
-                class="provider-tab__reading"
-                class:provider-tab__reading--empty={!reading.available}
-              >
-                <Icon name="star-filled" size={8} strokeWidth={1.5} />{reading.reading}
-              </span>
-            {/each}
-          </span>
-        {:else if tab.provider}
-          <span class="provider-tab__readings provider-tab__readings--empty" aria-hidden="true">
-            <span>--</span><span>--</span>
-          </span>
-        {/if}
-        <span class="provider-tab__indicator" aria-hidden="true"></span>
+        <span class="provider-rail__values" aria-hidden="true">
+          {#if tab.provider}
+            {#if tab.readings.length > 0}
+              {#each tab.readings as reading (reading.id)}
+                <span
+                  class="provider-rail__reading"
+                  class:provider-rail__reading--empty={!reading.available}>{reading.reading}</span
+                >
+              {/each}
+            {:else}
+              <span class="provider-rail__reading provider-rail__reading--empty">--</span>
+            {/if}
+          {:else}
+            <span class="provider-rail__all">ALL</span>
+          {/if}
+        </span>
       </button>
     {/each}
   </div>
 </nav>
 
 <style>
-  .provider-tabs {
-    min-width: 0;
-    border-block-end: 1px solid var(--separator);
+  .provider-rail {
+    width: 80px;
+    min-width: 80px;
+    min-height: 0;
+    border-inline-end: 1px solid var(--separator);
     background: var(--tray);
+    overflow: hidden;
   }
 
-  .provider-tabs__scroller {
+  .provider-rail__scroller {
     display: flex;
-    min-width: 0;
-    overflow-x: auto;
-    overscroll-behavior-inline: contain;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    gap: 4px;
+    padding: 7px 6px 10px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-color: var(--separator) transparent;
     scrollbar-width: thin;
   }
 
-  .provider-tab {
+  .provider-rail__tab {
     position: relative;
     display: flex;
-    min-width: 74px;
-    min-height: 58px;
-    flex: 0 0 auto;
-    flex-direction: column;
+    width: 100%;
+    height: 60px;
+    flex: 0 0 60px;
+    flex-direction: row;
     align-items: center;
-    justify-content: center;
-    gap: 4px;
-    padding: 7px 9px 8px;
+    justify-content: flex-start;
+    gap: 6px;
+    padding: 5px 4px;
     border: 0;
+    border-radius: 10px;
     color: var(--secondary);
     background: transparent;
     cursor: pointer;
-    font-size: 10px;
-    line-height: 12px;
-    white-space: nowrap;
+    font: inherit;
   }
 
   @media (hover: hover) {
-    .provider-tab:hover {
+    .provider-rail__tab:hover {
       color: var(--text);
       background: var(--button-hover);
     }
   }
 
-  .provider-tab:focus-visible {
-    z-index: 1;
-    outline: 2px solid var(--meter-fill);
-    outline-offset: -2px;
+  .provider-rail__tab:focus,
+  .provider-rail__tab:focus-visible {
+    outline: none;
   }
 
-  .provider-tab--active {
+  .provider-rail__tab--active {
     color: var(--text);
-    background: var(--card);
+    background: color-mix(in srgb, var(--text) 7%, transparent);
   }
 
-  .provider-tab__identity,
-  .provider-tab__readings {
+  .provider-rail__tab--active::before {
+    position: absolute;
+    inset-block: 10px;
+    inset-inline-start: -5px;
+    width: 2px;
+    border-radius: 2px;
+    background: var(--provider-rail-accent, var(--meter-fill));
+    content: '';
+  }
+
+  .provider-rail__icon,
+  .provider-rail__values {
     display: flex;
     align-items: center;
     justify-content: center;
-  }
-
-  .provider-tab__identity {
+    min-width: 0;
     max-width: 100%;
-    gap: 5px;
   }
 
-  .provider-tab__name {
-    max-width: 82px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+  .provider-rail__icon {
+    flex: 0 0 22px;
+    height: 22px;
   }
 
-  .provider-tab__readings {
-    gap: 7px;
-    color: var(--provider-tab-accent, var(--secondary));
-    font-size: 9px;
+  .provider-rail__values {
+    flex: 1 1 auto;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0;
+    color: var(--provider-rail-accent, var(--secondary));
+    font-size: 10px;
     font-variant-numeric: tabular-nums;
+    line-height: 12px;
+    letter-spacing: -0.3px;
   }
 
-  .provider-tab__reading {
-    display: inline-flex;
-    align-items: center;
-    gap: 2px;
+  .provider-rail__reading {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    overflow: hidden;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
-  .provider-tab__reading--empty,
-  .provider-tab__readings--empty {
+  .provider-rail__reading--empty {
     color: var(--tertiary);
   }
 
-  .provider-tab__indicator {
-    position: absolute;
-    right: 9px;
-    bottom: 0;
-    left: 9px;
-    height: 2px;
-    border-radius: 2px 2px 0 0;
-    background: transparent;
-  }
-
-  @supports (inset-inline: 0) {
-    .provider-tab__indicator {
-      inset-inline: 9px;
-      inset-block-end: 0;
-    }
-  }
-
-  .provider-tab--active .provider-tab__indicator {
-    background: var(--provider-tab-accent, var(--meter-fill));
-  }
-
-  :root[data-density='compact'] .provider-tab {
-    min-height: 52px;
-    padding-block: 5px 6px;
+  .provider-rail__all {
+    color: var(--secondary);
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
   }
 
   @media (pointer: coarse) {
-    .provider-tab {
-      min-width: 82px;
-      min-height: 64px;
+    .provider-rail__tab {
+      height: 64px;
+      flex-basis: 64px;
     }
   }
 
   @media (prefers-reduced-motion: reduce) {
-    .provider-tabs__scroller {
+    .provider-rail__scroller {
       scroll-behavior: auto;
     }
   }

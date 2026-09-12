@@ -165,6 +165,20 @@ describe('Usage01 dashboard', () => {
     );
   });
 
+  it('closes persistent overlays before changing screens', async () => {
+    render(App);
+    await screen.findByText('Plus');
+
+    await fireEvent.click(screen.getByLabelText('Open options'));
+    const optionsMenu = document.querySelector<HTMLDetailsElement>('.options-menu');
+    expect(optionsMenu?.open).toBe(true);
+
+    await fireEvent.keyDown(document, { key: ',', metaKey: true });
+
+    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(optionsMenu?.open).toBe(false);
+  });
+
   it('provides a native drag surface and hide control in floating window mode', async () => {
     Object.defineProperty(window, '__TAURI_INTERNALS__', {
       configurable: true,
@@ -1392,7 +1406,11 @@ describe('Usage01 dashboard', () => {
     await fireEvent.click(settingsButton);
 
     expect(await screen.findByRole('region', { name: 'Customize Codex' })).toBeInTheDocument();
+    expect(document.querySelectorAll('.screen-page')).toHaveLength(1);
     await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toHaveFocus());
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
   });
 
   it('restores stable provider chrome when a refresh request fails to start', async () => {

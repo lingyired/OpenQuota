@@ -24,8 +24,9 @@ use crate::{
 };
 
 pub const MAIN_WINDOW: &str = "main";
-pub const PANEL_WIDTH: f64 = 320.0;
+pub const PANEL_WIDTH: f64 = 440.0;
 pub const PANEL_MIN_HEIGHT: u32 = 240;
+const PANEL_MAX_HEIGHT: u32 = 800;
 const PANEL_DEFAULT_HEIGHT: u32 = 800;
 const PANEL_SCREEN_FRACTION: f64 = 0.85;
 const PANEL_RESIZE_SAVE_DELAY: Duration = Duration::from_millis(120);
@@ -777,7 +778,14 @@ fn panel_maximum_height(window: &WebviewWindow) -> Result<u32, String> {
     let frame_overhead = outer_size.height.saturating_sub(inner_size.height);
     let inner_cap =
         room.min(aesthetic_cap).max(f64::from(frame_overhead) + 1.0) - f64::from(frame_overhead);
-    Ok((inner_cap / scale).floor().clamp(1.0, f64::from(u32::MAX)) as u32)
+    Ok(logical_panel_height(inner_cap, scale))
+}
+
+fn logical_panel_height(inner_cap: f64, scale: f64) -> u32 {
+    (inner_cap / scale)
+        .floor()
+        .min(f64::from(PANEL_MAX_HEIGHT))
+        .clamp(1.0, f64::from(u32::MAX)) as u32
 }
 
 fn configure_panel_size_constraints(window: &WebviewWindow) -> Result<u32, String> {
@@ -1011,7 +1019,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         target_outer_height,
     );
     window
-        .set_size(tauri::LogicalSize::new(320.0, f64::from(height)))
+        .set_size(tauri::LogicalSize::new(PANEL_WIDTH, f64::from(height)))
         .and_then(|_| {
             window.set_position(tauri::PhysicalPosition::new(outer_position.x, anchored.top))
         })
@@ -1104,10 +1112,10 @@ mod tests {
 
     use super::{
         anchored_menu_bar_position, anchored_taskband_position, anchored_vertical_frame,
-        panel_resize_edge_for_context, panel_resize_edge_for_frames, panel_surface_color,
-        resolved_fixed_panel_height, MenuBarAnchor, PanelHeightMode, PanelResizeEdge,
-        PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
-        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
+        logical_panel_height, panel_resize_edge_for_context, panel_resize_edge_for_frames,
+        panel_surface_color, resolved_fixed_panel_height, MenuBarAnchor, PanelHeightMode,
+        PanelResizeEdge, PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE,
+        LIGHT_PANEL_SURFACE, PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
     };
     use crate::models::ThemePreference;
     use crate::storage::Storage;
@@ -1198,6 +1206,12 @@ mod tests {
             resolved_fixed_panel_height(Some(640), PANEL_MIN_HEIGHT, 900),
             640
         );
+    }
+
+    #[test]
+    fn panel_height_never_exceeds_eight_hundred_logical_pixels() {
+        assert_eq!(logical_panel_height(2400.0, 2.0), 800);
+        assert_eq!(logical_panel_height(800.0, 1.0), 800);
     }
 
     #[test]
