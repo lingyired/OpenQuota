@@ -386,6 +386,7 @@ pub fn run() {
             None,
         ))
         .manage(PopupDismissGuard::default())
+        .manage(commands::provider::ProviderSessionCloseGuard::default())
         .manage(updates::UpdateCoordinator::default());
     #[cfg(target_os = "windows")]
     let builder = builder.plugin(tauri_plugin_multiline_taskband::init());

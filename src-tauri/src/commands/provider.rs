@@ -251,8 +251,8 @@ pub fn open_provider_webview_login(
             return;
         }
         if event_app
-            .state::<ProviderSessionCloseGuard>()
-            .consume(&event_window_label)
+            .try_state::<ProviderSessionCloseGuard>()
+            .is_some_and(|guard| guard.consume(&event_window_label))
         {
             return;
         }
@@ -314,10 +314,14 @@ pub async fn capture_provider_session(
     drop(credential_guard);
 
     if let Some(window) = login_window {
-        let close_guard = app.state::<ProviderSessionCloseGuard>();
-        close_guard.mark(&auth.window_label);
+        let close_guard = app.try_state::<ProviderSessionCloseGuard>();
+        if let Some(close_guard) = close_guard.as_ref() {
+            close_guard.mark(&auth.window_label);
+        }
         if window.close().is_err() {
-            close_guard.unmark(&auth.window_label);
+            if let Some(close_guard) = close_guard.as_ref() {
+                close_guard.unmark(&auth.window_label);
+            }
         }
     }
     service.refresh(&provider_id, true).await;

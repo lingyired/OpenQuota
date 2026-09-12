@@ -19,6 +19,12 @@ if (missingCommands.length > 0) {
   throw new Error(`Frontend invokes unregistered Tauri commands: ${missingCommands.join(', ')}`);
 }
 
+if (!application.includes('manage(commands::provider::ProviderSessionCloseGuard::default())')) {
+  throw new Error(
+    'ProviderSessionCloseGuard must be managed before any login window can emit close events.',
+  );
+}
+
 console.log(
   `${invokedCommands.size} frontend Tauri commands match registered Rust command handlers.`,
 );
