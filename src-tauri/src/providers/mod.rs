@@ -130,6 +130,9 @@ impl ProviderError {
 pub trait UsageProvider: Send + Sync {
     fn definition(&self) -> ProviderDefinition;
     fn has_local_credentials(&self) -> bool;
+    fn has_local_installation(&self) -> bool {
+        false
+    }
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError>;
 
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {

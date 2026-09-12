@@ -252,6 +252,8 @@ pub struct CreditPackage {
     pub used: f64,
     #[serde(default)]
     pub expires_at: Option<DateTime<Utc>>,
+    #[serde(default)]
+    pub unlimited: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

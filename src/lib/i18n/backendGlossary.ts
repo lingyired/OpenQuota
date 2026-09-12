@@ -92,8 +92,8 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   // Provider integration states
   Available: 'providerIntegration.available',
   Unavailable: 'providerIntegration.unavailable',
-  'Sign in to Trae CN to view usage.': 'providerIntegration.traeSignInRequired',
-  'Your Trae CN session expired. Sign in again.': 'providerIntegration.traeSessionExpired',
+  'Sign in to TraeWork CN to view usage.': 'providerIntegration.traeSignInRequired',
+  'Your TraeWork CN session expired. Sign in again.': 'providerIntegration.traeSessionExpired',
   'No active credits': 'providerIntegration.traeNoActiveCredits',
   'This account has no active Trae credit plan.': 'providerIntegration.traeNoActiveCreditsSubtitle',
   'The DeepSeek API key is unavailable for billing.':

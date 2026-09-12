@@ -13,7 +13,7 @@ const catalogData: ProviderCatalog = {
   providers: [
     {
       id: 'trae-cn',
-      displayName: 'Trae CN',
+      displayName: 'TraeWork CN',
       shortName: 'TR',
       fallbackEnabled: false,
       localUsageSourceNote: null,
@@ -117,7 +117,9 @@ describe('CustomizeProviderDetail session authentication', () => {
       reducedMotion: true,
     });
 
-    expect(await screen.findByRole('region', { name: 'Trae CN Connection' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('region', { name: 'TraeWork CN Connection' }),
+    ).toBeInTheDocument();
     expect(mocks.invoke).toHaveBeenCalledWith('get_provider_session_state', {
       providerId: 'trae-cn',
     });

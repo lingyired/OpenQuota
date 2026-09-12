@@ -37,8 +37,9 @@ async fn detect_local_credentials_with_timeout(
         let provider_id = provider_id.clone();
         let probe_provider_id = provider_id.clone();
         let probe = tauri::async_runtime::spawn(async move {
-            let worker =
-                tauri::async_runtime::spawn_blocking(move || runtime.has_local_credentials());
+            let worker = tauri::async_runtime::spawn_blocking(move || {
+                runtime.has_local_credentials() || runtime.has_local_installation()
+            });
             match tokio::time::timeout(timeout, worker).await {
                 Ok(Ok(true)) => CredentialProbeStatus::Detected,
                 Ok(Ok(false)) => CredentialProbeStatus::Absent,
@@ -167,6 +168,44 @@ mod tests {
             Some(&CredentialProbeStatus::Detected)
         );
         assert_eq!(detected.get("second"), Some(&CredentialProbeStatus::Absent));
+    }
+
+    struct InstalledProvider {
+        definition: ProviderDefinition,
+    }
+
+    impl UsageProvider for InstalledProvider {
+        fn definition(&self) -> ProviderDefinition {
+            self.definition.clone()
+        }
+
+        fn has_local_credentials(&self) -> bool {
+            false
+        }
+
+        fn has_local_installation(&self) -> bool {
+            true
+        }
+
+        fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+            unreachable!()
+        }
+    }
+
+    #[test]
+    fn installed_apps_count_as_local_detection() {
+        let definition = provider("trae-cn", false, Arc::new(Barrier::new(1))).definition();
+        let registry = Arc::new(
+            ProviderRegistry::new(vec![Arc::new(InstalledProvider { definition })]).unwrap(),
+        );
+        let ids = vec!["trae-cn".to_owned()];
+
+        let detected = tauri::async_runtime::block_on(detect_local_credentials(registry, &ids));
+
+        assert_eq!(
+            detected.get("trae-cn"),
+            Some(&CredentialProbeStatus::Detected)
+        );
     }
 
     struct SlowProvider {

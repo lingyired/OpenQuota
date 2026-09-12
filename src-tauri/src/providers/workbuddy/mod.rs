@@ -673,6 +673,7 @@ fn build_snapshot(
                     remaining: package.remaining,
                     used: package.used,
                     expires_at: package.expire_at,
+                    unlimited: false,
                 })
                 .collect()
         })

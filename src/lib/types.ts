@@ -103,6 +103,7 @@ export interface CreditPackage {
   remaining: number;
   used: number;
   expiresAt: string | null;
+  unlimited?: boolean;
 }
 
 export interface ProviderSnapshot {

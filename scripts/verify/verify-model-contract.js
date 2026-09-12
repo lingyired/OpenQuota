@@ -11,6 +11,7 @@ const rustSource = [
 const typeScriptSource = fs.readFileSync(new URL('src/lib/types.ts', root), 'utf8');
 const contracts = [
   'QuotaWindow',
+  'CreditPackage',
   'MetricValue',
   'ValueMetric',
   'StatusMetric',

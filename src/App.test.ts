@@ -67,7 +67,7 @@ function webviewAuthFixture() {
     providers: [
       {
         id: 'trae-cn',
-        displayName: 'Trae CN',
+        displayName: 'TraeWork CN',
         shortName: 'TR',
         fallbackEnabled: false,
         localUsageSourceNote: null,
@@ -118,7 +118,7 @@ function webviewAuthFixture() {
         source: 'none',
         refreshing: false,
         stale: false,
-        error: 'Sign in to Trae CN to view usage.',
+        error: 'Sign in to TraeWork CN to view usage.',
         errorKind: 'authentication',
         lastAttemptAt: null,
       },
@@ -797,7 +797,7 @@ describe('Usage01 dashboard', () => {
     }, fixture.catalog);
 
     render(App);
-    const provider = await screen.findByRole('group', { name: 'Trae CN provider' });
+    const provider = await screen.findByRole('group', { name: 'TraeWork CN provider' });
 
     const open = within(provider).getByRole('button', { name: 'Open Sign-In' });
     const capture = within(provider).getByRole('button', { name: 'I Have Signed In' });

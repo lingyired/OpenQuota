@@ -31,10 +31,12 @@ describe('ProviderSessionSection', () => {
   it('opens the provider-owned sign-in window without accepting a URL from the frontend', async () => {
     render(ProviderSessionSection, {
       providerId: 'trae-cn',
-      providerName: 'Trae CN',
+      providerName: 'TraeWork CN',
     });
 
-    expect(await screen.findByRole('region', { name: 'Trae CN Connection' })).toBeInTheDocument();
+    expect(
+      await screen.findByRole('region', { name: 'TraeWork CN Connection' }),
+    ).toBeInTheDocument();
     expect(await screen.findByText('Not connected')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Open Sign-In' }));
 
@@ -53,7 +55,7 @@ describe('ProviderSessionSection', () => {
     );
     render(ProviderSessionSection, {
       providerId: 'trae-cn',
-      providerName: 'Trae CN',
+      providerName: 'TraeWork CN',
     });
 
     await screen.findByText('Not connected');
@@ -70,7 +72,7 @@ describe('ProviderSessionSection', () => {
   it('captures the signed-in WebView session and reports connected state', async () => {
     render(ProviderSessionSection, {
       providerId: 'trae-cn',
-      providerName: 'Trae CN',
+      providerName: 'TraeWork CN',
     });
 
     await screen.findByText('Not connected');
@@ -96,7 +98,7 @@ describe('ProviderSessionSection', () => {
     });
     render(ProviderSessionSection, {
       providerId: 'trae-cn',
-      providerName: 'Trae CN',
+      providerName: 'TraeWork CN',
     });
 
     await screen.findByText('Connected');
@@ -117,7 +119,7 @@ describe('ProviderSessionSection', () => {
     });
     render(ProviderSessionSection, {
       providerId: 'trae-cn',
-      providerName: 'Trae CN',
+      providerName: 'TraeWork CN',
     });
 
     expect(await screen.findByText('Connected')).toBeInTheDocument();
@@ -130,19 +132,19 @@ describe('ProviderSessionSection', () => {
         return Promise.resolve({ providerId: 'trae-cn', status: 'notSet' });
       }
       if (command === 'capture_provider_session') {
-        return Promise.reject(new Error('Sign in to Trae CN first.'));
+        return Promise.reject(new Error('Sign in to TraeWork CN first.'));
       }
       return Promise.reject(new Error(`unexpected command ${command}`));
     });
     render(ProviderSessionSection, {
       providerId: 'trae-cn',
-      providerName: 'Trae CN',
+      providerName: 'TraeWork CN',
     });
 
     await screen.findByText('Not connected');
     await fireEvent.click(screen.getByRole('button', { name: 'I Have Signed In' }));
 
-    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to Trae CN first.');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Sign in to TraeWork CN first.');
     expect(screen.getByText('Not connected')).toBeInTheDocument();
   });
 });

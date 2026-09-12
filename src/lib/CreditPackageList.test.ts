@@ -52,6 +52,27 @@ describe('CreditPackageList', () => {
     expect(screen.getAllByRole('progressbar')).toHaveLength(3);
   });
 
+  it('shows unlimited credit packages without a finite progress meter', () => {
+    const { container } = render(CreditPackageList, {
+      packages: [
+        {
+          code: 'unlimited',
+          name: '免费 · 通用',
+          total: 0,
+          remaining: 0,
+          used: 0,
+          expiresAt: '2026-10-08T15:59:59Z',
+          unlimited: true,
+        },
+      ],
+    });
+
+    expect(screen.getByText('免费 · 通用')).toBeInTheDocument();
+    expect(screen.getByText('无限')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
+    expect(container.querySelector('.credit-package')).not.toBeNull();
+  });
+
   it('shows every positive-balance package when the provider is expanded', () => {
     const { rerender } = render(CreditPackageList, {
       expanded: false,

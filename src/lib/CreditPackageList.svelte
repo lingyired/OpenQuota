@@ -8,7 +8,9 @@
 
   let { packages, expanded = false }: Props = $props();
   const visiblePackages = $derived(
-    packages.filter((item) => item.remaining > 0).slice(0, expanded ? undefined : 3),
+    packages
+      .filter((item) => item.unlimited || item.remaining > 0)
+      .slice(0, expanded ? undefined : 3),
   );
 
   const numberFormatter = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
@@ -38,25 +40,33 @@
             <strong title={creditPackage.name || creditPackage.code}
               >{creditPackage.name || creditPackage.code}</strong
             >
-            <span
-              >{formatCredits(creditPackage.remaining)} / {formatCredits(creditPackage.total)}</span
-            >
-          </div>
-          <div class="meter-shell">
-            <div
-              class="meter"
-              role="progressbar"
-              aria-label={`${creditPackage.name || creditPackage.code} 剩余积分`}
-              aria-valuemin="0"
-              aria-valuemax="100"
-              aria-valuenow={fillPercent(creditPackage)}
-            >
+            {#if creditPackage.unlimited}
+              <span>无限</span>
+            {:else}
               <span
-                class="meter__fill meter__fill--visible"
-                style={`--fill-percent: ${fillPercent(creditPackage)}%`}
-              ></span>
-            </div>
+                >{formatCredits(creditPackage.remaining)} / {formatCredits(
+                  creditPackage.total,
+                )}</span
+              >
+            {/if}
           </div>
+          {#if !creditPackage.unlimited}
+            <div class="meter-shell">
+              <div
+                class="meter"
+                role="progressbar"
+                aria-label={`${creditPackage.name || creditPackage.code} 剩余积分`}
+                aria-valuemin="0"
+                aria-valuemax="100"
+                aria-valuenow={fillPercent(creditPackage)}
+              >
+                <span
+                  class="meter__fill meter__fill--visible"
+                  style={`--fill-percent: ${fillPercent(creditPackage)}%`}
+                ></span>
+              </div>
+            </div>
+          {/if}
           <div class="credit-package__meta">
             <span>剩余</span>
             <span>到期 {formatExpiry(creditPackage.expiresAt)}</span>

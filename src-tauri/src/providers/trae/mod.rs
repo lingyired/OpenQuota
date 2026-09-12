@@ -1,5 +1,6 @@
 mod auth;
 mod client;
+mod installation;
 mod mapper;
 
 use std::sync::Arc;
@@ -9,8 +10,9 @@ use reqwest::StatusCode;
 use thiserror::Error;
 
 use crate::models::{
-    ApiKeyStatus, MetricDefinition, MetricSection, ProviderDefinition, ProviderErrorKind,
-    ProviderLink, ProviderSnapshot, UsageHistory,
+    ApiKeyStatus, MetricDefinition, MetricSection, MetricSource, MetricValue, MetricValueKind,
+    ProviderDefinition, ProviderErrorKind, ProviderLink, ProviderSnapshot, UsageHistory,
+    ValueMetric,
 };
 
 use self::{
@@ -28,7 +30,7 @@ const LOGIN_WINDOW: &str = "trae-cn-login";
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
         id: "trae-cn".into(),
-        display_name: "Trae CN".into(),
+        display_name: "TraeWork CN".into(),
         short_name: "TR".into(),
         fallback_enabled: false,
         local_usage_source_note: None,
@@ -47,6 +49,47 @@ pub(crate) fn definition() -> ProviderDefinition {
                 true,
                 "C",
             ),
+            MetricDefinition::value(
+                "trae-cn.workCredits",
+                "Work 专属积分",
+                "workCredits",
+                true,
+                MetricSection::AlwaysVisible,
+                false,
+                "W",
+                None,
+            ),
+            MetricDefinition::value(
+                "trae-cn.generalCredits",
+                "不含 Work 总积分",
+                "generalCredits",
+                true,
+                MetricSection::OnDemand,
+                false,
+                "G",
+                None,
+            ),
+            MetricDefinition::value(
+                "trae-cn.nearestExpiring",
+                "近期到期的积分包",
+                "nearestExpiring",
+                true,
+                MetricSection::AlwaysVisible,
+                false,
+                "近",
+                None,
+            ),
+            MetricDefinition::new(
+                "trae-cn.creditPackages",
+                "可用积分包",
+                MetricSource::CreditPackages,
+                false,
+                true,
+                MetricSection::AlwaysVisible,
+                false,
+                None,
+                None,
+            ),
             MetricDefinition::status(
                 "trae-cn.status",
                 "Status",
@@ -62,17 +105,17 @@ pub(crate) fn definition() -> ProviderDefinition {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(super) enum TraeError {
-    #[error("Sign in to Trae CN to view usage.")]
+    #[error("Sign in to TraeWork CN to view usage.")]
     SessionMissing,
-    #[error("Your Trae CN session expired. Sign in again.")]
+    #[error("Your TraeWork CN session expired. Sign in again.")]
     SessionExpired,
-    #[error("Could not reach Trae CN. Check your internet connection.")]
+    #[error("Could not reach TraeWork CN. Check your internet connection.")]
     ConnectionFailed,
-    #[error("Trae CN usage data is temporarily unavailable.")]
+    #[error("TraeWork CN usage data is temporarily unavailable.")]
     InvalidResponse,
-    #[error("Trae CN request failed (HTTP {0}).")]
+    #[error("TraeWork CN request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The Trae CN session could not be read or updated.")]
+    #[error("The TraeWork CN session could not be read or updated.")]
     CredentialStorage,
 }
 
@@ -138,13 +181,59 @@ impl TraeProvider {
         if !credits_response.status.is_success() {
             return Err(TraeError::RequestFailed(credits_response.status.as_u16()).into());
         }
-        let mapped = map_entitlement(&credits_response.body).ok_or(TraeError::InvalidResponse)?;
+        let mapped = map_entitlement(&credits_response.body, Utc::now())
+            .ok_or(TraeError::InvalidResponse)?;
+        let nearest_number = mapped
+            .nearest_expiring
+            .as_ref()
+            .map_or(0.0, |package| package.remaining);
+        let nearest_expiries = mapped
+            .nearest_expiring
+            .as_ref()
+            .and_then(|package| package.expires_at)
+            .into_iter()
+            .collect();
+        let value_metrics = vec![
+            ValueMetric {
+                id: "workCredits".into(),
+                label: "Work 专属积分".into(),
+                values: vec![MetricValue {
+                    number: mapped.work_remaining,
+                    kind: MetricValueKind::Count,
+                    label: None,
+                    estimated: false,
+                }],
+                expiries_at: Vec::new(),
+            },
+            ValueMetric {
+                id: "generalCredits".into(),
+                label: "不含 Work 总积分".into(),
+                values: vec![MetricValue {
+                    number: mapped.general_remaining,
+                    kind: MetricValueKind::Count,
+                    label: None,
+                    estimated: false,
+                }],
+                expiries_at: Vec::new(),
+            },
+            ValueMetric {
+                id: "nearestExpiring".into(),
+                label: "近期到期的积分包".into(),
+                values: vec![MetricValue {
+                    number: nearest_number,
+                    kind: MetricValueKind::Count,
+                    label: None,
+                    estimated: false,
+                }],
+                expiries_at: nearest_expiries,
+            },
+        ];
         Ok(ProviderSnapshot {
             provider_id: "trae-cn".into(),
             plan: mapped.plan,
             quotas: mapped.quota.into_iter().collect(),
-            credit_packages: Vec::new(),
-            value_metrics: Vec::new(),
+            credit_packages: mapped.packages,
+            value_metrics,
             status_metrics: mapped.status.into_iter().collect(),
             notices: Vec::new(),
             usage: UsageHistory::default(),
@@ -161,6 +250,10 @@ impl UsageProvider for TraeProvider {
 
     fn has_local_credentials(&self) -> bool {
         self.auth.has_credentials()
+    }
+
+    fn has_local_installation(&self) -> bool {
+        installation::is_installed()
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
