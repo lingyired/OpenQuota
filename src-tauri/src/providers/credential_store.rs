@@ -78,6 +78,7 @@ pub fn write_generic_password(service: &str, account: &str, value: &[u8]) -> Res
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 pub fn delete_generic_password(service: &str, account: &str) -> Result<(), String> {
     use security_framework::passwords::delete_generic_password as delete_password;
 
@@ -239,6 +240,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 pub fn delete_generic_password(service: &str, account: &str) -> Result<(), String> {
     use windows_sys::Win32::Security::Credentials::{CredDeleteW, CRED_TYPE_GENERIC};
 
@@ -257,11 +259,13 @@ pub fn delete_generic_password(service: &str, account: &str) -> Result<(), Strin
 }
 
 #[cfg(target_os = "windows")]
+#[allow(dead_code)]
 pub fn delete_owned_password(service: &str, account: &str) -> Result<(), String> {
     delete_generic_password(service, account)
 }
 
 #[cfg(target_os = "macos")]
+#[allow(dead_code)]
 pub fn delete_owned_password(service: &str, account: &str) -> Result<(), String> {
     delete_generic_password(service, account)
 }
@@ -411,6 +415,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
 }
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 pub fn delete_generic_password(service: &str, account: &str) -> Result<(), String> {
     use std::collections::HashMap;
 
@@ -435,6 +440,7 @@ pub fn delete_generic_password(service: &str, account: &str) -> Result<(), Strin
 }
 
 #[cfg(target_os = "linux")]
+#[allow(dead_code)]
 pub fn delete_owned_password(service: &str, account: &str) -> Result<(), String> {
     delete_generic_password(service, account)
 }
@@ -483,11 +489,13 @@ pub fn write_owned_password(_service: &str, _account: &str, _value: &[u8]) -> Re
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[allow(dead_code)]
 pub fn delete_generic_password(_service: &str, _account: &str) -> Result<(), String> {
     Ok(())
 }
 
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+#[allow(dead_code)]
 pub fn delete_owned_password(_service: &str, _account: &str) -> Result<(), String> {
     Ok(())
 }

@@ -15,7 +15,7 @@ use rand::{rng, RngCore};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use super::credential_store::{delete_owned_password, read_owned_password, write_owned_password};
+use super::credential_store::{read_owned_password, write_owned_password};
 
 const VAULT_KEY_SERVICE: &str = "com.lingyi.usage01.credentials";
 const VAULT_KEY_ACCOUNT: &str = "vault-key";
@@ -23,19 +23,6 @@ const VAULT_AAD: &[u8] = b"Usage01 credential vault v1";
 const VAULT_VERSION: u8 = 1;
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 12;
-const LEGACY_SERVICES: &[&str] = &[
-    "com.lingyi.usage01.api-key",
-    "com.lingyi.openquota01.api-key",
-];
-const LEGACY_ACCOUNTS: &[&str] = &[
-    "openrouter",
-    "zai",
-    "kimi",
-    "minimax",
-    "deepseek",
-    "trae-cn",
-];
-
 static VAULT: OnceLock<Arc<CredentialVault>> = OnceLock::new();
 
 pub fn initialize(path: PathBuf) -> Result<(), String> {
@@ -84,26 +71,7 @@ impl VaultKeyStore for SystemVaultKeyStore {
     }
 }
 
-trait LegacyCredentialStore: Send + Sync {
-    fn read(&self, service: &str, account: &str) -> Result<Option<Vec<u8>>, String>;
-    fn delete(&self, service: &str, account: &str) -> Result<(), String>;
-}
-
-struct SystemLegacyCredentialStore;
-
-impl LegacyCredentialStore for SystemLegacyCredentialStore {
-    fn read(&self, service: &str, account: &str) -> Result<Option<Vec<u8>>, String> {
-        read_owned_password(service, account)
-    }
-
-    fn delete(&self, service: &str, account: &str) -> Result<(), String> {
-        delete_owned_password(service, account)
-    }
-}
-
 type VaultEntries = BTreeMap<String, Zeroizing<String>>;
-type LegacyMigration = (VaultEntries, Vec<(String, String)>);
-
 #[derive(Default)]
 struct VaultState {
     key: Option<Zeroizing<Vec<u8>>>,
@@ -114,7 +82,6 @@ struct VaultState {
 struct CredentialVault {
     path: PathBuf,
     key_store: Arc<dyn VaultKeyStore>,
-    legacy_store: Arc<dyn LegacyCredentialStore>,
     state: Mutex<VaultState>,
 }
 
@@ -127,22 +94,13 @@ struct EncryptedVault {
 
 impl CredentialVault {
     fn new(path: PathBuf) -> Self {
-        Self::with_backends(
-            path,
-            Arc::new(SystemVaultKeyStore),
-            Arc::new(SystemLegacyCredentialStore),
-        )
+        Self::with_backends(path, Arc::new(SystemVaultKeyStore))
     }
 
-    fn with_backends(
-        path: PathBuf,
-        key_store: Arc<dyn VaultKeyStore>,
-        legacy_store: Arc<dyn LegacyCredentialStore>,
-    ) -> Self {
+    fn with_backends(path: PathBuf, key_store: Arc<dyn VaultKeyStore>) -> Self {
         Self {
             path,
             key_store,
-            legacy_store,
             state: Mutex::new(VaultState::default()),
         }
     }
@@ -229,21 +187,13 @@ impl CredentialVault {
             }
         };
 
-        let (entries, migrated) = if self.path.exists() {
-            (self.decrypt(&key)?, Vec::new())
+        let entries = if self.path.exists() {
+            self.decrypt(&key)?
         } else {
-            let (entries, migrated) = self.migrate_legacy()?;
+            let entries = BTreeMap::new();
             self.write_file(&key, &entries)?;
-            (entries, migrated)
+            entries
         };
-        for (service, account) in migrated {
-            if let Err(error) = self.legacy_store.delete(&service, &account) {
-                crate::app_warn!(
-                    "auth",
-                    "legacy credential cleanup for {account} failed: {error}"
-                );
-            }
-        }
 
         state.key = Some(key);
         state.entries = entries;
@@ -328,38 +278,6 @@ impl CredentialVault {
             .map(|(account, value)| (account, Zeroizing::new(value)))
             .collect())
     }
-
-    fn migrate_legacy(&self) -> Result<LegacyMigration, String> {
-        let mut entries = BTreeMap::new();
-        let mut cleanup = Vec::new();
-        for account in LEGACY_ACCOUNTS {
-            let mut found = false;
-            for service in LEGACY_SERVICES {
-                let value = self.legacy_store.read(service, account)?;
-                let Some(value) = value else {
-                    continue;
-                };
-                cleanup.push(((*service).to_owned(), (*account).to_owned()));
-                if found {
-                    continue;
-                }
-                match std::str::from_utf8(&value) {
-                    Ok(value) if !value.trim().is_empty() => {
-                        entries.insert(
-                            (*account).to_owned(),
-                            Zeroizing::new(value.trim().to_owned()),
-                        );
-                        found = true;
-                    }
-                    _ => crate::app_warn!(
-                        "auth",
-                        "legacy credential for {account} could not be migrated"
-                    ),
-                }
-            }
-        }
-        Ok((entries, cleanup))
-    }
 }
 
 fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
@@ -394,7 +312,6 @@ fn atomic_write(path: &Path, contents: &[u8]) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
         fs,
         sync::{
             atomic::{AtomicUsize, Ordering},
@@ -404,7 +321,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{CredentialVault, LegacyCredentialStore, VaultKeyStore, LEGACY_SERVICES};
+    use super::{CredentialVault, VaultKeyStore};
 
     #[derive(Default)]
     struct MemoryKeyStore {
@@ -426,44 +343,13 @@ mod tests {
         }
     }
 
-    #[derive(Default)]
-    struct MemoryLegacyStore {
-        values: Mutex<HashMap<(String, String), Vec<u8>>>,
-        deleted: Mutex<Vec<(String, String)>>,
-    }
-
-    impl LegacyCredentialStore for MemoryLegacyStore {
-        fn read(&self, service: &str, account: &str) -> Result<Option<Vec<u8>>, String> {
-            Ok(self
-                .values
-                .lock()
-                .unwrap()
-                .get(&(service.to_owned(), account.to_owned()))
-                .cloned())
-        }
-
-        fn delete(&self, service: &str, account: &str) -> Result<(), String> {
-            self.deleted
-                .lock()
-                .unwrap()
-                .push((service.to_owned(), account.to_owned()));
-            self.values
-                .lock()
-                .unwrap()
-                .remove(&(service.to_owned(), account.to_owned()));
-            Ok(())
-        }
-    }
-
     #[test]
     fn write_through_cache_avoids_repeated_key_reads() {
         let directory = tempdir().unwrap();
         let keys = Arc::new(MemoryKeyStore::default());
-        let legacy = Arc::new(MemoryLegacyStore::default());
         let vault = CredentialVault::with_backends(
             directory.path().join("credentials.vault"),
             keys.clone(),
-            legacy,
         );
 
         vault.write("trae-cn", b"session").unwrap();
@@ -482,36 +368,26 @@ mod tests {
     }
 
     #[test]
-    fn legacy_values_are_migrated_and_removed_after_the_vault_is_written() {
+    fn new_vault_starts_empty_without_touching_legacy_stores() {
         let directory = tempdir().unwrap();
         let keys = Arc::new(MemoryKeyStore::default());
-        let legacy = Arc::new(MemoryLegacyStore::default());
-        legacy.values.lock().unwrap().insert(
-            (LEGACY_SERVICES[0].to_owned(), "trae-cn".to_owned()),
-            b"legacy-session".to_vec(),
+        let vault = CredentialVault::with_backends(
+            directory.path().join("credentials.vault"),
+            keys.clone(),
         );
-        let path = directory.path().join("credentials.vault");
-        let vault = CredentialVault::with_backends(path.clone(), keys, legacy.clone());
 
-        assert_eq!(
-            vault.read_bytes("trae-cn").unwrap().unwrap(),
-            b"legacy-session"
-        );
-        assert!(path.exists());
-        assert!(legacy
-            .deleted
-            .lock()
-            .unwrap()
-            .contains(&(LEGACY_SERVICES[0].to_owned(), "trae-cn".to_owned())));
+        assert!(!vault.contains("trae-cn").unwrap());
+        assert!(vault.read_bytes("trae-cn").unwrap().is_none());
+        assert_eq!(keys.reads.load(Ordering::SeqCst), 1);
+        assert_eq!(keys.writes.load(Ordering::SeqCst), 1);
     }
 
     #[test]
     fn encrypted_file_cannot_be_tampered_with() {
         let directory = tempdir().unwrap();
         let keys = Arc::new(MemoryKeyStore::default());
-        let legacy = Arc::new(MemoryLegacyStore::default());
         let path = directory.path().join("credentials.vault");
-        let vault = CredentialVault::with_backends(path.clone(), keys.clone(), legacy.clone());
+        let vault = CredentialVault::with_backends(path.clone(), keys.clone());
         vault.write("deepseek", b"sk-secret").unwrap();
 
         let mut contents = fs::read(&path).unwrap();
@@ -519,7 +395,7 @@ mod tests {
         *last ^= 1;
         fs::write(&path, contents).unwrap();
 
-        let reopened = CredentialVault::with_backends(path, keys, legacy);
+        let reopened = CredentialVault::with_backends(path, keys);
         assert!(reopened.read_bytes("deepseek").is_err());
     }
 }
