@@ -39,6 +39,19 @@ pub(crate) fn definition() -> ProviderDefinition {
             "https://www.trae.cn/account-setting#usage",
         )],
         metrics: vec![
+            MetricDefinition::new(
+                "trae-cn.nearestExpiring",
+                "近期到期的积分包",
+                MetricSource::NearestCreditPackage {
+                    source_id: "nearestExpiring".into(),
+                },
+                true,
+                true,
+                MetricSection::AlwaysVisible,
+                false,
+                Some("近"),
+                None,
+            ),
             MetricDefinition::quota(
                 "trae-cn.credits",
                 "Credits",
@@ -69,16 +82,6 @@ pub(crate) fn definition() -> ProviderDefinition {
                 "G",
                 None,
             ),
-            MetricDefinition::value(
-                "trae-cn.nearestExpiring",
-                "近期到期的积分包",
-                "nearestExpiring",
-                true,
-                MetricSection::AlwaysVisible,
-                false,
-                "近",
-                None,
-            ),
             MetricDefinition::new(
                 "trae-cn.creditPackages",
                 "可用积分包",
@@ -89,15 +92,6 @@ pub(crate) fn definition() -> ProviderDefinition {
                 false,
                 None,
                 None,
-            ),
-            MetricDefinition::status(
-                "trae-cn.status",
-                "Status",
-                "status",
-                true,
-                MetricSection::OnDemand,
-                false,
-                "S",
             ),
         ],
     }
@@ -234,7 +228,7 @@ impl TraeProvider {
             quotas: mapped.quota.into_iter().collect(),
             credit_packages: mapped.packages,
             value_metrics,
-            status_metrics: mapped.status.into_iter().collect(),
+            status_metrics: Vec::new(),
             notices: Vec::new(),
             usage: UsageHistory::default(),
             warnings: Vec::new(),

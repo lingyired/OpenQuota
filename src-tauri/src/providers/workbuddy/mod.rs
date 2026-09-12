@@ -39,6 +39,19 @@ pub(crate) fn definition() -> ProviderDefinition {
             ProviderLink::new("WorkBuddy", "https://www.workbuddy.cn/"),
         ],
         metrics: vec![
+            MetricDefinition::new(
+                "workbuddy.nearestExpiring",
+                "近期到期的积分包",
+                MetricSource::NearestCreditPackage {
+                    source_id: "nearestExpiring".into(),
+                },
+                true,
+                true,
+                MetricSection::AlwaysVisible,
+                false,
+                Some("近"),
+                None,
+            ),
             MetricDefinition::value(
                 "workbuddy.credits",
                 "Credits",
@@ -47,16 +60,6 @@ pub(crate) fn definition() -> ProviderDefinition {
                 MetricSection::AlwaysVisible,
                 true,
                 "C",
-                None,
-            ),
-            MetricDefinition::value(
-                "workbuddy.nearestExpiring",
-                "近期到期的积分包",
-                "nearestExpiring",
-                true,
-                MetricSection::AlwaysVisible,
-                false,
-                "近",
                 None,
             ),
             MetricDefinition::new(
@@ -765,6 +768,7 @@ mod tests {
         assert_eq!(definition.id, "workbuddy");
         assert_eq!(definition.short_name, "WB");
         assert_eq!(definition.display_name, "Workbuddy CN");
+        assert_eq!(definition.metrics[0].id, "workbuddy.nearestExpiring");
         let nearest = definition
             .metrics
             .iter()
@@ -772,6 +776,12 @@ mod tests {
             .expect("nearest expiring metric");
         assert_eq!(nearest.label, "近期到期的积分包");
         assert!(nearest.pinnable);
+        assert_eq!(
+            nearest.source,
+            MetricSource::NearestCreditPackage {
+                source_id: "nearestExpiring".into()
+            }
+        );
         assert_eq!(nearest.tray.as_ref().unwrap().suffix, None);
         let packages = definition
             .metrics
@@ -863,7 +873,8 @@ mod tests {
             .metrics
             .iter()
             .filter_map(|metric| match &metric.source {
-                MetricSource::Value { source_id } => Some(source_id.as_str()),
+                MetricSource::Value { source_id }
+                | MetricSource::NearestCreditPackage { source_id } => Some(source_id.as_str()),
                 _ => None,
             })
             .collect::<std::collections::HashSet<_>>();

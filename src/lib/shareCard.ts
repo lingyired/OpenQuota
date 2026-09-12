@@ -168,9 +168,18 @@ export function buildProviderShareRows(
       previousTextSection = null;
       continue;
     }
+    if (source.kind === 'nearestCreditPackage') {
+      const package_ = snapshot.creditPackages.find(
+        (item) => !item.unlimited && item.remaining > 0,
+      );
+      if (package_) rows.push(creditPackageShareRow(package_));
+      previousTextSection = null;
+      continue;
+    }
+
     if (source.kind === 'creditPackages') {
       const packages = snapshot.creditPackages
-        .filter((item) => item.remaining > 0)
+        .filter((item) => item.unlimited || item.remaining > 0)
         .slice(0, layout.expanded ? undefined : 3);
       rows.push(...packages.map(creditPackageShareRow));
       previousTextSection = null;

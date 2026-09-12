@@ -573,9 +573,9 @@ fn validate_snapshot(
         .metrics
         .iter()
         .filter_map(|metric| match &metric.source {
-            MetricSource::Value { source_id } | MetricSource::QuotaOrValue { source_id, .. } => {
-                Some(source_id.as_str())
-            }
+            MetricSource::Value { source_id }
+            | MetricSource::QuotaOrValue { source_id, .. }
+            | MetricSource::NearestCreditPackage { source_id } => Some(source_id.as_str()),
             _ => None,
         })
         .collect::<std::collections::HashSet<_>>();

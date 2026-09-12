@@ -11,7 +11,6 @@ Usage01 tracks the available credit balance for a TraeWork CN account.
 | 不含 Work 总积分 | Total remaining credits excluding Work-exclusive packages                     |
 | 近期到期的积分包 | Remaining balance of the nearest unexpired package with value                 |
 | 可用积分包       | Every unexpired package with remaining value, including unlimited free access |
-| Status           | Plan state shown when the account has no active credits                       |
 
 The total meter uses the usage summary returned by Trae's CN billing endpoint:
 `remaining = total_amount - consumed_amount`. Individual package balances use

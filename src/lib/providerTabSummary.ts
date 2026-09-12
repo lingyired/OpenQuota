@@ -60,6 +60,15 @@ function valueReading(definition: MetricDefinition, snapshot: ProviderSnapshot):
     .join(' · ');
 }
 
+function nearestCreditPackageReading(
+  definition: MetricDefinition,
+  snapshot: ProviderSnapshot,
+): string | null {
+  if (definition.source.kind !== 'nearestCreditPackage') return null;
+  const package_ = snapshot.creditPackages.find((item) => !item.unlimited && item.remaining > 0);
+  return package_ ? formatMetricValue(package_.remaining, 'count', 'row') : null;
+}
+
 function statusReading(definition: MetricDefinition, snapshot: ProviderSnapshot): string | null {
   if (definition.source.kind !== 'status') return null;
   const sourceId = definition.source.sourceId;
@@ -84,6 +93,7 @@ function metricReading(
   return (
     quotaReading(definition, snapshot, settings) ??
     valueReading(definition, snapshot) ??
+    nearestCreditPackageReading(definition, snapshot) ??
     statusReading(definition, snapshot) ??
     usageReading(definition, snapshot)
   );

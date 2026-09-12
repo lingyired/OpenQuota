@@ -4,9 +4,10 @@
   interface Props {
     packages: CreditPackage[];
     expanded?: boolean;
+    label?: string;
   }
 
-  let { packages, expanded = false }: Props = $props();
+  let { packages, expanded = false, label = '可用积分包' }: Props = $props();
   const visiblePackages = $derived(
     packages
       .filter((item) => item.unlimited || item.remaining > 0)
@@ -31,8 +32,8 @@
 </script>
 
 {#if visiblePackages.length > 0}
-  <section class="metric credit-packages" aria-label="可用积分包">
-    <div class="metric__heading"><h2>可用积分包</h2></div>
+  <section class="metric credit-packages" aria-label={label}>
+    <div class="metric__heading"><h2>{label}</h2></div>
     <div class="credit-packages__items">
       {#each visiblePackages as creditPackage, index (`${creditPackage.code}:${creditPackage.expiresAt ?? 'none'}:${index}`)}
         <article class="credit-package">

@@ -153,6 +153,7 @@ export type MetricSource =
   | { kind: 'value'; sourceId: string }
   | { kind: 'status'; sourceId: string }
   | { kind: 'creditPackages' }
+  | { kind: 'nearestCreditPackage'; sourceId: string }
   | { kind: 'usage'; period: 'today' | 'yesterday' | 'last30Days' }
   | { kind: 'trend' };
 

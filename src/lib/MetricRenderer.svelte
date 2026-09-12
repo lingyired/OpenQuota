@@ -59,6 +59,9 @@
     if (source?.kind !== 'status') return null;
     return snapshot.statusMetrics.find((item) => item.id === source.sourceId) ?? null;
   });
+  const nearestCreditPackage = $derived(
+    snapshot.creditPackages.find((item) => !item.unlimited && item.remaining > 0) ?? null,
+  );
   const resolvedUsageSourceNote = $derived(usageSourceNote(catalog, snapshot));
 </script>
 
@@ -113,8 +116,14 @@
   </section>
 {:else if definition?.source.kind === 'trend'}
   <UsageTrend daily={snapshot.usage.daily} sourceNote={resolvedUsageSourceNote} />
+{:else if definition?.source.kind === 'nearestCreditPackage'}
+  <CreditPackageList
+    packages={nearestCreditPackage ? [nearestCreditPackage] : []}
+    label={localizedLabel}
+    {expanded}
+  />
 {:else if definition?.source.kind === 'creditPackages'}
-  <CreditPackageList packages={snapshot.creditPackages} {expanded} />
+  <CreditPackageList packages={snapshot.creditPackages} label={localizedLabel} {expanded} />
 {:else if definition?.source.kind === 'status'}
   <StatusMetric label={localizedLabel} metric={statusMetric} />
 {:else if definition?.source.kind === 'usage'}

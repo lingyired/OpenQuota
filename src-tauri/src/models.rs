@@ -364,6 +364,10 @@ pub enum MetricSource {
         source_id: String,
     },
     CreditPackages,
+    NearestCreditPackage {
+        #[serde(rename = "sourceId")]
+        source_id: String,
+    },
     Usage {
         period: UsagePeriodSelection,
     },
@@ -376,7 +380,8 @@ impl MetricSource {
             Self::Quota { source_id, .. }
             | Self::QuotaOrValue { source_id, .. }
             | Self::Value { source_id }
-            | Self::Status { source_id } => Some(source_id),
+            | Self::Status { source_id }
+            | Self::NearestCreditPackage { source_id } => Some(source_id),
             Self::CreditPackages | Self::Usage { .. } | Self::Trend => None,
         }
     }

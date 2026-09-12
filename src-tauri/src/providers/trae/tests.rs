@@ -78,12 +78,11 @@ fn definition_exposes_credit_metric_and_authentication_capability() {
             .map(|metric| metric.id.as_str())
             .collect::<Vec<_>>(),
         [
+            "trae-cn.nearestExpiring",
             "trae-cn.credits",
             "trae-cn.workCredits",
             "trae-cn.generalCredits",
-            "trae-cn.nearestExpiring",
-            "trae-cn.creditPackages",
-            "trae-cn.status"
+            "trae-cn.creditPackages"
         ]
     );
     let work = definition
@@ -108,8 +107,16 @@ fn definition_exposes_credit_metric_and_authentication_capability() {
         general.default_enabled
             && general.default_section == crate::models::MetricSection::OnDemand
     );
-    assert!(
-        nearest.pinnable && nearest.default_section == crate::models::MetricSection::AlwaysVisible
+    assert!(nearest.pinnable);
+    assert_eq!(
+        nearest.default_section,
+        crate::models::MetricSection::AlwaysVisible
+    );
+    assert_eq!(
+        nearest.source,
+        crate::models::MetricSource::NearestCreditPackage {
+            source_id: "nearestExpiring".into()
+        }
     );
 }
 

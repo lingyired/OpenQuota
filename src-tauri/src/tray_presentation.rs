@@ -285,6 +285,9 @@ fn tray_metric(
             usage_metric(&definition.label, usage_period(snapshot, *period))
         }
         MetricSource::CreditPackages => None,
+        MetricSource::NearestCreditPackage { source_id } => {
+            value_metric(snapshot, source_id, tray.suffix.as_deref())
+        }
         MetricSource::Trend => None,
     }
 }

@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 
-use crate::models::{CreditPackage, QuotaFormat, QuotaWindow, StatusMetric, StatusTone};
+use crate::models::{CreditPackage, QuotaFormat, QuotaWindow};
 
 #[derive(Debug, PartialEq)]
 pub struct TokenInfo {
@@ -19,7 +19,6 @@ struct MappedPackage {
 pub struct EntitlementMetrics {
     pub plan: Option<String>,
     pub quota: Option<QuotaWindow>,
-    pub status: Option<StatusMetric>,
     pub packages: Vec<CreditPackage>,
     pub work_remaining: f64,
     pub general_remaining: f64,
@@ -69,13 +68,6 @@ pub fn map_entitlement(body: &Value, now: DateTime<Utc>) -> Option<EntitlementMe
         return Some(EntitlementMetrics {
             plan: None,
             quota: None,
-            status: Some(StatusMetric {
-                id: "status".into(),
-                label: "Status".into(),
-                text: "No active credits".into(),
-                tone: StatusTone::Warning,
-                subtitle: Some("This account has no active Trae credit plan.".into()),
-            }),
             packages,
             work_remaining,
             general_remaining,
@@ -101,7 +93,6 @@ pub fn map_entitlement(body: &Value, now: DateTime<Utc>) -> Option<EntitlementMe
             estimated: false,
             source_note: None,
         }),
-        status: None,
         packages,
         work_remaining,
         general_remaining,
@@ -265,7 +256,6 @@ mod tests {
         assert_eq!(quota.limit_value, Some(3100.0));
         assert!((quota.used_percent - 46.8).abs() < 0.001);
         assert_eq!(quota.unit.as_deref(), Some("credits"));
-        assert!(mapped.status.is_none());
         assert!(mapped.packages.is_empty());
         assert_eq!(mapped.general_remaining, 1647.78);
     }
@@ -298,13 +288,6 @@ mod tests {
             Some(EntitlementMetrics {
                 plan: None,
                 quota: None,
-                status: Some(crate::models::StatusMetric {
-                    id: "status".into(),
-                    label: "Status".into(),
-                    text: "No active credits".into(),
-                    tone: crate::models::StatusTone::Warning,
-                    subtitle: Some("This account has no active Trae credit plan.".into()),
-                }),
                 packages: Vec::new(),
                 work_remaining: 0.0,
                 general_remaining: 0.0,
