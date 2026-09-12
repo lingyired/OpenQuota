@@ -640,6 +640,8 @@ pub struct ProviderCatalog {
     pub providers: Vec<ProviderDefinition>,
     #[serde(default)]
     pub api_key_provider_ids: Vec<String>,
+    #[serde(default)]
+    pub webview_auth_provider_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

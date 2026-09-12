@@ -89,6 +89,16 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'From your Grok logs (estimated)': 'metric.sourceFromGrokLogs',
   'From your OpenCode local database; missing costs use catalog estimates':
     'metric.sourceFromOpenCodeDb',
+  // Provider integration states
+  Available: 'providerIntegration.available',
+  Unavailable: 'providerIntegration.unavailable',
+  'Sign in to Trae CN in Customize to view usage.': 'providerIntegration.traeSignInRequired',
+  'Your Trae CN session expired. Sign in again in Customize.':
+    'providerIntegration.traeSessionExpired',
+  'No active credits': 'providerIntegration.traeNoActiveCredits',
+  'This account has no active Trae credit plan.': 'providerIntegration.traeNoActiveCreditsSubtitle',
+  'The DeepSeek API key is unavailable for billing.':
+    'providerIntegration.deepseekUnavailableSubtitle',
   // Warnings
   'Some OpenCode databases could not be read; available local usage is shown.':
     'metric.warnOpenCodeDbUnreadable',

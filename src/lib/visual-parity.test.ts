@@ -21,6 +21,8 @@ describe('native visual contract', () => {
     'openrouter',
     'zai',
     'workbuddy',
+    'deepseek',
+    'trae-cn',
   ])('packages the exact %s provider icon', (providerId) => {
     const { container } = render(ProviderIcon, { providerId });
     const icon = container.querySelector('.provider-icon');
@@ -62,6 +64,12 @@ describe('native visual contract', () => {
     cleanup();
     const workbuddy = render(ProviderIcon, { providerId: 'workbuddy' });
     expect(workbuddy.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
+    cleanup();
+    const deepseek = render(ProviderIcon, { providerId: 'deepseek' });
+    expect(deepseek.container.querySelector('path')).toHaveAttribute('fill', '#5786FE');
+    cleanup();
+    const trae = render(ProviderIcon, { providerId: 'trae-cn' });
+    expect(trae.container.querySelector('path')).toHaveAttribute('fill', '#32F08C');
   });
 
   it('reuses the Claude mark for Claude account cards', () => {

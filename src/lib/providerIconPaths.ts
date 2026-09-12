@@ -3,6 +3,7 @@ import claude from '../assets/provider-icons/claude.svg?raw';
 import codex from '../assets/provider-icons/codex.svg?raw';
 import copilot from '../assets/provider-icons/copilot.svg?raw';
 import cursor from '../assets/provider-icons/cursor.svg?raw';
+import deepseek from '../assets/provider-icons/deepseek.svg?raw';
 import devin from '../assets/provider-icons/devin.svg?raw';
 import grok from '../assets/provider-icons/grok.svg?raw';
 import kimi from '../assets/provider-icons/kimi.svg?raw';
@@ -10,6 +11,7 @@ import minimax from '../assets/provider-icons/minimax.svg?raw';
 import opencode from '../assets/provider-icons/opencode.svg?raw';
 import openrouter from '../assets/provider-icons/openrouter.svg?raw';
 import zai from '../assets/provider-icons/zai.svg?raw';
+import trae from '../assets/provider-icons/trae.svg?raw';
 import workbuddy from '../assets/provider-icons/workbuddy.svg?raw';
 
 const visuals: Record<string, { source: string; color: string | null }> = {
@@ -18,6 +20,7 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   codex: { source: codex, color: null },
   copilot: { source: copilot, color: null },
   cursor: { source: cursor, color: null },
+  deepseek: { source: deepseek, color: '#5786FE' },
   devin: { source: devin, color: null },
   grok: { source: grok, color: null },
   kimi: { source: kimi, color: '#1783FF' },
@@ -25,11 +28,13 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   opencode: { source: opencode, color: null },
   openrouter: { source: openrouter, color: null },
   zai: { source: zai, color: null },
+  trae: { source: trae, color: '#32F08C' },
   workbuddy: { source: workbuddy, color: null },
 };
 
 export function providerFamily(providerId: string) {
-  return providerId.split('@', 1)[0];
+  const family = providerId.split('@', 1)[0];
+  return family === 'trae-cn' ? 'trae' : family;
 }
 
 export function providerIconPath(providerId: string) {

@@ -36,6 +36,7 @@ impl ProviderRegistry {
         let mut metric_indices = HashMap::new();
         let mut metric_owners = BTreeMap::<String, String>::new();
         let mut api_key_provider_ids = Vec::new();
+        let mut webview_auth_provider_ids = Vec::new();
 
         for provider in providers {
             let mut definition = provider.definition();
@@ -61,6 +62,9 @@ impl ProviderRegistry {
             if provider.supports_api_key_configuration() {
                 api_key_provider_ids.push(definition.id.clone());
             }
+            if provider.webview_auth().is_some() {
+                webview_auth_provider_ids.push(definition.id.clone());
+            }
             runtimes.insert(definition.id.clone(), provider);
             definitions.push(definition);
         }
@@ -76,6 +80,7 @@ impl ProviderRegistry {
             catalog: ProviderCatalog {
                 providers: definitions,
                 api_key_provider_ids,
+                webview_auth_provider_ids,
             },
             definition_indices,
             metric_indices,
@@ -304,6 +309,8 @@ mod tests {
 
     struct ApiKeyStubProvider(ProviderDefinition);
 
+    struct WebviewStubProvider(ProviderDefinition);
+
     impl UsageProvider for StubProvider {
         fn definition(&self) -> ProviderDefinition {
             self.0.clone()
@@ -311,6 +318,28 @@ mod tests {
 
         fn has_local_credentials(&self) -> bool {
             false
+        }
+
+        fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+            unreachable!()
+        }
+    }
+
+    impl UsageProvider for WebviewStubProvider {
+        fn definition(&self) -> ProviderDefinition {
+            self.0.clone()
+        }
+
+        fn has_local_credentials(&self) -> bool {
+            false
+        }
+
+        fn webview_auth(&self) -> Option<crate::providers::WebviewAuth> {
+            Some(crate::providers::WebviewAuth {
+                login_url: "https://example.com/login".into(),
+                cookie_name: "session".into(),
+                window_label: "test-login".into(),
+            })
         }
 
         fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
@@ -396,6 +425,17 @@ mod tests {
         .unwrap();
 
         assert_eq!(registry.catalog().api_key_provider_ids, ["keyed"]);
+    }
+
+    #[test]
+    fn registry_exposes_webview_session_capabilities() {
+        let registry = ProviderRegistry::new(vec![
+            runtime(definition("local")),
+            Arc::new(WebviewStubProvider(definition("webview"))),
+        ])
+        .unwrap();
+
+        assert_eq!(registry.catalog().webview_auth_provider_ids, ["webview"]);
     }
 
     #[test]

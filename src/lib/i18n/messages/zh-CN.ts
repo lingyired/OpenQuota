@@ -621,6 +621,29 @@ export const zhCn = {
     couldNotUse: '无法使用此重置。请重试。',
     noRateLimitResets: '没有可用的速率限制重置',
   },
+  providerSession: {
+    title: '连接',
+    connected: '已连接',
+    notConnected: '未连接',
+    openSignIn: '打开登录',
+    capture: '我已登录',
+    capturing: '正在检查…',
+    disconnect: '断开连接',
+    disconnecting: '正在断开…',
+    hint: '请在打开的窗口中完成登录，然后返回这里确认。',
+    loadError: '无法加载连接状态。',
+    captureError: '登录未能完成。请确认已登录后重试。',
+    disconnectError: '无法移除已保存的连接。',
+  },
+  providerIntegration: {
+    available: '可用',
+    unavailable: '不可用',
+    traeSignInRequired: '请先在自定义中登录 Trae CN，以查看用量。',
+    traeSessionExpired: '你的 Trae CN 会话已过期。请在自定义中重新登录。',
+    traeNoActiveCredits: '没有可用积分',
+    traeNoActiveCreditsSubtitle: '此账号当前没有有效的 Trae 积分方案。',
+    deepseekUnavailableSubtitle: '此 DeepSeek API 密钥当前无法用于计费。',
+  },
 } as const;
 
 export type MessagesZh = typeof zhCn;

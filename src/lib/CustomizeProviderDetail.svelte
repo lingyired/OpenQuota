@@ -17,6 +17,7 @@
   } from './types';
   import Icon from './Icon.svelte';
   import ProviderApiKeySection from './ProviderApiKeySection.svelte';
+  import ProviderSessionSection from './ProviderSessionSection.svelte';
   import ProviderNameSection from './ProviderNameSection.svelte';
   import { reorderFlip } from './motion';
   import { pointerReorder } from './pointerReorder';
@@ -440,10 +441,17 @@
         </div>
       </div>
     {/if}
-    <ProviderApiKeySection
-      providerId={provider.id}
-      providerName={providerDisplayName(provider.id)}
-    />
+    {#if catalog.supportsWebviewAuth(provider.id)}
+      <ProviderSessionSection
+        providerId={provider.id}
+        providerName={providerDisplayName(provider.id)}
+      />
+    {:else}
+      <ProviderApiKeySection
+        providerId={provider.id}
+        providerName={providerDisplayName(provider.id)}
+      />
+    {/if}
     {#if message}
       <div class:denied={messageKind === 'denied'} class="customization-pill" role="status">
         <Icon

@@ -53,6 +53,22 @@ export function deleteProviderApiKey(providerId: string) {
   return invoke<ApiKeyMutationOutcome>('delete_provider_api_key', { providerId });
 }
 
+export function getProviderSessionState(providerId: string) {
+  return invoke<ProviderApiKeyState | null>('get_provider_session_state', { providerId });
+}
+
+export function openProviderWebviewLogin(providerId: string) {
+  return invoke<void>('open_provider_webview_login', { providerId });
+}
+
+export function captureProviderSession(providerId: string) {
+  return invoke<ProviderApiKeyState>('capture_provider_session', { providerId });
+}
+
+export function deleteProviderSession(providerId: string) {
+  return invoke<ProviderApiKeyState>('delete_provider_session', { providerId });
+}
+
 export function getAppSettings() {
   return invoke<SettingsViewState>('get_app_settings');
 }

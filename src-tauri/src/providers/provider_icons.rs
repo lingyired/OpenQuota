@@ -19,6 +19,7 @@ const CLAUDE: &str = brand_icon!("claude");
 const CODEX: &str = brand_icon!("codex");
 const COPILOT: &str = brand_icon!("copilot");
 const CURSOR: &str = brand_icon!("cursor");
+const DEEPSEEK: &str = brand_icon!("deepseek");
 const DEVIN: &str = brand_icon!("devin");
 const ANTIGRAVITY: &str = brand_icon!("antigravity");
 const GROK: &str = brand_icon!("grok");
@@ -27,6 +28,7 @@ const OPENROUTER: &str = brand_icon!("openrouter");
 const ZAI: &str = brand_icon!("zai");
 const KIMI: &str = brand_icon!("kimi");
 const MINIMAX: &str = brand_icon!("minimax");
+const TRAE: &str = brand_icon!("trae");
 const WORKBUDDY: &str = brand_icon!("workbuddy");
 
 /// Raw SVG source of a provider's brand icon, or `None` if none is bundled.
@@ -37,6 +39,7 @@ pub(crate) fn provider_icon_svg(provider_id: &str) -> Option<&'static str> {
         "codex" => Some(CODEX),
         "copilot" => Some(COPILOT),
         "cursor" => Some(CURSOR),
+        "deepseek" => Some(DEEPSEEK),
         "devin" => Some(DEVIN),
         "antigravity" => Some(ANTIGRAVITY),
         "grok" => Some(GROK),
@@ -45,6 +48,7 @@ pub(crate) fn provider_icon_svg(provider_id: &str) -> Option<&'static str> {
         "zai" => Some(ZAI),
         "kimi" => Some(KIMI),
         "minimax" => Some(MINIMAX),
+        "trae-cn" => Some(TRAE),
         "workbuddy" => Some(WORKBUDDY),
         _ => None,
     }

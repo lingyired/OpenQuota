@@ -67,10 +67,13 @@ from this repository's official release page; on macOS, manual approval may be r
 - **[Z.ai](docs/providers/zai.md)** — GLM Coding Plan session, weekly, and web-search quotas (API key)
 - **[Kimi](docs/providers/kimi.md)** — Kimi Code session and weekly quotas (API key)
 - **[MiniMax](docs/providers/minimax.md)** — Token Plan session and weekly quotas (API key)
+- **[DeepSeek](docs/providers/deepseek.md)** — current API balance by currency (API key)
+- **[Trae CN](docs/providers/trae-cn.md)** — available Trae credits through secure WebView sign-in
 
-Most providers use credentials already available on your computer. OpenRouter, Z.ai, Kimi, and
-MiniMax require API keys, which you can add in Customize; OpenQuota01 stores them securely in your
-operating system's credential store. Codex subscription limits require a ChatGPT login and are not
+Most providers use credentials already available on your computer. OpenRouter, Z.ai, Kimi, MiniMax,
+and DeepSeek require API keys, which you can add in Customize; OpenQuota01 stores them securely in
+your operating system's credential store. Trae CN uses a WebView sign-in and stores only the session
+cookie in the credential store. Codex subscription limits require a ChatGPT login and are not
 available in API-key-only sessions.
 
 ## Features

@@ -1,0 +1,129 @@
+use std::time::Duration;
+
+use crate::{
+    models::{ApiKeyStatus, ProviderErrorKind},
+    providers::{
+        api_key::{ApiKeyStore, EnvironmentReader, SecretBackend, SecretBytes},
+        test_http, UsageProvider,
+    },
+};
+
+use super::{client::TraeClient, definition, TraeProvider};
+
+const TOKEN_BODY: &str = r#"{
+  "Result": {"Token":"jwt-token","ExpiredAt":"2030-09-25T20:49:00+08:00"}
+}"#;
+const CREDITS_BODY: &str = r#"{
+  "usage_summary": {"total_amount":3100,"consumed_amount":1452.22,"consumption_ratio":0.468}
+}"#;
+
+struct MemorySecrets(std::sync::Mutex<Option<Vec<u8>>>);
+
+impl SecretBackend for MemorySecrets {
+    fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+        Ok(self.0.lock().unwrap().clone().map(SecretBytes::new))
+    }
+
+    fn write(&self, _account: &str, value: &[u8]) -> Result<(), String> {
+        *self.0.lock().unwrap() = Some(value.to_vec());
+        Ok(())
+    }
+
+    fn delete(&self, _account: &str) -> Result<(), String> {
+        *self.0.lock().unwrap() = None;
+        Ok(())
+    }
+}
+
+struct EmptyEnvironment;
+
+impl EnvironmentReader for EmptyEnvironment {
+    fn value(&self, _name: &str) -> Option<String> {
+        None
+    }
+}
+
+fn auth(session: Option<&str>) -> ApiKeyStore {
+    let secrets = std::sync::Arc::new(MemorySecrets(std::sync::Mutex::new(
+        session.map(|value| value.as_bytes().to_vec()),
+    )));
+    ApiKeyStore::with_backends(
+        "trae-cn",
+        "TRAE_CN_SESSION",
+        secrets,
+        std::sync::Arc::new(EmptyEnvironment),
+    )
+}
+
+fn provider(exchange_url: &str, entitlement_url: &str, session: Option<&str>) -> TraeProvider {
+    TraeProvider::with_dependencies(
+        auth(session),
+        TraeClient::for_test(exchange_url, entitlement_url, Duration::from_secs(1)),
+    )
+}
+
+#[test]
+fn definition_exposes_credit_metric_and_authentication_capability() {
+    let definition = definition();
+    assert_eq!(definition.id, "trae-cn");
+    assert_eq!(definition.display_name, "Trae CN");
+    assert_eq!(
+        definition
+            .metrics
+            .iter()
+            .map(|metric| metric.id.as_str())
+            .collect::<Vec<_>>(),
+        ["trae-cn.credits", "trae-cn.status"]
+    );
+}
+
+#[test]
+fn refresh_exchanges_session_and_maps_credits() {
+    let token_url = test_http::serve_once(200, &[], TOKEN_BODY);
+    let credits_url = test_http::serve_once(200, &[], CREDITS_BODY);
+    let provider = provider(&token_url, &credits_url, Some("session-value"));
+
+    let snapshot = provider.refresh().unwrap();
+    assert_eq!(snapshot.provider_id, "trae-cn");
+    assert_eq!(snapshot.plan.as_deref(), Some("Credits"));
+    assert_eq!(snapshot.quotas[0].id, "credits");
+    assert_eq!(snapshot.quotas[0].used_value, Some(1452.22));
+    assert_eq!(snapshot.quotas[0].limit_value, Some(3100.0));
+}
+
+#[test]
+fn missing_session_is_an_authentication_error() {
+    let error = provider("http://127.0.0.1:1", "http://127.0.0.1:1", None)
+        .refresh()
+        .unwrap_err();
+    assert_eq!(error.kind(), ProviderErrorKind::Authentication);
+}
+
+#[test]
+fn expired_session_is_an_authentication_error() {
+    let token_url = test_http::serve_once(401, &[], r#"{"ResponseMetadata":{}}"#);
+    let error = provider(&token_url, "http://127.0.0.1:1", Some("expired"))
+        .refresh()
+        .unwrap_err();
+    assert_eq!(error.kind(), ProviderErrorKind::Authentication);
+}
+
+#[test]
+fn expired_entitlement_token_is_an_authentication_error() {
+    let token_url = test_http::serve_once(200, &[], TOKEN_BODY);
+    let credits_url = test_http::serve_once(401, &[], r#"{"code":1001}"#);
+    let error = provider(&token_url, &credits_url, Some("session-value"))
+        .refresh()
+        .unwrap_err();
+    assert_eq!(error.kind(), ProviderErrorKind::Authentication);
+}
+
+#[test]
+fn session_status_is_reported() {
+    let provider = provider("http://127.0.0.1:1", "http://127.0.0.1:1", Some("session"));
+    assert_eq!(
+        provider.session_status().unwrap().unwrap(),
+        ApiKeyStatus::Saved
+    );
+    assert!(provider.webview_auth().is_some());
+}

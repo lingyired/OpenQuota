@@ -85,6 +85,11 @@ describe('translation helpers', () => {
     expect(tBackend('Today')).toBe('今日');
     expect(tBackend('Free')).toBe('免费');
     expect(tBackend('available')).toBe('可用');
+    expect(tBackend('Available')).toBe('可用');
+    expect(tBackend('Your Trae CN session expired. Sign in again in Customize.')).toBe(
+      '你的 Trae CN 会话已过期。请在自定义中重新登录。',
+    );
+    expect(tBackend('No active credits')).toBe('没有可用积分');
     expect(tBackend('Could not reach Kimi. Check your internet connection.')).toBe(
       '无法访问 Kimi。请检查你的网络连接。',
     );

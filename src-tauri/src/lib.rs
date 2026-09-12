@@ -54,8 +54,9 @@ use crate::{
     providers::{
         antigravity::AntigravityProvider, claude, codex::reset_claim::CodexResetClaimService,
         codex::CodexProvider, copilot::CopilotProvider, cursor::CursorProvider,
-        detect_local_credentials, devin::DevinProvider, grok::GrokProvider, kimi::KimiProvider,
-        minimax::MiniMaxProvider, opencode::OpenCodeProvider, openrouter::OpenRouterProvider,
+        deepseek::DeepSeekProvider, detect_local_credentials, devin::DevinProvider,
+        grok::GrokProvider, kimi::KimiProvider, minimax::MiniMaxProvider,
+        opencode::OpenCodeProvider, openrouter::OpenRouterProvider, trae::TraeProvider,
         workbuddy::WorkBuddyProvider, zai::ZaiProvider, ProviderRegistry, UsageProvider,
     },
     storage::Storage,
@@ -436,6 +437,8 @@ pub fn run() {
                 Arc::new(ZaiProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(KimiProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(MiniMaxProvider::new()?) as Arc<dyn UsageProvider>,
+                Arc::new(DeepSeekProvider::new()?) as Arc<dyn UsageProvider>,
+                Arc::new(TraeProvider::new()?) as Arc<dyn UsageProvider>,
             ]);
             let registry = Arc::new(ProviderRegistry::new(providers)?);
             let (settings_service, credential_detection_plan) =
@@ -549,6 +552,10 @@ pub fn run() {
             commands::provider::get_provider_api_key_state,
             commands::provider::save_provider_api_key,
             commands::provider::delete_provider_api_key,
+            commands::provider::get_provider_session_state,
+            commands::provider::open_provider_webview_login,
+            commands::provider::capture_provider_session,
+            commands::provider::delete_provider_session,
             commands::usage::refresh_usage,
             commands::usage::refresh_provider_usage,
             commands::usage::claim_codex_reset_credit,

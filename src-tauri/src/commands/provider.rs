@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl};
 use tauri_plugin_opener::OpenerExt;
 use zeroize::Zeroizing;
 
@@ -147,6 +147,221 @@ pub async fn get_provider_api_key_state(
     provider_id: String,
 ) -> Result<Option<ProviderApiKeyState>, String> {
     api_key_state(registry.inner().clone(), provider_id).await
+}
+
+async fn provider_session_state(
+    registry: Arc<ProviderRegistry>,
+    provider_id: String,
+) -> Result<Option<ProviderApiKeyState>, String> {
+    let runtime = registry
+        .runtime(&provider_id)
+        .ok_or_else(|| "Unknown provider.".to_owned())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(status) = runtime.session_status() else {
+            return Ok(None);
+        };
+        let status = status.map_err(|error| error.to_string())?;
+        Ok(Some(ProviderApiKeyState {
+            provider_id,
+            status,
+        }))
+    })
+    .await
+    .map_err(|_| "The connection status could not be read.".to_owned())?
+}
+
+#[tauri::command]
+pub async fn get_provider_session_state(
+    registry: State<'_, Arc<ProviderRegistry>>,
+    provider_id: String,
+) -> Result<Option<ProviderApiKeyState>, String> {
+    provider_session_state(registry.inner().clone(), provider_id).await
+}
+
+#[tauri::command]
+pub fn open_provider_webview_login(
+    app: AppHandle,
+    registry: State<'_, Arc<ProviderRegistry>>,
+    provider_id: String,
+) -> Result<(), String> {
+    let runtime = registry
+        .runtime(&provider_id)
+        .ok_or_else(|| "Unknown provider.".to_owned())?;
+    let auth = runtime
+        .webview_auth()
+        .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
+
+    if let Some(window) = app.get_webview_window(&auth.window_label) {
+        let _ = window.show();
+        let _ = window.set_focus();
+        return Ok(());
+    }
+
+    let url = auth
+        .login_url
+        .parse::<tauri::Url>()
+        .map_err(|_| "The provider sign-in URL is invalid.".to_owned())?;
+    let provider_name = runtime.definition().display_name;
+    tauri::WebviewWindowBuilder::new(&app, &auth.window_label, WebviewUrl::External(url))
+        .title(format!("Sign in to {provider_name}"))
+        .inner_size(1000.0, 720.0)
+        .build()
+        .map_err(|_| "The provider sign-in window could not be opened.".to_owned())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn capture_provider_session(
+    app: AppHandle,
+    registry: State<'_, Arc<ProviderRegistry>>,
+    service: State<'_, Arc<ProviderService>>,
+    settings: State<'_, Arc<SettingsService>>,
+    notifications: State<'_, Arc<NotificationEvaluator>>,
+    provider_id: String,
+) -> Result<ProviderApiKeyState, String> {
+    let runtime = registry
+        .runtime(&provider_id)
+        .ok_or_else(|| "Unknown provider.".to_owned())?;
+    let auth = runtime
+        .webview_auth()
+        .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
+    let window = app
+        .get_webview_window(&auth.window_label)
+        .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
+    // `cookies_for_url` compares the cookie domain exactly on macOS, which misses
+    // valid parent-domain cookies such as `.trae.cn`; this window is dedicated to
+    // one provider, so enumerate its cookies and match the declared name.
+    let session = window
+        .cookies()
+        .map_err(|_| "The provider sign-in could not be read.".to_owned())?
+        .into_iter()
+        .find(|cookie| cookie.name() == auth.cookie_name)
+        .map(|cookie| Zeroizing::new(cookie.value().to_owned()))
+        .ok_or_else(|| "Sign in to the provider first, then try again.".to_owned())?;
+
+    let credential_guard = settings.lock_credential_mutation().await;
+    settings.record_provider_credential_mutation();
+    let runtime_for_save = runtime.clone();
+    tauri::async_runtime::spawn_blocking(move || runtime_for_save.save_session(session.as_str()))
+        .await
+        .map_err(|_| "The provider sign-in could not be saved.".to_owned())?
+        .map_err(|error| error.to_string())?;
+
+    let command_guard = settings.lock_command_mutation().await;
+    let settings_reconciled =
+        reconcile_provider_credential_state(&app, &service, &settings, &provider_id, true, true)
+            .is_ok();
+    drop(command_guard);
+    drop(credential_guard);
+
+    let _ = window.close();
+    service.refresh(&provider_id, true).await;
+    let usage = service.state();
+    let _ = app.emit("usage-state", &usage);
+    finish_refresh(&app, &usage, &settings, &notifications);
+
+    let status = runtime
+        .session_status()
+        .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?
+        .map_err(|error| error.to_string())?;
+    crate::app_info!("auth", "WebView session saved for {provider_id}");
+    if !settings_reconciled {
+        crate::app_warn!(
+            "auth",
+            "provider state after session save could not be reconciled for {provider_id}"
+        );
+    }
+    Ok(ProviderApiKeyState {
+        provider_id,
+        status,
+    })
+}
+
+#[tauri::command]
+pub async fn delete_provider_session(
+    app: AppHandle,
+    registry: State<'_, Arc<ProviderRegistry>>,
+    service: State<'_, Arc<ProviderService>>,
+    settings: State<'_, Arc<SettingsService>>,
+    notifications: State<'_, Arc<NotificationEvaluator>>,
+    provider_id: String,
+) -> Result<ProviderApiKeyState, String> {
+    let runtime = registry
+        .runtime(&provider_id)
+        .ok_or_else(|| "Unknown provider.".to_owned())?;
+    let auth = runtime
+        .webview_auth()
+        .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
+
+    let login_window = app.get_webview_window(&auth.window_label);
+    let cookie_window = login_window
+        .clone()
+        .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW))
+        .ok_or_else(|| "The provider WebView is unavailable.".to_owned())?;
+    // Read from the same dedicated cookie store used during capture; the main
+    // window is the fallback when the sign-in window has already been closed.
+    if let Some(cookie) = cookie_window
+        .cookies()
+        .map_err(|_| "The provider WebView could not be read.".to_owned())?
+        .into_iter()
+        .find(|cookie| cookie.name() == auth.cookie_name)
+    {
+        cookie_window
+            .delete_cookie(cookie)
+            .map_err(|_| "The provider WebView session could not be removed.".to_owned())?;
+    }
+    if let Some(window) = login_window {
+        let _ = window.close();
+    }
+
+    let credential_guard = settings.lock_credential_mutation().await;
+    settings.record_provider_credential_mutation();
+    let runtime_for_delete = runtime.clone();
+    tauri::async_runtime::spawn_blocking(move || runtime_for_delete.delete_session())
+        .await
+        .map_err(|_| "The saved connection could not be removed.".to_owned())?
+        .map_err(|error| error.to_string())?;
+
+    let status = runtime
+        .session_status()
+        .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?
+        .map_err(|error| error.to_string())?;
+    let detected = status != ApiKeyStatus::NotSet;
+    let command_guard = settings.lock_command_mutation().await;
+    let settings_reconciled = reconcile_provider_credential_state(
+        &app,
+        &service,
+        &settings,
+        &provider_id,
+        detected,
+        detected,
+    )
+    .is_ok();
+    let should_refresh = settings
+        .get()
+        .providers
+        .iter()
+        .any(|provider| provider.id == provider_id && provider.enabled);
+    drop(command_guard);
+    drop(credential_guard);
+
+    if should_refresh {
+        service.refresh(&provider_id, true).await;
+    }
+    let usage = service.state();
+    let _ = app.emit("usage-state", &usage);
+    finish_refresh(&app, &usage, &settings, &notifications);
+    crate::app_info!("auth", "WebView session removed for {provider_id}");
+    if !settings_reconciled {
+        crate::app_warn!(
+            "auth",
+            "provider state after session removal could not be reconciled for {provider_id}"
+        );
+    }
+    Ok(ProviderApiKeyState {
+        provider_id,
+        status,
+    })
 }
 
 #[tauri::command]

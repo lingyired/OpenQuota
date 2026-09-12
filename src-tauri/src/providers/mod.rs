@@ -6,6 +6,7 @@ pub mod copilot;
 pub mod credential_store;
 pub mod cursor;
 mod daily_usage;
+pub mod deepseek;
 mod detection;
 pub mod devin;
 pub mod grok;
@@ -20,6 +21,7 @@ mod provider_icons;
 mod registry;
 #[cfg(test)]
 pub mod test_http;
+pub mod trae;
 pub mod workbuddy;
 pub mod zai;
 
@@ -31,6 +33,13 @@ pub(crate) use registry::normalize_default_pins;
 pub use registry::ProviderRegistry;
 
 use crate::models::{ApiKeyStatus, ProviderDefinition, ProviderErrorKind, ProviderSnapshot};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WebviewAuth {
+    pub login_url: String,
+    pub cookie_name: String,
+    pub window_label: String,
+}
 
 pub fn provider_family(provider_id: &str) -> &str {
     provider_id
@@ -136,6 +145,28 @@ pub trait UsageProvider: Send + Sync {
         CacheIdentity::Unscoped
     }
 
+    fn webview_auth(&self) -> Option<WebviewAuth> {
+        None
+    }
+
+    fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
+        None
+    }
+
+    fn save_session(&self, _value: &str) -> Result<(), ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorKind::Internal,
+            "That provider does not use a WebView session.",
+        ))
+    }
+
+    fn delete_session(&self) -> Result<(), ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorKind::Internal,
+            "That provider does not use a WebView session.",
+        ))
+    }
+
     fn supports_account_names(&self) -> bool {
         false
     }
@@ -170,8 +201,8 @@ pub trait UsageProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{
-        antigravity, claude, codex, copilot, cursor, devin, grok, kimi, minimax, opencode,
-        openrouter, remember_default_account, zai, ProviderError,
+        antigravity, claude, codex, copilot, cursor, deepseek, devin, grok, kimi, minimax,
+        opencode, openrouter, remember_default_account, trae, zai, ProviderError,
     };
     use crate::models::ProviderErrorKind;
     use tempfile::tempdir;
@@ -317,6 +348,26 @@ mod tests {
                     "https://platform.minimax.io/console/access".into()
                 ),
             ]
+        );
+        assert_eq!(
+            links(deepseek::definition()),
+            [
+                (
+                    "Dashboard".into(),
+                    "https://platform.deepseek.com/usage".into()
+                ),
+                (
+                    "API Keys".into(),
+                    "https://platform.deepseek.com/api_keys".into()
+                ),
+            ]
+        );
+        assert_eq!(
+            links(trae::definition()),
+            [(
+                "Dashboard".into(),
+                "https://www.trae.cn/account-setting#usage".into()
+            )]
         );
     }
 }
