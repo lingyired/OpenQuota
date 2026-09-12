@@ -24,10 +24,10 @@ const tauriConfig = JSON.parse(tauriConfigSource) as {
 describe('popover geometry contract', () => {
   it('keeps system resize borders locked and exposes only the native vertical grip', () => {
     expect(tauriConfig.app.windows[0]).toMatchObject({
-      width: 320,
+      width: 440,
       height: 800,
-      minWidth: 320,
-      maxWidth: 320,
+      minWidth: 440,
+      maxWidth: 440,
       minHeight: 240,
       resizable: false,
     });
@@ -37,9 +37,32 @@ describe('popover geometry contract', () => {
 
   it('lets the webview shrink below its nominal width without creating horizontal focus scroll', () => {
     expect(componentCss).toMatch(
-      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 320px;/s,
+      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 440px;/s,
     );
-    expect(css).not.toMatch(/\.popover\s*{[^}]*\n\s*width: 320px;/s);
+    expect(css).not.toMatch(/\.popover\s*{[^}]*\n\s*width: 440px;/s);
+  });
+
+  it('reserves an eighty-pixel provider rail beside the dashboard', () => {
+    expect(css).toMatch(
+      /\.content--dashboard\s*{[^}]*grid-template-columns: 80px minmax\(0, 1fr\);/s,
+    );
+    expect(css).toMatch(/\.provider-rail\s*{[^}]*width: 80px;/s);
+    expect(css).toMatch(
+      /:root\[data-density='compact'\] \.content--dashboard\s*{[^}]*padding: 0;/s,
+    );
+    expect(css).toMatch(
+      /\.provider-rail__tab\s*{[^}]*flex-direction: row;[^}]*align-items: center;/s,
+    );
+    expect(css).toMatch(
+      /\.provider-rail__values\s*{[^}]*flex-direction: column;[^}]*align-items: flex-start;/s,
+    );
+    expect(css).toMatch(
+      /\.provider-rail__tab:focus,\s*\.provider-rail__tab:focus-visible\s*{[^}]*outline: none;/s,
+    );
+    expect(css).toMatch(/\.provider-rail\s*{[^}]*overflow: hidden;/s);
+    expect(css).toMatch(
+      /\.provider-rail__scroller\s*{[^}]*height: 100%;[^}]*min-height: 0;[^}]*overflow-y: auto;/s,
+    );
   });
 
   it('keeps regular-density spacing and chrome dimensions', () => {
@@ -66,6 +89,13 @@ describe('popover geometry contract', () => {
       /\.provider-section:focus-visible\s*{[^}]*outline: 2px solid var\(--meter-fill\);[^}]*outline-offset: 2px;/s,
     );
     expect(css).not.toMatch(/\.provider-section:focus\s*{/);
+  });
+
+  it('keeps transitioning screens opaque and isolated from each other', () => {
+    expect(css).toMatch(
+      /\.screen-stage\s*{[^}]*display: grid;[^}]*overflow: clip;[^}]*isolation: isolate;/s,
+    );
+    expect(css).toMatch(/\.screen-page\s*{[^}]*background: var\(--tray\);/s);
   });
 
   it('keeps shared rules below component-owned styles regardless of bundle order', () => {

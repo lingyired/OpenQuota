@@ -135,7 +135,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.claudeDesktopAppOnly',
   'Subscription usage is unavailable for API-key-only logins. Sign in to Codex with ChatGPT.':
     'providerError.codexApiKeyOnly',
-  'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/openquota01/zai.json.':
+  'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/usage01/zai.json.':
     'providerError.addZaiApiKey',
   'Add a Kimi API key in Customize or set KIMI_API_KEY.': 'providerError.addKimiApiKey',
   'Add a MiniMax API key in Customize or set MINIMAX_API_KEY.': 'providerError.addMiniMaxApiKey',
@@ -158,7 +158,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.openCodeLocalUsageUnavailable',
   'Usage request failed after refresh. Try again.': 'providerError.usageRequestFailedAfterRefresh',
   'Total usage limit missing from API response.': 'providerError.totalUsageLimitMissing',
-  'OpenQuota01 cache is unavailable.': 'providerError.cacheUnavailable',
+  'Usage01 cache is unavailable.': 'providerError.cacheUnavailable',
   'Enterprise usage data unavailable. Try again later.':
     'providerError.cursorEnterpriseUsageUnavailable',
   'Team request-based usage data unavailable. Try again later.':
@@ -231,7 +231,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.claudeSessionExpired',
   'Your Claude token expired. Run `claude` to sign in again.': 'providerError.claudeTokenExpired',
   'Claude login changed during refresh. Refresh again.': 'providerError.claudeLoginChanged',
-  'The Claude account changed while OpenQuota01 was running. Restart OpenQuota01 to reconnect it safely.':
+  'The Claude account changed while Usage01 was running. Restart Usage01 to reconnect it safely.':
     'providerError.claudeAccountChanged',
   'Claude OAuth settings contain an invalid URL.': 'providerError.claudeOAuthInvalidUrl',
   'Claude account settings could not be loaded.': 'providerError.claudeAccountSettingsUnavailable',
@@ -253,12 +253,12 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   ],
   // Settings command errors surfaced through settingsController
   'Notification permission could not be requested.': 'app.errors.notificationPermission',
-  'OpenQuota01 settings are temporarily unavailable.': 'settings.temporarilyUnavailable',
+  'Usage01 settings are temporarily unavailable.': 'settings.temporarilyUnavailable',
   'Settings changed before they could be saved. Please try again.': 'settings.changedBeforeSaved',
-  'OpenQuota01 account settings could not be loaded.': 'settings.accountCouldNotLoad',
-  'OpenQuota01 account names are temporarily unavailable.': 'settings.accountNamesUnavailable',
-  'OpenQuota01 account names could not be saved.': 'settings.accountNamesCouldNotSave',
-  'OpenQuota01 settings could not be saved.': 'settings.couldNotSave',
+  'Usage01 account settings could not be loaded.': 'settings.accountCouldNotLoad',
+  'Usage01 account names are temporarily unavailable.': 'settings.accountNamesUnavailable',
+  'Usage01 account names could not be saved.': 'settings.accountNamesCouldNotSave',
+  'Usage01 settings could not be saved.': 'settings.couldNotSave',
   'Unknown provider.': 'settings.unknownProvider',
   'Provider settings are unavailable.': 'settings.providerUnavailable',
   'Settings could not be saved.': 'settings.genericSaveError',
@@ -273,9 +273,9 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'The refreshed account state could not be saved.': 'providerError.accountStateCouldNotSave',
   'Usage refreshed, but the last successful snapshot could not be cached.':
     'providerError.snapshotCacheFailed',
-  'The API key was saved securely, but OpenQuota01 could not finish updating provider status. Restart OpenQuota01 or try again.':
+  'The API key was saved securely, but Usage01 could not finish updating provider status. Restart Usage01 or try again.':
     'providerError.apiKeySaveIncomplete',
-  'The API key was removed, but OpenQuota01 could not finish updating provider status. Restart OpenQuota01 or try again.':
+  'The API key was removed, but Usage01 could not finish updating provider status. Restart Usage01 or try again.':
     'providerError.apiKeyRemoveIncomplete',
   // Settings integration errors shown in the Settings notice
   'Launch at login status could not be read.': 'settings.launchAtLoginStatusUnavailable',
@@ -288,7 +288,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'This Linux package cannot update itself.': 'update.manualInstallRequired',
   'Download the new package from the release page and install it normally.':
     'update.manualInstallAction',
-  'OpenQuota01 is already up to date.': 'update.alreadyUpToDate',
+  'Usage01 is already up to date.': 'update.alreadyUpToDate',
   'No action is needed.': 'update.noActionNeeded',
   'GitHub refused the update download.': 'update.githubRefused',
   'Try again. If it still fails, download the verified installer from the release page.':
@@ -419,17 +419,17 @@ export const backendPatterns: BackendPattern[] = [
   // Update failures returned by updates.rs (dynamic operation strings)
   {
     pattern:
-      /^OpenQuota01 could not (?:check for updates|install the signed update) because the network request failed\.$/,
+      /^Usage01 could not (?:check for updates|install the signed update) because the network request failed\.$/,
     key: 'update.networkFailed',
     params: [],
   },
   {
-    pattern: /^OpenQuota01 could not (?:check for updates|install the signed update)\.$/,
+    pattern: /^Usage01 could not (?:check for updates|install the signed update)\.$/,
     key: 'update.genericFailed',
     params: [],
   },
   {
-    pattern: /^The OpenQuota01 download page could not be opened: .+$/,
+    pattern: /^The Usage01 download page could not be opened: .+$/,
     key: 'update.downloadPageError',
     params: [],
   },

@@ -156,7 +156,7 @@ impl Default for MenubarState {
 
 #[cfg(target_os = "macos")]
 impl MenubarState {
-    /// 关闭插件的「左键自动 toggle popup」。OpenQuota01 自己管理主窗口
+    /// 关闭插件的「左键自动 toggle popup」。Usage01 自己管理主窗口
     /// （与 Windows taskband 一样监听 click 事件再打开），避免与内置
     /// 的 popup / 面板逻辑打架。
     #[cfg(target_os = "macos")]

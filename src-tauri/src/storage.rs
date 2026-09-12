@@ -15,13 +15,13 @@ use crate::{
 
 #[derive(Debug, Error)]
 pub enum StorageError {
-    #[error("OpenQuota01 data directory could not be created")]
+    #[error("Usage01 data directory could not be created")]
     CreateDirectory(#[source] std::io::Error),
-    #[error("OpenQuota01 database is unavailable")]
+    #[error("Usage01 database is unavailable")]
     Database(#[from] rusqlite::Error),
-    #[error("Cached OpenQuota01 data is invalid")]
+    #[error("Cached Usage01 data is invalid")]
     InvalidCache(#[from] serde_json::Error),
-    #[error("OpenQuota01 database lock is unavailable")]
+    #[error("Usage01 database lock is unavailable")]
     Poisoned,
 }
 
@@ -509,7 +509,7 @@ mod tests {
     #[test]
     fn snapshot_round_trip_contains_no_credentials() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let snapshot = ProviderSnapshot {
             credit_packages: Vec::new(),
             provider_id: "codex".into(),
@@ -556,7 +556,7 @@ mod tests {
         storage.save_snapshot(&snapshot).unwrap();
 
         assert_eq!(storage.load_snapshot("codex").unwrap(), Some(snapshot));
-        let bytes = std::fs::read(directory.path().join("openquota01.db")).unwrap();
+        let bytes = std::fs::read(directory.path().join("usage01.db")).unwrap();
         let database = String::from_utf8_lossy(&bytes);
         assert!(!database.contains("access_token"));
         assert!(!database.contains("refresh_token"));
@@ -565,7 +565,7 @@ mod tests {
     #[test]
     fn account_scoped_snapshot_is_visible_only_to_the_same_identity() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let snapshot = ProviderSnapshot {
             credit_packages: Vec::new(),
             provider_id: "claude".into(),
@@ -605,7 +605,7 @@ mod tests {
     #[test]
     fn provider_account_records_round_trip_by_family() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
 
         storage
             .save_provider_account_record(
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn account_records_and_settings_roll_back_together() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let original = AppSettings {
             theme: crate::models::ThemePreference::Light,
             ..AppSettings::default()
@@ -677,7 +677,7 @@ mod tests {
     #[test]
     fn legacy_snapshot_table_gains_the_account_identity_column() {
         let directory = tempdir().unwrap();
-        let path = directory.path().join("openquota01.db");
+        let path = directory.path().join("usage01.db");
         let legacy = Connection::open(&path).unwrap();
         legacy
             .execute_batch(
@@ -699,7 +699,7 @@ mod tests {
     #[test]
     fn legacy_count_quota_cache_is_normalized_at_load_boundary() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let snapshot = ProviderSnapshot {
             credit_packages: Vec::new(),
             provider_id: "cursor".into(),
@@ -736,7 +736,7 @@ mod tests {
     #[test]
     fn settings_round_trip_uses_the_same_disk_database() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let settings = AppSettings {
             always_show_pacing: true,
             ..AppSettings::default()
@@ -748,7 +748,7 @@ mod tests {
     #[test]
     fn panel_height_round_trip_is_independent_from_app_settings() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let settings = AppSettings::default();
         storage.save_settings(&settings).unwrap();
 
@@ -765,7 +765,7 @@ mod tests {
     #[test]
     fn log_cache_pruning_is_scoped_to_a_provider() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let codex_old = PathBuf::from("/logs/codex-old.jsonl");
         let codex_current = PathBuf::from("/logs/codex-current.jsonl");
         let claude_current = PathBuf::from("/logs/claude-current.jsonl");
@@ -806,7 +806,7 @@ mod tests {
     #[test]
     fn providers_can_cache_the_same_path_independently() {
         let directory = tempdir().unwrap();
-        let storage = Storage::open(&directory.path().join("openquota01.db")).unwrap();
+        let storage = Storage::open(&directory.path().join("usage01.db")).unwrap();
         let shared = PathBuf::from("/synced/session.jsonl");
         storage
             .save_log_events("claude", &shared, 10, 20, "claude")
@@ -828,7 +828,7 @@ mod tests {
     #[test]
     fn legacy_millisecond_log_cache_is_safely_rebuilt() {
         let directory = tempdir().unwrap();
-        let path = directory.path().join("openquota01.db");
+        let path = directory.path().join("usage01.db");
         let legacy = Connection::open(&path).unwrap();
         legacy
             .execute_batch(

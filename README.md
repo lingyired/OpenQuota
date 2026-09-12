@@ -1,8 +1,8 @@
 <p align="center">
-  <img src="assets/openquota01-icon.png" alt="OpenQuota01 logo" width="88">
+  <img src="assets/usage01-icon.png" alt="Usage01 logo" width="88">
 </p>
 
-<h1 align="center">OpenQuota01</h1>
+<h1 align="center">Usage01</h1>
 
 <p align="center">
   Track usage and limits across your AI coding tools.
@@ -15,12 +15,12 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
-OpenQuota01 brings usage data from Claude Code, Codex, Cursor, Copilot, and other AI coding providers
+Usage01 brings usage data from Claude Code, Codex, Cursor, Copilot, and other AI coding providers
 into one compact panel. See session and weekly limits, reset times, token usage, and estimated
 spend at a glance.
 
 <p align="center">
-  <img src="assets/openquota01-demo.gif" alt="OpenQuota01 dashboard showing animated AI usage in light and dark themes" width="840">
+  <img src="assets/usage01-demo.gif" alt="Usage01 dashboard showing animated AI usage in light and dark themes" width="840">
 </p>
 
 ## Download
@@ -37,12 +37,12 @@ Open the latest release and choose the file for your platform:
 - **macOS:** `_universal.dmg` — requires macOS 11 or later
 - **Linux:** `.AppImage` or `.deb`
 
-OpenQuota01 checks for updates automatically. Update payloads are cryptographically signed with the
+Usage01 checks for updates automatically. Update payloads are cryptographically signed with the
 project's updater key, independently from operating-system package signing.
 
 When native signing is disabled (the current default), Windows installers are not
 Authenticode-signed, while the macOS app uses an ad-hoc signature and is not Apple-notarized.
-Windows SmartScreen or macOS Gatekeeper may therefore ask for confirmation. Download OpenQuota01 only
+Windows SmartScreen or macOS Gatekeeper may therefore ask for confirmation. Download Usage01 only
 from this repository's official release page; on macOS, manual approval may be required in Privacy
 & Security. Each release states its exact native-signing status in its notes.
 
@@ -71,8 +71,8 @@ from this repository's official release page; on macOS, manual approval may be r
 - **[Trae CN](docs/providers/trae-cn.md)** — available Trae credits through secure WebView sign-in
 
 Most providers use credentials already available on your computer. OpenRouter, Z.ai, Kimi, MiniMax,
-and DeepSeek require API keys, which you can add in Customize; OpenQuota01 stores them securely in
-your operating system's credential store. Trae CN uses a WebView sign-in and stores only the session
+and DeepSeek require API keys, which you can add in Customize; Usage01 stores them securely in your
+operating system's credential store. Trae CN uses a WebView sign-in and stores only the session
 cookie in the credential store. Codex subscription limits require a ChatGPT login and are not
 available in API-key-only sessions.
 
@@ -90,7 +90,7 @@ available in API-key-only sessions.
 - **Fast refresh.** Cached values appear immediately and providers refresh automatically in the
   background.
 
-OpenQuota01 runs locally and has no account, cloud backend, analytics, or usage telemetry of its own.
+Usage01 runs locally and has no account, cloud backend, analytics, or usage telemetry of its own.
 
 ## Development
 
@@ -132,7 +132,7 @@ and report security problems privately as described in [SECURITY.md](SECURITY.md
 
 ## Acknowledgements
 
-OpenQuota01 is based on the OpenQuota project and was also inspired by [OpenUsage](https://github.com/robinebers/openusage) and developed as a
+Usage01 is based on the OpenQuota project and was also inspired by [OpenUsage](https://github.com/robinebers/openusage) and developed as a
 cross-platform alternative for Windows, Linux, and macOS.
 
 ## License

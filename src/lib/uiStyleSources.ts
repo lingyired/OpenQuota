@@ -5,6 +5,7 @@ import dashboardSource from './Dashboard.svelte?raw';
 import iconSource from './Icon.svelte?raw';
 import modelUsageDetailSource from './ModelUsageDetail.svelte?raw';
 import providerIconSource from './ProviderIcon.svelte?raw';
+import providerRailSource from './ProviderRail.svelte?raw';
 import providerSessionSource from './ProviderSessionSection.svelte?raw';
 import quotaMetricSource from './QuotaMetric.svelte?raw';
 import selectMenuSource from './SelectMenu.svelte?raw';
@@ -21,6 +22,7 @@ const componentSources = [
   iconSource,
   modelUsageDetailSource,
   providerIconSource,
+  providerRailSource,
   providerSessionSource,
   quotaMetricSource,
   selectMenuSource,

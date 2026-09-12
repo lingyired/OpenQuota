@@ -39,10 +39,11 @@
   import { createListenerRegistry } from './lib/listenerRegistry';
   import { emptyProviderCatalog, ProviderCatalogIndex } from './lib/metrics';
   import { springMotion } from './lib/motion';
-  import OpenQuota01Mark from './lib/OpenQuota01Mark.svelte';
-  import ProviderTabs from './lib/ProviderTabs.svelte';
+  import Usage01Mark from './lib/Usage01Mark.svelte';
+  import ProviderRail from './lib/ProviderRail.svelte';
   import { horizontalPageTransition, shouldSlideBetweenScreens } from './lib/pageTransition';
   import { desktopPlatform, shortcutLabels } from './lib/platform';
+  import { cancelActiveReorder } from './lib/pointerReorder';
   import { withProviderName } from './lib/providerNames';
   import RenameProviderSheet from './lib/RenameProviderSheet.svelte';
   import {
@@ -70,6 +71,7 @@
   // shows only this agent (other agents stay hidden).
   let focusedProviderId = $state<string | null>(null);
   let screen = $state<Screen>('dashboard');
+  let providerReturnScreen: Screen = 'customize';
   let now = $state(Date.now());
   let settingsError = $state<string | null>(null);
   let automaticUpdatesReady = $state(false);
@@ -182,19 +184,20 @@
     navigate('dashboard');
     void dismissMainWindow();
   }
-  function resetTransientUi() {
+  function closeTransientLayers() {
     closeOptionsMenu();
     showAbout = false;
     resetConfirmationOpen = false;
     settingsResetConfirmationOpen = false;
     renameCard = null;
+    confirmationMessage = null;
+  }
+  function resetTransientUi() {
+    closeTransientLayers();
     resettingCustomization = false;
     resettingAllSettings = false;
     resettingProviderId = null;
-    confirmationMessage = null;
-    const content = document.querySelector<HTMLElement>('.content');
-    if (content && typeof content.scrollTo === 'function') content.scrollTo({ top: 0 });
-    else if (content) content.scrollTop = 0;
+    scrollScreenToTop();
   }
   function quitApp() {
     void quitApplication();
@@ -205,11 +208,15 @@
   }
   function navigate(next: Screen) {
     if (next === screen) return;
+    cancelActiveReorder();
+    closeTransientLayers();
     slidePageTransition = shouldSlideBetweenScreens(screen, next);
     slideDirection = screenRank(next) >= screenRank(screen) ? 1 : -1;
     screen = next;
+    if (!next.startsWith('provider:')) providerReturnScreen = 'customize';
   }
   async function openProviderCustomization(providerId: string, focusBack = false) {
+    providerReturnScreen = screen === 'dashboard' ? 'dashboard' : 'customize';
     navigate(`provider:${providerId}`);
     if (!focusBack) return;
     await tick();
@@ -224,15 +231,21 @@
   async function selectDashboardProvider(providerId: string | null) {
     focusedProviderId = providerId;
     await tick();
-    const content = document.querySelector<HTMLElement>('.content');
-    if (content && typeof content.scrollTo === 'function') content.scrollTo({ top: 0 });
-    else if (content) content.scrollTop = 0;
+    scrollScreenToTop();
     // The filtered dashboard has a different natural height; fit immediately instead of relying on
     // the platform webview to emit a later resize-observer pass.
     scheduleWindowFit();
   }
+
+  function scrollScreenToTop() {
+    for (const selector of ['.content', '.screen-stage']) {
+      const element = document.querySelector<HTMLElement>(selector);
+      if (element && typeof element.scrollTo === 'function') element.scrollTo({ top: 0 });
+      else if (element) element.scrollTop = 0;
+    }
+  }
   function back() {
-    if (screen.startsWith('provider:')) navigate('customize');
+    if (screen.startsWith('provider:')) navigate(providerReturnScreen);
     else if (screen !== 'dashboard') navigate('dashboard');
     else closeMainWindow();
   }
@@ -783,8 +796,9 @@
     );
     listeners.add(
       onOpenScreen((target) => {
-        if (target.startsWith('provider:')) navigate(target as Screen);
-        else navigate(target === 'settings' ? 'settings' : 'customize');
+        if (target.startsWith('provider:')) {
+          void openProviderCustomization(target.slice(9));
+        } else navigate(target === 'settings' ? 'settings' : 'customize');
       }),
     );
     listeners.add(onTaskbandOpen((providerId) => void focusTaskbandProvider(providerId)));
@@ -847,15 +861,15 @@
   {#if floatingWindow}
     <header class="floating-chrome" aria-label={$tStore('app.windowControls')}>
       <div class="floating-chrome__drag">
-        <OpenQuota01Mark size={14} />
-        <span>OpenQuota01</span>
+        <Usage01Mark size={14} />
+        <span>Usage01</span>
       </div>
       <button
         class="floating-chrome__close"
         type="button"
         aria-label={settingsState?.trayAvailable
-          ? $tStore('app.hideOpenQuota01')
-          : $tStore('app.closeOpenQuota01')}
+          ? $tStore('app.hideUsage01')
+          : $tStore('app.closeUsage01')}
         onclick={closeMainWindow}
       >
         <Icon name="close" size={12} strokeWidth={2.1} />
@@ -898,12 +912,16 @@
         {/if}
       </header>
     {/if}
-    <div class="content" class:content--chrome={screen !== 'dashboard'}>
+    <div
+      class="content"
+      class:content--chrome={screen !== 'dashboard'}
+      class:content--dashboard={screen === 'dashboard'}
+    >
       {#if settingsError}<div class="notice notice--blocking" role="alert">
           {$tBackendStore(settingsError)}
         </div>{/if}
       {#if screen === 'dashboard'}
-        <ProviderTabs
+        <ProviderRail
           {viewState}
           settings={settingsState.settings}
           {catalog}
@@ -918,10 +936,7 @@
             data-screen={screen}
             in:horizontalPageTransition={{
               direction: slideDirection,
-              ...springMotion(reducedMotion || !slidePageTransition),
-            }}
-            out:horizontalPageTransition={{
-              direction: -slideDirection,
+              zIndex: 2,
               ...springMotion(reducedMotion || !slidePageTransition),
             }}
           >
@@ -1008,7 +1023,7 @@
           disabled={anyRefreshing}
           aria-label={$tStore('app.refreshAll')}
         >
-          <span>OpenQuota01 {appVersion}</span><small
+          <span>Usage01 {appVersion}</span><small
             >{anyRefreshing ? $tStore('app.updating') : nextUpdateLabelText}</small
           >
         </button>
@@ -1094,14 +1109,14 @@
                 >
                 <hr />
                 <button class="menu-item" type="button" onclick={openAbout}
-                  ><Icon name="about" /><span>{$tStore('app.aboutOpenQuota01')}</span></button
+                  ><Icon name="about" /><span>{$tStore('app.aboutUsage01')}</span></button
                 >
                 <button
                   class="menu-item menu-item--danger"
                   type="button"
-                  aria-label={$tStore('app.quitOpenQuota01')}
+                  aria-label={$tStore('app.quitUsage01')}
                   onclick={quitApp}
-                  ><Icon name="power" /><span>{$tStore('app.quitOpenQuota01')}</span><kbd
+                  ><Icon name="power" /><span>{$tStore('app.quitUsage01')}</span><kbd
                     >{shortcuts.quit}</kbd
                   ></button
                 >
@@ -1160,7 +1175,7 @@
           role="dialog"
           tabindex="-1"
           aria-modal="true"
-          aria-label={$tStore('app.aboutOpenQuota01')}
+          aria-label={$tStore('app.aboutUsage01')}
         >
           <button
             bind:this={aboutCloseButton}
@@ -1170,8 +1185,8 @@
             onclick={() => void closeAbout()}
             ><Icon name="close" size={11} strokeWidth={2.3} /></button
           >
-          <OpenQuota01Mark size={44} />
-          <h1>OpenQuota01</h1>
+          <Usage01Mark size={44} />
+          <h1>Usage01</h1>
           <p>{$tStore('app.aboutVersion', { version: appVersion })}</p>
           <small>{$tStore('app.aboutTagline')}</small>
         </div>
@@ -1475,21 +1490,57 @@
       padding-top: 12px;
     }
 
+    .content--dashboard {
+      display: grid;
+      min-height: 0;
+      grid-template-columns: 80px minmax(0, 1fr);
+      grid-template-rows: auto minmax(0, 1fr);
+      padding: 0;
+      overflow: hidden;
+    }
+
+    :root[data-density='compact'] .content--dashboard {
+      padding: 0;
+    }
+
+    .content--dashboard > .notice {
+      grid-row: 1;
+      grid-column: 1 / -1;
+      margin: 8px 14px 0;
+    }
+
+    .content--dashboard > .provider-rail {
+      grid-row: 2;
+      grid-column: 1;
+    }
+
+    .content--dashboard > .screen-stage {
+      min-height: 0;
+      grid-row: 2;
+      grid-column: 2;
+      padding: 14px 14px 12px;
+      overflow-y: auto;
+      overscroll-behavior: contain;
+    }
+
     .screen-stage {
       display: grid;
       width: 100%;
       min-width: 0;
       min-height: 0;
       overflow: clip;
+      isolation: isolate;
       background: var(--tray);
     }
 
     .screen-page {
+      position: relative;
       width: 100%;
       min-width: 0;
       min-height: 0;
       grid-area: 1 / 1;
       align-self: start;
+      background: var(--tray);
       transform-origin: 50% 45%;
     }
 
@@ -1870,7 +1921,7 @@
     .popover {
       width: 100%;
       min-width: 0;
-      max-width: 320px;
+      max-width: 440px;
     }
   }
 </style>

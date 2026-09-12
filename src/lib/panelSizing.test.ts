@@ -23,6 +23,11 @@ describe('panel sizing', () => {
     expect(panelTargetHeight(900, 700)).toBe(595);
   });
 
+  it('never grows the panel beyond eight hundred logical pixels', () => {
+    expect(panelMaximumHeight(1600)).toBe(800);
+    expect(panelTargetHeight(1400, 1600)).toBe(800);
+  });
+
   it('rounds content-sized panels up between the dynamic bounds', () => {
     expect(panelTargetHeight(487.2, 1080)).toBe(488);
   });

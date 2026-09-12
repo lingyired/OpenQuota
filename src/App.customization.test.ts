@@ -34,7 +34,7 @@ function mockInvoke(implementation: InvokeImplementation) {
   });
 }
 
-describe('OpenQuota01 customization persistence and reorder', () => {
+describe('Usage01 customization persistence and reorder', () => {
   beforeEach(() => {
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,

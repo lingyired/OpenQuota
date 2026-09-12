@@ -27,7 +27,7 @@ foreach ($name in $requiredVariables) {
   }
 }
 
-$workingDirectory = Join-Path $env:RUNNER_TEMP "openquota01-codesigntool-$([Guid]::NewGuid().ToString('N'))"
+$workingDirectory = Join-Path $env:RUNNER_TEMP "usage01-codesigntool-$([Guid]::NewGuid().ToString('N'))"
 $archivePath = Join-Path $workingDirectory 'CodeSignTool.zip'
 $toolDirectory = Join-Path $workingDirectory 'tool'
 

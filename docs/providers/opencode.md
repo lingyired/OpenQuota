@@ -1,6 +1,6 @@
 # OpenCode
 
-OpenQuota01 combines OpenCode Go quota information with usage recorded by local OpenCode sessions.
+Usage01 combines OpenCode Go quota information with usage recorded by local OpenCode sessions.
 
 ## What it tracks
 
@@ -20,12 +20,12 @@ and reflect the limits enforced by OpenCode. Local usage history remains separat
 the OpenCode data directory.
 
 OpenCode's endpoint reports whole-number percentages, so any usage below 1% arrives as `0`.
-OpenQuota01 therefore shows sub-1% readings as `<1%`/`>99%` and never labels a `0` Go meter as an
+Usage01 therefore shows sub-1% readings as `<1%`/`>99%` and never labels a `0` Go meter as an
 unused session; the reset countdown is always shown instead.
 
 ## Sign-in and local data
 
-Sign in to OpenCode Go or use OpenCode locally first. OpenQuota01 reads OpenCode's local authentication
+Sign in to OpenCode Go or use OpenCode locally first. Usage01 reads OpenCode's local authentication
 file and databases from its data directory. `OPENCODE_DATA_DIR` and `XDG_DATA_HOME` are respected
 when present.
 

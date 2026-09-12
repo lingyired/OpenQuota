@@ -1,6 +1,6 @@
 # Trae CN
 
-OpenQuota01 tracks the available credit balance for a Trae CN account.
+Usage01 tracks the available credit balance for a Trae CN account.
 
 ## What it tracks
 
@@ -14,12 +14,12 @@ The credit meter uses the usage summary returned by Trae's CN billing endpoint:
 
 ## Setup
 
-Open **Customize** in OpenQuota01, select Trae CN, and choose **Open Sign-In**. Complete the login in
-the window that opens, return to OpenQuota01, and choose **I Have Signed In**.
+Open **Customize** in Usage01, select Trae CN, and choose **Open Sign-In**. Complete the login in
+the window that opens, return to Usage01, and choose **I Have Signed In**.
 
-OpenQuota01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the
+Usage01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the
 operating system credential store. The session is never sent to the frontend, written to logs, or
-shared with a browser profile. OpenQuota01 exchanges it for a short-lived JWT in Rust before
+shared with a browser profile. Usage01 exchanges it for a short-lived JWT in Rust before
 requesting credits. Choosing **Disconnect** removes both the stored session and the matching cookie
 from the app's WebView data store.
 

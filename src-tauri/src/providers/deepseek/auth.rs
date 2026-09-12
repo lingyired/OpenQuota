@@ -5,7 +5,7 @@ use crate::{
 
 use super::DeepSeekError;
 
-const CONFIG_PATHS: &[&str] = &["~/.config/openquota01/deepseek.json"];
+const CONFIG_PATHS: &[&str] = &["~/.config/usage01/deepseek.json"];
 const ENVIRONMENT_NAMES: &[&str] = &["DEEPSEEK_API_KEY"];
 
 #[derive(Clone)]

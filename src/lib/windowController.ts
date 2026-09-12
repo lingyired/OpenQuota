@@ -89,7 +89,11 @@ export function createWindowController(options: WindowControllerOptions) {
     // The stage height constrains the grid item, so its rendered height can be shorter than the
     // actual page content. Include scrollHeight to keep long screens fully reachable.
     const pageHeight = Math.max(renderedHeight, page.offsetHeight, page.scrollHeight);
-    stage.style.height = `${pageHeight}px`;
+    const stageStyle = window.getComputedStyle(stage);
+    const stagePadding = cssPixels(stageStyle.paddingTop) + cssPixels(stageStyle.paddingBottom);
+    const stageHeight = pageHeight + stagePadding;
+    if (screen === 'dashboard') stage.style.removeProperty('height');
+    else stage.style.height = `${stageHeight}px`;
 
     if (!options.automatic() || !('__TAURI_INTERNALS__' in window) || !resizeAvailable) return;
 
@@ -98,7 +102,7 @@ export function createWindowController(options: WindowControllerOptions) {
       cssPixels(contentStyle.paddingTop) + cssPixels(contentStyle.paddingBottom);
     const chromeHeight = floatingChrome?.offsetHeight ?? 0;
     const idealHeight =
-      pageHeight +
+      stageHeight +
       contentPadding +
       (header?.offsetHeight ?? 0) +
       (footer?.offsetHeight ?? 0) +
@@ -164,7 +168,7 @@ export function createWindowController(options: WindowControllerOptions) {
     } catch {
       pendingResizeHeight = null;
       resizeAvailable = false;
-      options.onError('OpenQuota01 window could not adapt to its content.');
+      options.onError('Usage01 window could not adapt to its content.');
     } finally {
       resizeInFlight = false;
     }

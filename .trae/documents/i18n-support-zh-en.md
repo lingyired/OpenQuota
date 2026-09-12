@@ -2,7 +2,7 @@
 
 ## 摘要
 
-为 OpenQuota01 增加国际化能力，首期支持简体中文（zh-CN）与英文（en），后续可扩展更多语言。采用用户选定的 **svelte-i18n** 库；覆盖范围：前端界面全部文案、Rust 端系统通知（pacing 提醒）与 macOS 原生托盘菜单。语言偏好（跟随系统 / 英文 / 中文）作为新设置项持久化到 `AppSettings`。
+为 Usage01 增加国际化能力，首期支持简体中文（zh-CN）与英文（en），后续可扩展更多语言。采用用户选定的 **svelte-i18n** 库；覆盖范围：前端界面全部文案、Rust 端系统通知（pacing 提醒）与 macOS 原生托盘菜单。语言偏好（跟随系统 / 英文 / 中文）作为新设置项持久化到 `AppSettings`。
 
 ## 现状分析
 
@@ -11,7 +11,7 @@
 - 后端下发到前端的展示字符串也是英文：provider catalog 的 metric label（"Usage Today"/"Credits"/"Session"）、quota label、status text、notice title/message、warning、usage source note。
 - Rust 端用户可见文案：
   - 系统通知：`pacing.rs` 的 `PaceMilestone::title()/body()`（3 组文案）+ `notifications.rs` 组装。
-  - 原生菜单：`lib.rs::install_tray()`（macOS："Settings"/"Quit OpenQuota01"；其他平台："Open OpenQuota01"/"Customize…"/"Settings…"/"Quit OpenQuota01"）。`install_tray` 在 `app.manage(settings)` 之后调用，可直接读取语言偏好。
+  - 原生菜单：`lib.rs::install_tray()`（macOS："Settings"/"Quit Usage01"；其他平台："Open Usage01"/"Customize…"/"Settings…"/"Quit Usage01"）。`install_tray` 在 `app.manage(settings)` 之后调用，可直接读取语言偏好。
 - 设置持久化：Rust [models.rs](file:///Users/lingsmbp/Documents/aiwork/OpenQuota/src-tauri/src/models.rs) 的 `AppSettings`（`#[serde(rename_all="camelCase", default)]`，新字段缺失自动取默认，无需迁移）+ TS [types.ts](file:///Users/lingsmbp/Documents/aiwork/OpenQuota/src/lib/types.ts)。`scripts/verify/verify-model-contract.js` 强制两端 `AppSettings` 字段一致。
 - 测试影响：现有测试大多断言**渲染后**英文文本（默认 locale=en 时继续通过）；但 [uiLanguage.test.ts](file:///Users/lingsmbp/Documents/aiwork/OpenQuota/src/lib/uiLanguage.test.ts) 直接断言 svelte **源码**包含英文字面量，改造后必然失败，需要重写。
 - 版本：当前 0.6.0（`package.json` / `Cargo.toml` / `tauri.conf.json`）。新功能 → 按项目约定升到 **0.7.0**。

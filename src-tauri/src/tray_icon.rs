@@ -6,7 +6,7 @@ use svgtypes::{PathParser, PathSegment};
 use tauri::image::Image;
 use tiny_skia::{FillRule, Mask, Paint, Path, PathBuilder, Pixmap, Transform};
 
-const SOURCE: &str = include_str!("../../assets/openquota01-tray.svg");
+const SOURCE: &str = include_str!("../../assets/usage01-tray.svg");
 const SOURCE_SIZE: f32 = 24.0;
 const ICON_SIZE: u32 = 32;
 const SEGMENT_COUNT: usize = 6;
@@ -148,7 +148,7 @@ fn gauge_paths() -> &'static GaugePaths {
 
 fn parse_gauge_paths() -> Result<GaugePaths, String> {
     let document = Document::parse(SOURCE).map_err(|error| error.to_string())?;
-    require_element(&document, "openquota01-tray")?;
+    require_element(&document, "usage01-tray")?;
 
     let mut track = Vec::with_capacity(SEGMENT_COUNT);
     let mut fill = Vec::with_capacity(SEGMENT_COUNT);

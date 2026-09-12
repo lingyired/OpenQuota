@@ -1,3 +1,12 @@
+import antigravityColor from '@lobehub/icons-static-svg/icons/antigravity-color.svg';
+import claudeColor from '@lobehub/icons-static-svg/icons/claude-color.svg';
+import codebuddyColor from '@lobehub/icons-static-svg/icons/codebuddy-color.svg';
+import codexColor from '@lobehub/icons-static-svg/icons/codex-color.svg';
+import copilotColor from '@lobehub/icons-static-svg/icons/copilot-color.svg';
+import devinColor from '@lobehub/icons-static-svg/icons/devin-color.svg';
+import kimiColor from '@lobehub/icons-static-svg/icons/kimi-color.svg';
+import minimaxColor from '@lobehub/icons-static-svg/icons/minimax-color.svg';
+import openrouterColor from '@lobehub/icons-static-svg/icons/openrouter-color.svg';
 import antigravity from '../assets/provider-icons/antigravity.svg?raw';
 import claude from '../assets/provider-icons/claude.svg?raw';
 import codex from '../assets/provider-icons/codex.svg?raw';
@@ -20,16 +29,50 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   codex: { source: codex, color: null },
   copilot: { source: copilot, color: null },
   cursor: { source: cursor, color: null },
-  deepseek: { source: deepseek, color: '#5786FE' },
+  deepseek: { source: deepseek, color: null },
   devin: { source: devin, color: null },
   grok: { source: grok, color: null },
   kimi: { source: kimi, color: '#1783FF' },
   minimax: { source: minimax, color: '#E2167E' },
   opencode: { source: opencode, color: null },
-  openrouter: { source: openrouter, color: null },
+  openrouter: { source: openrouter, color: '#C8FF00' },
   zai: { source: zai, color: null },
-  trae: { source: trae, color: '#32F08C' },
-  workbuddy: { source: workbuddy, color: null },
+  trae: { source: trae, color: null },
+  workbuddy: { source: workbuddy, color: '#6C4DFF' },
+};
+
+// Full-color brand marks from Lobe Icons. WorkBuddy intentionally uses CodeBuddy's mark.
+const colorAssetSlugs: Record<string, string> = {
+  antigravity: 'antigravity',
+  claude: 'claude',
+  codex: 'codex',
+  copilot: 'copilot',
+  devin: 'devin',
+  kimi: 'kimi',
+  minimax: 'minimax',
+  openrouter: 'openrouter',
+  workbuddy: 'codebuddy',
+};
+
+const colorAssets: Record<string, string> = {
+  antigravity: antigravityColor,
+  claude: claudeColor,
+  codex: codexColor,
+  codebuddy: codebuddyColor,
+  copilot: copilotColor,
+  devin: devinColor,
+  kimi: kimiColor,
+  minimax: minimaxColor,
+  openrouter: openrouterColor,
+};
+
+const fallbackColors: Record<string, string> = {
+  cursor: 'var(--provider-cursor)',
+  deepseek: '#5786FE',
+  grok: 'var(--provider-grok)',
+  opencode: 'var(--provider-opencode)',
+  trae: '#32F08C',
+  zai: 'var(--provider-zai)',
 };
 
 export function providerFamily(providerId: string) {
@@ -43,8 +86,21 @@ export function providerIconPath(providerId: string) {
   return [...source.matchAll(/<path\b[^>]*\bd="([^"]+)"/g)].map((match) => match[1]).join(' ');
 }
 
+export function providerIconUrl(providerId: string) {
+  const slug = providerIconSlug(providerId);
+  return slug ? (colorAssets[slug] ?? null) : null;
+}
+
+export function providerIconSlug(providerId: string) {
+  return colorAssetSlugs[providerFamily(providerId)] ?? null;
+}
+
 export function providerIconColor(providerId: string) {
   return visuals[providerFamily(providerId)]?.color ?? null;
+}
+
+export function providerIconFallbackColor(providerId: string) {
+  return fallbackColors[providerFamily(providerId)] ?? 'currentColor';
 }
 
 export function providerIconViewBox(providerId: string) {

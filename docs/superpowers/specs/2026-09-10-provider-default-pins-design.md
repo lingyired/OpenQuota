@@ -1,8 +1,8 @@
-# OpenQuota01 Provider 默认固定指标设计
+# Usage01 Provider 默认固定指标设计
 
 ## 背景
 
-OpenQuota01 的 provider 指标可以独立固定在托盘或 macOS 菜单栏。当前每个 provider 通过 `MetricDefinition::default_pinned` 自行声明默认固定项，规则并不一致：
+Usage01 的 provider 指标可以独立固定在托盘或 macOS 菜单栏。当前每个 provider 通过 `MetricDefinition::default_pinned` 自行声明默认固定项，规则并不一致：
 
 - Claude、Codex、Antigravity、Kimi、MiniMax 和 Z.ai 默认固定前两个指标。
 - Cursor 默认固定第二、第三个指标。

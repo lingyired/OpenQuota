@@ -28,7 +28,7 @@ appimage="${appimages[0]}"
 deb="${debs[0]}"
 chmod +x "${appimage}"
 
-extraction_directory="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/openquota01-appimage.XXXXXX")"
+extraction_directory="$(mktemp -d "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/usage01-appimage.XXXXXX")"
 installed=false
 cleanup() {
   rm -rf "${extraction_directory}"
@@ -74,7 +74,7 @@ fi
 
 sudo apt-get install --yes "${deb}"
 installed=true
-installed_binary="$(dpkg-query --listfiles "${package_name}" | grep -E '/(usr/)?bin/openquota01$' | head -n 1)"
+installed_binary="$(dpkg-query --listfiles "${package_name}" | grep -E '/(usr/)?bin/usage01$' | head -n 1)"
 test -n "${installed_binary}"
 test -x "${installed_binary}"
 bash "${script_directory}/linux-x11.sh" "${installed_binary}" available "${release_validation}"

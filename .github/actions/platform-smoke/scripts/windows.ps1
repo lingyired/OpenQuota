@@ -62,29 +62,29 @@ function Assert-ReleaseSignature {
 
 $originalLocalAppData = [Environment]::GetEnvironmentVariable('LOCALAPPDATA')
 if (![string]::IsNullOrWhiteSpace($originalLocalAppData)) {
-  $existingBinary = Join-Path $originalLocalAppData 'OpenQuota01\OpenQuota01.exe'
+  $existingBinary = Join-Path $originalLocalAppData 'Usage01\Usage01.exe'
   if (Test-Path -LiteralPath $existingBinary -PathType Leaf) {
-    throw "Refusing to disturb an existing OpenQuota01 installation: $existingBinary"
+    throw "Refusing to disturb an existing Usage01 installation: $existingBinary"
   }
 }
 $uninstallRoot = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall'
 if (Test-Path -LiteralPath $uninstallRoot -PathType Container) {
   $existingRegistration = Get-ChildItem -LiteralPath $uninstallRoot | Where-Object {
-    $_.GetValue('DisplayName') -eq 'OpenQuota01' -or
-    $_.GetValue('InstallLocation') -like '*\OpenQuota01*' -or
-    $_.GetValue('UninstallString') -like '*\OpenQuota01\uninstall.exe*'
+    $_.GetValue('DisplayName') -eq 'Usage01' -or
+    $_.GetValue('InstallLocation') -like '*\Usage01*' -or
+    $_.GetValue('UninstallString') -like '*\Usage01\uninstall.exe*'
   } | Select-Object -First 1
   if ($null -ne $existingRegistration) {
-    throw "Refusing to replace an existing OpenQuota01 uninstall registration: $($existingRegistration.Name)"
+    throw "Refusing to replace an existing Usage01 uninstall registration: $($existingRegistration.Name)"
   }
 }
 
 if (!(Test-Path -LiteralPath $InstallerDirectory -PathType Container)) {
-  throw "OpenQuota01 NSIS directory was not found: $InstallerDirectory"
+  throw "Usage01 NSIS directory was not found: $InstallerDirectory"
 }
 $installers = @(Get-ChildItem -LiteralPath $InstallerDirectory -Filter '*-setup.exe' -File)
 if ($installers.Count -ne 1) {
-  throw "Expected exactly one OpenQuota01 NSIS installer, found $($installers.Count)."
+  throw "Expected exactly one Usage01 NSIS installer, found $($installers.Count)."
 }
 $installer = $installers[0].FullName
 $installerSignature = $null
@@ -92,14 +92,14 @@ if ($ReleaseValidation -eq 'true') {
   $installerSignature = Assert-ReleaseSignature -Path $installer
 }
 
-$smokeRoot = Join-Path $env:RUNNER_TEMP "openquota01-windows-$PID"
+$smokeRoot = Join-Path $env:RUNNER_TEMP "usage01-windows-$PID"
 $installRoot = Join-Path $smokeRoot 'install'
 $env:APPDATA = Join-Path $smokeRoot 'roaming'
 $env:LOCALAPPDATA = Join-Path $smokeRoot 'local'
 New-Item -ItemType Directory -Force -Path $installRoot, $env:APPDATA, $env:LOCALAPPDATA | Out-Null
 $stdout = Join-Path $smokeRoot 'stdout.log'
 $stderr = Join-Path $smokeRoot 'stderr.log'
-$appLog = Join-Path $env:LOCALAPPDATA 'OpenQuota01\logs\OpenQuota01.log'
+$appLog = Join-Path $env:LOCALAPPDATA 'Usage01\logs\Usage01.log'
 
 $process = $null
 $uninstaller = $null
@@ -107,20 +107,20 @@ $uninstallComplete = $false
 try {
   $installProcess = Start-Process -FilePath $installer -ArgumentList @('/S', "/D=$installRoot") -PassThru -Wait
   if ($installProcess.ExitCode -ne 0) {
-    throw "OpenQuota01 NSIS installer exited with code $($installProcess.ExitCode)."
+    throw "Usage01 NSIS installer exited with code $($installProcess.ExitCode)."
   }
 
   $binaries = @(
-    Get-ChildItem -LiteralPath $installRoot -Filter 'openquota01.exe' -File -Recurse |
+    Get-ChildItem -LiteralPath $installRoot -Filter 'usage01.exe' -File -Recurse |
       Where-Object { $_.Name -notlike 'uninstall*' }
   )
   if ($binaries.Count -ne 1) {
-    throw "Expected exactly one installed OpenQuota01 binary, found $($binaries.Count)."
+    throw "Expected exactly one installed Usage01 binary, found $($binaries.Count)."
   }
   $binary = $binaries[0].FullName
   $uninstallers = @(Get-ChildItem -LiteralPath $installRoot -Filter 'uninstall*.exe' -File -Recurse)
   if ($uninstallers.Count -ne 1) {
-    throw "Expected exactly one OpenQuota01 uninstaller, found $($uninstallers.Count)."
+    throw "Expected exactly one Usage01 uninstaller, found $($uninstallers.Count)."
   }
   $uninstaller = $uninstallers[0].FullName
 
@@ -129,7 +129,7 @@ try {
     if ($null -eq $installerSignature.SignerCertificate -or
         $null -eq $binarySignature.SignerCertificate -or
         $installerSignature.SignerCertificate.Thumbprint -ne $binarySignature.SignerCertificate.Thumbprint) {
-      throw 'The NSIS installer and installed OpenQuota01 binary do not have the same Authenticode signer.'
+      throw 'The NSIS installer and installed Usage01 binary do not have the same Authenticode signer.'
     }
   }
 
@@ -141,12 +141,12 @@ try {
   for ($attempt = 0; $attempt -lt 60; $attempt++) {
     if ($process.HasExited) {
       Get-Content -LiteralPath $stdout, $stderr, $appLog -ErrorAction SilentlyContinue
-      throw 'OpenQuota01 exited during the Windows tray startup smoke test.'
+      throw 'Usage01 exited during the Windows tray startup smoke test.'
     }
     if (Test-Path -LiteralPath $appLog -PathType Leaf) {
       [string]$appLogContents = Get-Content -LiteralPath $appLog -Raw -ErrorAction SilentlyContinue
       $trayReady = $appLogContents.Contains('system tray integration ready')
-      $startupComplete = $appLogContents.Contains('OpenQuota01 startup completed')
+      $startupComplete = $appLogContents.Contains('Usage01 startup completed')
       if ($trayReady -and $startupComplete) {
         break
       }
@@ -155,7 +155,7 @@ try {
   }
   if (!$trayReady -or !$startupComplete) {
     Get-Content -LiteralPath $stdout, $stderr, $appLog -ErrorAction SilentlyContinue
-    throw 'OpenQuota01 did not report a ready Windows tray before the startup deadline.'
+    throw 'Usage01 did not report a ready Windows tray before the startup deadline.'
   }
 
   $bytes = [System.IO.File]::ReadAllBytes($binary)
@@ -170,13 +170,13 @@ try {
   $process.WaitForExit(10000)
   $uninstallProcess = Start-Process -FilePath $uninstaller -ArgumentList '/S' -PassThru -Wait
   if ($uninstallProcess.ExitCode -ne 0) {
-    throw "OpenQuota01 NSIS uninstaller exited with code $($uninstallProcess.ExitCode)."
+    throw "Usage01 NSIS uninstaller exited with code $($uninstallProcess.ExitCode)."
   }
   for ($attempt = 0; $attempt -lt 30 -and (Test-Path -LiteralPath $binary); $attempt++) {
     Start-Sleep -Milliseconds 500
   }
   if (Test-Path -LiteralPath $binary) {
-    throw 'OpenQuota01 remained installed after the NSIS uninstall smoke test.'
+    throw 'Usage01 remained installed after the NSIS uninstall smoke test.'
   }
   $uninstallComplete = $true
 } finally {

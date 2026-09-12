@@ -28,7 +28,7 @@ pub fn init(path: PathBuf, level: LogLevel) {
     }
     let mut sink = LogFile::new(path.clone(), DEFAULT_MAX_BYTES);
     if let Err(error) = sink.open() {
-        eprintln!("OpenQuota01 file log disabled: {error}");
+        eprintln!("Usage01 file log disabled: {error}");
     }
     let _ = LOGGER.set(AppLogger {
         sink: Mutex::new(sink),
@@ -89,11 +89,11 @@ pub fn emit(level: LogLevel, tag: &str, arguments: fmt::Arguments<'_>) {
         return;
     };
     let Ok(mut sink) = logger.sink.lock() else {
-        eprintln!("OpenQuota01 file log disabled: lock unavailable");
+        eprintln!("Usage01 file log disabled: lock unavailable");
         return;
     };
     if let Err(error) = sink.append(&line) {
-        eprintln!("OpenQuota01 file log disabled: {error}");
+        eprintln!("Usage01 file log disabled: {error}");
     }
 }
 
@@ -115,7 +115,7 @@ pub fn log_path() -> PathBuf {
 }
 
 pub fn default_log_path() -> PathBuf {
-    default_log_directory().join("OpenQuota01.log")
+    default_log_directory().join("Usage01.log")
 }
 
 fn default_log_directory() -> PathBuf {
@@ -124,7 +124,7 @@ fn default_log_directory() -> PathBuf {
         return std::env::var_os("LOCALAPPDATA")
             .map(PathBuf::from)
             .unwrap_or_else(std::env::temp_dir)
-            .join("OpenQuota01")
+            .join("Usage01")
             .join("logs");
     }
     #[cfg(target_os = "macos")]
@@ -133,7 +133,7 @@ fn default_log_directory() -> PathBuf {
             .unwrap_or_else(std::env::temp_dir)
             .join("Library")
             .join("Logs")
-            .join("OpenQuota01");
+            .join("Usage01");
     }
     #[cfg(all(unix, not(target_os = "macos")))]
     {
@@ -141,11 +141,11 @@ fn default_log_directory() -> PathBuf {
             .map(PathBuf::from)
             .or_else(|| home_directory().map(|home| home.join(".local").join("state")))
             .unwrap_or_else(std::env::temp_dir)
-            .join("openquota01")
+            .join("usage01")
             .join("logs");
     }
     #[allow(unreachable_code)]
-    std::env::temp_dir().join("OpenQuota01").join("logs")
+    std::env::temp_dir().join("Usage01").join("logs")
 }
 
 #[cfg(not(target_os = "windows"))]
@@ -305,7 +305,7 @@ fn archive_path(path: &Path) -> PathBuf {
     let stem = path
         .file_stem()
         .and_then(|value| value.to_str())
-        .unwrap_or("OpenQuota01");
+        .unwrap_or("Usage01");
     let extension = path.extension().and_then(|value| value.to_str());
     let name = extension
         .map(|extension| format!("{stem}.1.{extension}"))
@@ -637,7 +637,7 @@ mod tests {
     #[test]
     fn append_writes_grep_friendly_lines() {
         let directory = tempdir().unwrap();
-        let path = directory.path().join("OpenQuota01.log");
+        let path = directory.path().join("Usage01.log");
         let mut sink = LogFile::new(path.clone(), 1_000);
         sink.open().unwrap();
         sink.append("2026-01-01T00:00:00.000Z [INFO] [config] hello")
@@ -665,7 +665,7 @@ mod tests {
         let path = default_log_path();
         assert_eq!(
             path.file_name().and_then(|value| value.to_str()),
-            Some("OpenQuota01.log")
+            Some("Usage01.log")
         );
         #[cfg(not(target_os = "macos"))]
         assert_eq!(
@@ -679,20 +679,20 @@ mod tests {
             path.parent()
                 .and_then(Path::file_name)
                 .and_then(|value| value.to_str()),
-            Some("OpenQuota01")
+            Some("Usage01")
         );
         #[cfg(target_os = "macos")]
-        assert!(path.to_string_lossy().contains("Library/Logs/OpenQuota"));
+        assert!(path.to_string_lossy().contains("Library/Logs/Usage01"));
         #[cfg(target_os = "windows")]
-        assert!(path.to_string_lossy().contains("OpenQuota01\\logs"));
+        assert!(path.to_string_lossy().contains("Usage01\\logs"));
         #[cfg(all(unix, not(target_os = "macos")))]
-        assert!(path.to_string_lossy().contains("openquota01/logs"));
+        assert!(path.to_string_lossy().contains("usage01/logs"));
     }
 
     #[test]
     fn rotation_keeps_one_archive_and_trims_oversize_on_open() {
         let directory = tempdir().unwrap();
-        let path = directory.path().join("OpenQuota01.log");
+        let path = directory.path().join("Usage01.log");
         let mut sink = LogFile::new(path.clone(), 200);
         sink.open().unwrap();
         let line = "a".repeat(80);
@@ -700,7 +700,7 @@ mod tests {
             sink.append(&line).unwrap();
         }
         assert!(sink.archive_path().exists());
-        assert!(!directory.path().join("OpenQuota01.2.log").exists());
+        assert!(!directory.path().join("Usage01.2.log").exists());
 
         drop(sink);
         fs::write(&path, vec![b'x'; 250]).unwrap();
@@ -715,7 +715,7 @@ mod tests {
         let directory = tempdir().unwrap();
         let blocked_parent = directory.path().join("not-a-directory");
         fs::write(&blocked_parent, b"file").unwrap();
-        let mut sink = LogFile::new(blocked_parent.join("OpenQuota01.log"), 200);
+        let mut sink = LogFile::new(blocked_parent.join("Usage01.log"), 200);
         assert!(sink.open().is_err());
         assert!(sink.append("ignored after disable").is_ok());
     }

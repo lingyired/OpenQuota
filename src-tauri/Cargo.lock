@@ -2876,48 +2876,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "openquota01"
-version = "0.7.7"
-dependencies = [
- "base64 0.23.1",
- "chrono",
- "fontdue",
- "notify-rust",
- "regex",
- "reqwest",
- "roxmltree",
- "rusqlite",
- "secret-service",
- "security-framework",
- "serde",
- "serde_json",
- "sha2 0.11.0",
- "svgtypes",
- "sys-locale",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-multiline-menubar",
- "tauri-plugin-multiline-taskband",
- "tauri-plugin-notification",
- "tauri-plugin-opener",
- "tauri-plugin-positioner",
- "tauri-plugin-single-instance",
- "tauri-plugin-updater",
- "tempfile",
- "thiserror 2.0.20",
- "tiny-skia",
- "tokio",
- "walkdir",
- "webview2-com",
- "windows",
- "windows-sys 0.61.2",
- "zbus",
- "zeroize",
-]
-
-[[package]]
 name = "openssl-probe"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5299,6 +5257,48 @@ dependencies = [
  "serde",
  "unic-ucd-ident",
  "url",
+]
+
+[[package]]
+name = "usage01"
+version = "0.7.7"
+dependencies = [
+ "base64 0.23.1",
+ "chrono",
+ "fontdue",
+ "notify-rust",
+ "regex",
+ "reqwest",
+ "roxmltree",
+ "rusqlite",
+ "secret-service",
+ "security-framework",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "svgtypes",
+ "sys-locale",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-multiline-menubar",
+ "tauri-plugin-multiline-taskband",
+ "tauri-plugin-notification",
+ "tauri-plugin-opener",
+ "tauri-plugin-positioner",
+ "tauri-plugin-single-instance",
+ "tauri-plugin-updater",
+ "tempfile",
+ "thiserror 2.0.20",
+ "tiny-skia",
+ "tokio",
+ "walkdir",
+ "webview2-com",
+ "windows",
+ "windows-sys 0.61.2",
+ "zbus",
+ "zeroize",
 ]
 
 [[package]]
