@@ -62,9 +62,9 @@ pub(crate) fn definition() -> ProviderDefinition {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(super) enum TraeError {
-    #[error("Sign in to Trae CN in Customize to view usage.")]
+    #[error("Sign in to Trae CN to view usage.")]
     SessionMissing,
-    #[error("Your Trae CN session expired. Sign in again in Customize.")]
+    #[error("Your Trae CN session expired. Sign in again.")]
     SessionExpired,
     #[error("Could not reach Trae CN. Check your internet connection.")]
     ConnectionFailed,

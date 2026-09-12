@@ -60,6 +60,74 @@ function mockInvoke(
   });
 }
 
+function webviewAuthFixture() {
+  const catalog: ProviderCatalog = {
+    apiKeyProviderIds: [],
+    webviewAuthProviderIds: ['trae-cn'],
+    providers: [
+      {
+        id: 'trae-cn',
+        displayName: 'Trae CN',
+        shortName: 'TR',
+        fallbackEnabled: false,
+        localUsageSourceNote: null,
+        links: [{ label: 'Dashboard', url: 'https://www.trae.cn/account-setting#usage' }],
+        metrics: [
+          {
+            id: 'trae-cn.credits',
+            label: 'Credits',
+            source: { kind: 'quota', sourceId: 'credits', sessionWindow: false },
+            pinnable: true,
+            defaultEnabled: true,
+            defaultSection: 'alwaysVisible',
+            defaultPinned: true,
+            tray: { shortLabel: 'C', suffix: null },
+          },
+          {
+            id: 'trae-cn.status',
+            label: 'Status',
+            source: { kind: 'status', sourceId: 'status' },
+            pinnable: true,
+            defaultEnabled: true,
+            defaultSection: 'onDemand',
+            defaultPinned: false,
+            tray: { shortLabel: 'S', suffix: null },
+          },
+        ],
+      },
+    ],
+  };
+  const settings = structuredClone(settingsState);
+  settings.settings.knownProviderIds = ['trae-cn'];
+  settings.settings.providers = [
+    {
+      id: 'trae-cn',
+      enabled: true,
+      detected: false,
+      expanded: false,
+      metrics: [
+        { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
+        { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
+      ],
+    },
+  ];
+  const usage: UsageViewState = {
+    providers: {
+      'trae-cn': {
+        snapshot: null,
+        source: 'none',
+        refreshing: false,
+        stale: false,
+        error: 'Sign in to Trae CN to view usage.',
+        errorKind: 'authentication',
+        lastAttemptAt: null,
+      },
+    },
+    lastFullRefreshAt: null,
+  };
+  return { catalog, settings, usage };
+}
+
 describe('Usage01 dashboard', () => {
   beforeEach(() => {
     mocks.currentMonitor.mockResolvedValue({
@@ -640,7 +708,7 @@ describe('Usage01 dashboard', () => {
     }
   });
 
-  it('uses the compact caret instead of a labeled On Demand divider', async () => {
+  it('keeps quick links visible while the compact caret controls on-demand metrics', async () => {
     render(App);
     const toggle = await screen.findByRole('button', { name: 'Show more' });
     const providerHeader = screen.getByRole('group', { name: 'Drag Codex to reorder' });
@@ -652,7 +720,7 @@ describe('Usage01 dashboard', () => {
     expect(providerHeader).not.toHaveAttribute('draggable');
     expect(toggle).toHaveAttribute('aria-expanded', 'false');
     expect(toggle).not.toHaveTextContent('On Demand');
-    expect(screen.queryByRole('button', { name: 'Status, opens in browser' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Status, opens in browser' })).toBeInTheDocument();
     await fireEvent.click(toggle);
     expect(screen.getByRole('button', { name: 'Show less' })).toHaveAttribute(
       'aria-expanded',
@@ -666,7 +734,7 @@ describe('Usage01 dashboard', () => {
     expect(screen.getByRole('button', { name: 'Dashboard, opens in browser' })).toBeInTheDocument();
   });
 
-  it('keeps the expander for a provider whose only expanded content is quick links', async () => {
+  it('shows quick links without an expander when no on-demand metrics are enabled', async () => {
     const linksOnlySettings = structuredClone(settingsState);
     linksOnlySettings.settings.providers[0].metrics =
       linksOnlySettings.settings.providers[0].metrics.map((metric) =>
@@ -684,13 +752,11 @@ describe('Usage01 dashboard', () => {
     });
 
     render(App);
-    const toggle = await screen.findByRole('button', { name: 'Show more' });
-    expect(screen.queryByRole('button', { name: 'Status, opens in browser' })).toBeNull();
-
-    await fireEvent.click(toggle);
+    await screen.findByText('Plus');
 
     expect(screen.getByRole('button', { name: 'Status, opens in browser' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Dashboard, opens in browser' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Show more' })).toBeNull();
   });
 
   it('renders the Total Spend ring as separated rounded SVG sectors', async () => {
@@ -702,6 +768,49 @@ describe('Usage01 dashboard', () => {
     expect(segment?.getAttribute('d')).toMatch(/^M .* A .* Q .* Z$/);
     expect(document.querySelector('.spend-ring__track')).toBeNull();
     expect(document.querySelector('.period-switcher__selection')).not.toBeNull();
+  });
+
+  it('offers Trae sign-in directly on its dashboard card', async () => {
+    const fixture = webviewAuthFixture();
+    mockInvoke((command: string) => {
+      if (command === 'get_usage_state') return Promise.resolve(fixture.usage);
+      if (command === 'get_app_settings') return Promise.resolve(fixture.settings);
+      if (command === 'save_app_settings') return Promise.resolve(fixture.settings);
+      if (command === 'get_provider_session_state') {
+        return Promise.resolve({ providerId: 'trae-cn', status: 'notSet' });
+      }
+      if (command === 'open_provider_webview_login') return Promise.resolve();
+      if (command === 'capture_provider_session') {
+        return Promise.resolve({ providerId: 'trae-cn', status: 'saved' });
+      }
+      if (command === 'check_for_updates') {
+        return Promise.resolve({
+          available: false,
+          currentVersion: '0.7.7',
+          version: null,
+          body: null,
+          installable: true,
+          releaseUrl: 'https://github.com/deviffyy/OpenQuota/releases/latest',
+        });
+      }
+      return Promise.resolve();
+    }, fixture.catalog);
+
+    render(App);
+    const provider = await screen.findByRole('group', { name: 'Trae CN provider' });
+
+    const open = within(provider).getByRole('button', { name: 'Open Sign-In' });
+    const capture = within(provider).getByRole('button', { name: 'I Have Signed In' });
+    await fireEvent.click(open);
+    await fireEvent.click(capture);
+
+    expect(mocks.invoke).toHaveBeenCalledWith('open_provider_webview_login', {
+      providerId: 'trae-cn',
+    });
+    expect(mocks.invoke).toHaveBeenCalledWith('capture_provider_session', {
+      providerId: 'trae-cn',
+    });
+    expect(within(provider).getByRole('status')).toHaveTextContent('Connected');
   });
 
   it('opens Customize and exposes the two-section metric layout', async () => {
@@ -1285,11 +1394,6 @@ describe('Usage01 dashboard', () => {
     expect(within(session).getByText('No data')).toBeInTheDocument();
     expect(within(weekly).getByText('No data')).toBeInTheDocument();
     expect(within(card).queryByText('Reading Claude usage…')).toBeNull();
-    const toggle = within(card).getByRole('button', { name: 'Show more' });
-    expect(within(card).queryByRole('button', { name: 'Status, opens in browser' })).toBeNull();
-
-    await fireEvent.click(toggle);
-
     expect(
       within(card).getByRole('button', { name: 'Status, opens in browser' }),
     ).toBeInTheDocument();

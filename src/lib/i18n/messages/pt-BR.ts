@@ -667,8 +667,8 @@ export const ptBr = {
   providerIntegration: {
     available: 'Available',
     unavailable: 'Unavailable',
-    traeSignInRequired: 'Sign in to Trae CN in Customize to view usage.',
-    traeSessionExpired: 'Your Trae CN session expired. Sign in again in Customize.',
+    traeSignInRequired: 'Sign in to Trae CN to view usage.',
+    traeSessionExpired: 'Your Trae CN session expired. Sign in again.',
     traeNoActiveCredits: 'No active credits',
     traeNoActiveCreditsSubtitle: 'This account has no active Trae credit plan.',
     deepseekUnavailableSubtitle: 'The DeepSeek API key is unavailable for billing.',

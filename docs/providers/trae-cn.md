@@ -14,8 +14,9 @@ The credit meter uses the usage summary returned by Trae's CN billing endpoint:
 
 ## Setup
 
-Open **Customize** in Usage01, select Trae CN, and choose **Open Sign-In**. Complete the login in
-the window that opens, return to Usage01, and choose **I Have Signed In**.
+When Usage01 reports that Trae CN needs sign-in, use **Open Sign-In** directly on the Trae CN card.
+The same controls remain available in **Customize**. Complete the login in the window that opens,
+return to Usage01, and choose **I Have Signed In**.
 
 Usage01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the
 operating system credential store. The session is never sent to the frontend, written to logs, or

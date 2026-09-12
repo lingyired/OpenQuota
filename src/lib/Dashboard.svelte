@@ -8,6 +8,7 @@
   import ProviderIcon from './ProviderIcon.svelte';
   import ProviderLinks from './ProviderLinks.svelte';
   import ProviderNoticeRow from './ProviderNoticeRow.svelte';
+  import ProviderSessionActions from './ProviderSessionActions.svelte';
   import Icon from './Icon.svelte';
   import MetricRenderer from './MetricRenderer.svelte';
   import TotalSpend from './TotalSpend.svelte';
@@ -569,7 +570,14 @@
             <span class="provider-error-row__message" role="alert"
               >{$tBackendStore(state.error)}</span
             >
-            <span class="provider-error-row__actions">
+            <div class="provider-error-row__actions">
+              {#if catalog.supportsWebviewAuth(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'permission' || state.errorKind === 'credentialStorage')}
+                <ProviderSessionActions
+                  providerId={provider.id}
+                  providerName={providerDisplayName(provider.id)}
+                  compact
+                />
+              {/if}
               {#if catalog.supportsApiKeyConfiguration(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'permission' || state.errorKind === 'credentialStorage')}
                 <button
                   type="button"
@@ -590,8 +598,14 @@
                 onclick={(event) => void retryProvider(event, provider.id, state.refreshing)}
                 >{$tStore(state.refreshing ? 'dashboard.retrying' : 'dashboard.retry')}</button
               >
-            </span>
+            </div>
           </div>
+        {/if}
+        {#if links.length > 0}
+          <ProviderLinks
+            {links}
+            onOpen={(linkIndex) => onOpenProviderLink(provider.id, linkIndex)}
+          />
         {/if}
         {#each alwaysMetrics as metric (metric.id)}
           <div
@@ -638,7 +652,7 @@
             />
           </div>
         {/each}
-        {#if demandMetrics.length > 0 || links.length > 0}
+        {#if demandMetrics.length > 0}
           {#if provider.id !== focusedProviderId}
             <button
               class="demand-divider"
@@ -704,12 +718,6 @@
                   />
                 </div>
               {/each}
-              {#if links.length > 0}
-                <ProviderLinks
-                  {links}
-                  onOpen={(linkIndex) => onOpenProviderLink(provider.id, linkIndex)}
-                />
-              {/if}
             </div>
           {/if}
         {/if}
