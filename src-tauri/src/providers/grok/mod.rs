@@ -100,7 +100,7 @@ pub(crate) enum GrokError {
     RequestFailed(u16),
     #[error("Local Grok usage logs could not be processed.")]
     LocalUsage,
-    #[error("Usage01 cache is unavailable.")]
+    #[error("Quota01 cache is unavailable.")]
     Storage,
 }
 

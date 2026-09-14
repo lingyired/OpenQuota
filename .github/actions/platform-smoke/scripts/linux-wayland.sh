@@ -11,27 +11,27 @@ case "${release_validation}" in
     ;;
 esac
 test -x "${binary}"
-export OPENQUOTA_SMOKE_BINARY="${binary}"
-export OPENQUOTA_SMOKE_RELEASE_VALIDATION="${release_validation}"
+export QUOTA01_SMOKE_BINARY="${binary}"
+export QUOTA01_SMOKE_RELEASE_VALIDATION="${release_validation}"
 
 dbus-run-session -- bash -euo pipefail -c '
   runner_temp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
   export HOME
-  HOME="$(mktemp -d "${runner_temp}/usage01-wayland-home.XXXXXX")"
+  HOME="$(mktemp -d "${runner_temp}/quota01-wayland-home.XXXXXX")"
   export XDG_CONFIG_HOME="${HOME}/xdg"
   export XDG_STATE_HOME="${HOME}/state"
   export XDG_CURRENT_DESKTOP="KDE"
   export XDG_RUNTIME_DIR
-  XDG_RUNTIME_DIR="$(mktemp -d "${runner_temp}/usage01-wayland-runtime.XXXXXX")"
+  XDG_RUNTIME_DIR="$(mktemp -d "${runner_temp}/quota01-wayland-runtime.XXXXXX")"
   export XDG_SESSION_TYPE="wayland"
-  export OPENQUOTA_LINUX_TRAY_HOST="unavailable"
+  export QUOTA01_LINUX_TRAY_HOST="unavailable"
   export GDK_BACKEND="wayland"
-  export WAYLAND_DISPLAY="usage01-wayland"
+  export WAYLAND_DISPLAY="quota01-wayland"
   mkdir -p "${XDG_CONFIG_HOME}" "${XDG_STATE_HOME}"
   chmod 700 "${XDG_RUNTIME_DIR}"
-  stdio_log="${runner_temp}/usage01-wayland-app-${RANDOM}.log"
-  runtime_log="${XDG_STATE_HOME}/usage01/logs/Usage01.log"
-  weston_log="${runner_temp}/usage01-weston-${RANDOM}.log"
+  stdio_log="${runner_temp}/quota01-wayland-app-${RANDOM}.log"
+  runtime_log="${XDG_STATE_HOME}/quota01/logs/Quota01.log"
+  weston_log="${runner_temp}/quota01-weston-${RANDOM}.log"
   weston --backend=headless-backend.so --socket="${WAYLAND_DISPLAY}" --idle-time=0 \
     --log="${weston_log}" &
   weston_pid=$!
@@ -59,7 +59,7 @@ dbus-run-session -- bash -euo pipefail -c '
     cat "${weston_log}"
     exit 1
   fi
-  "${OPENQUOTA_SMOKE_BINARY}" >"${stdio_log}" 2>&1 &
+  "${QUOTA01_SMOKE_BINARY}" >"${stdio_log}" 2>&1 &
   app_pid=$!
   ready=false
   for _ in $(seq 1 30); do
@@ -70,7 +70,7 @@ dbus-run-session -- bash -euo pipefail -c '
     fi
     if test -f "${runtime_log}" \
       && grep -Fq "desktop integration detected (tray=false)" "${runtime_log}" \
-      && grep -Fq "Usage01 startup completed" "${runtime_log}"; then
+      && grep -Fq "Quota01 startup completed" "${runtime_log}"; then
       ready=true
       break
     fi
@@ -80,11 +80,11 @@ dbus-run-session -- bash -euo pipefail -c '
     cat "${stdio_log}" >&2 || true
     cat "${runtime_log}" >&2 || true
     cat "${weston_log}" >&2 || true
-    echo "Usage01 did not report a ready Wayland fallback before the startup deadline." >&2
+    echo "Quota01 did not report a ready Wayland fallback before the startup deadline." >&2
     exit 1
   fi
   if grep -Fq "system tray integration ready" "${runtime_log}"; then
-    echo "Usage01 created a tray while the Wayland tray host was unavailable." >&2
+    echo "Quota01 created a tray while the Wayland tray host was unavailable." >&2
     exit 1
   fi
 '

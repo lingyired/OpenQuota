@@ -39,7 +39,7 @@
   import { createListenerRegistry } from './lib/listenerRegistry';
   import { emptyProviderCatalog, ProviderCatalogIndex } from './lib/metrics';
   import { springMotion } from './lib/motion';
-  import Usage01Mark from './lib/Usage01Mark.svelte';
+  import Quota01Mark from './lib/Quota01Mark.svelte';
   import ProviderRail from './lib/ProviderRail.svelte';
   import { horizontalPageTransition, shouldSlideBetweenScreens } from './lib/pageTransition';
   import { desktopPlatform, shortcutLabels } from './lib/platform';
@@ -861,15 +861,15 @@
   {#if floatingWindow}
     <header class="floating-chrome" aria-label={$tStore('app.windowControls')}>
       <div class="floating-chrome__drag">
-        <Usage01Mark size={14} />
-        <span>Usage01</span>
+        <Quota01Mark size={14} />
+        <span>Quota01</span>
       </div>
       <button
         class="floating-chrome__close"
         type="button"
         aria-label={settingsState?.trayAvailable
-          ? $tStore('app.hideUsage01')
-          : $tStore('app.closeUsage01')}
+          ? $tStore('app.hideQuota01')
+          : $tStore('app.closeQuota01')}
         onclick={closeMainWindow}
       >
         <Icon name="close" size={12} strokeWidth={2.1} />
@@ -1023,7 +1023,7 @@
           disabled={anyRefreshing}
           aria-label={$tStore('app.refreshAll')}
         >
-          <span>Usage01 {appVersion}</span><small
+          <span>Quota01 {appVersion}</span><small
             >{anyRefreshing ? $tStore('app.updating') : nextUpdateLabelText}</small
           >
         </button>
@@ -1109,14 +1109,14 @@
                 >
                 <hr />
                 <button class="menu-item" type="button" onclick={openAbout}
-                  ><Icon name="about" /><span>{$tStore('app.aboutUsage01')}</span></button
+                  ><Icon name="about" /><span>{$tStore('app.aboutQuota01')}</span></button
                 >
                 <button
                   class="menu-item menu-item--danger"
                   type="button"
-                  aria-label={$tStore('app.quitUsage01')}
+                  aria-label={$tStore('app.quitQuota01')}
                   onclick={quitApp}
-                  ><Icon name="power" /><span>{$tStore('app.quitUsage01')}</span><kbd
+                  ><Icon name="power" /><span>{$tStore('app.quitQuota01')}</span><kbd
                     >{shortcuts.quit}</kbd
                   ></button
                 >
@@ -1175,7 +1175,7 @@
           role="dialog"
           tabindex="-1"
           aria-modal="true"
-          aria-label={$tStore('app.aboutUsage01')}
+          aria-label={$tStore('app.aboutQuota01')}
         >
           <button
             bind:this={aboutCloseButton}
@@ -1185,8 +1185,8 @@
             onclick={() => void closeAbout()}
             ><Icon name="close" size={11} strokeWidth={2.3} /></button
           >
-          <Usage01Mark size={44} />
-          <h1>Usage01</h1>
+          <Quota01Mark size={44} />
+          <h1>Quota01</h1>
           <p>{$tStore('app.aboutVersion', { version: appVersion })}</p>
           <small>{$tStore('app.aboutTagline')}</small>
         </div>

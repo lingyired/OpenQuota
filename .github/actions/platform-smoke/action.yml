@@ -1,5 +1,5 @@
-name: Usage01 platform smoke
-description: Starts a packaged Usage01 build with the native platform smoke harness.
+name: Quota01 platform smoke
+description: Starts a packaged Quota01 build with the native platform smoke harness.
 
 inputs:
   artifact-root:
@@ -26,34 +26,34 @@ runs:
       if: runner.os == 'Windows'
       shell: pwsh
       env:
-        OPENQUOTA_SMOKE_ARTIFACT_ROOT: ${{ inputs.artifact-root }}
-        OPENQUOTA_SMOKE_RELEASE_VALIDATION: ${{ inputs.release-validation }}
-        OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${{ inputs.windows-signer-subject }}
+        QUOTA01_SMOKE_ARTIFACT_ROOT: ${{ inputs.artifact-root }}
+        QUOTA01_SMOKE_RELEASE_VALIDATION: ${{ inputs.release-validation }}
+        QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${{ inputs.windows-signer-subject }}
       run: >-
         & "$env:GITHUB_ACTION_PATH/scripts/windows.ps1"
-        -InstallerDirectory "$env:OPENQUOTA_SMOKE_ARTIFACT_ROOT/nsis"
-        -ReleaseValidation "$env:OPENQUOTA_SMOKE_RELEASE_VALIDATION"
+        -InstallerDirectory "$env:QUOTA01_SMOKE_ARTIFACT_ROOT/nsis"
+        -ReleaseValidation "$env:QUOTA01_SMOKE_RELEASE_VALIDATION"
 
     - name: Smoke test macOS tray startup
       if: runner.os == 'macOS'
       shell: bash
       env:
-        OPENQUOTA_SMOKE_ARTIFACT_ROOT: ${{ inputs.artifact-root }}
-        OPENQUOTA_SMOKE_RELEASE_VALIDATION: ${{ inputs.release-validation }}
-        OPENQUOTA_EXPECTED_APPLE_TEAM_ID: ${{ inputs.apple-team-id }}
+        QUOTA01_SMOKE_ARTIFACT_ROOT: ${{ inputs.artifact-root }}
+        QUOTA01_SMOKE_RELEASE_VALIDATION: ${{ inputs.release-validation }}
+        QUOTA01_EXPECTED_APPLE_TEAM_ID: ${{ inputs.apple-team-id }}
       run: >-
         bash "$GITHUB_ACTION_PATH/scripts/macos.sh"
-        "$OPENQUOTA_SMOKE_ARTIFACT_ROOT/dmg"
-        "$OPENQUOTA_SMOKE_RELEASE_VALIDATION"
+        "$QUOTA01_SMOKE_ARTIFACT_ROOT/dmg"
+        "$QUOTA01_SMOKE_RELEASE_VALIDATION"
 
     - name: Exercise Linux AppImage and Debian packages
       if: runner.os == 'Linux'
       shell: bash
       env:
-        OPENQUOTA_SMOKE_ARTIFACT_ROOT: ${{ inputs.artifact-root }}
-        OPENQUOTA_SMOKE_RELEASE_VALIDATION: ${{ inputs.release-validation }}
+        QUOTA01_SMOKE_ARTIFACT_ROOT: ${{ inputs.artifact-root }}
+        QUOTA01_SMOKE_RELEASE_VALIDATION: ${{ inputs.release-validation }}
       run: >-
         bash "$GITHUB_ACTION_PATH/scripts/linux-packages.sh"
-        "$OPENQUOTA_SMOKE_ARTIFACT_ROOT/appimage"
-        "$OPENQUOTA_SMOKE_ARTIFACT_ROOT/deb"
-        "$OPENQUOTA_SMOKE_RELEASE_VALIDATION"
+        "$QUOTA01_SMOKE_ARTIFACT_ROOT/appimage"
+        "$QUOTA01_SMOKE_ARTIFACT_ROOT/deb"
+        "$QUOTA01_SMOKE_RELEASE_VALIDATION"

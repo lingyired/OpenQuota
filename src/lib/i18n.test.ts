@@ -100,9 +100,9 @@ describe('translation helpers', () => {
     );
     expect(
       tBackend(
-        'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/usage01/zai.json.',
+        'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/quota01/zai.json.',
       ),
-    ).toBe('在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/usage01/zai.json。');
+    ).toBe('在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/quota01/zai.json。');
     expect(tBackend('MiniMax request failed (HTTP 500).')).toBe('MiniMax 请求失败（HTTP 500）。');
     expect(tBackend('OpenCode local usage data is temporarily unavailable.')).toBe(
       'OpenCode 本地用量数据暂时不可用。',
@@ -128,8 +128,8 @@ describe('translation helpers', () => {
     expect(tBackend('GitHub refused the update download.')).toBe('GitHub 拒绝了更新下载。');
     expect(tBackend('Wait for it to finish, then try again.')).toBe('请等待其完成，然后重试。');
     expect(
-      tBackend('Usage01 could not check for updates because the network request failed.'),
-    ).toBe('Usage01 无法完成该操作，因为网络请求失败。');
+      tBackend('Quota01 could not check for updates because the network request failed.'),
+    ).toBe('Quota01 无法完成该操作，因为网络请求失败。');
 
     await switchLocale('en');
     expect(tBackend('Limit reached')).toBe('Limit reached');

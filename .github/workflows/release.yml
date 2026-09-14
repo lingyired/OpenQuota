@@ -206,9 +206,9 @@ jobs:
               --repo "$GITHUB_REPOSITORY" \
               --draft \
               --verify-tag \
-              --title "Usage01 ${RELEASE_TAG#v}" \
+              --title "Quota01 ${RELEASE_TAG#v}" \
               --generate-notes \
-              --notes $'Usage01 desktop release for Windows and Linux on x64/ARM64, plus a macOS Universal build.\n\nAutomatic updates are cryptographically signed. Linux in-app updates are supported by AppImage builds; Debian packages update through the package installer.'
+              --notes $'Quota01 desktop release for Windows and Linux on x64/ARM64, plus a macOS Universal build.\n\nAutomatic updates are cryptographically signed. Linux in-app updates are supported by AppImage builds; Debian packages update through the package installer.'
           fi
 
           release_id="$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json databaseId --jq '.databaseId')"
@@ -320,17 +320,17 @@ jobs:
         if: runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true'
         shell: bash
         env:
-          OPENQUOTA_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          OPENQUOTA_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          OPENQUOTA_APPLE_ID: ${{ secrets.APPLE_ID }}
-          OPENQUOTA_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          OPENQUOTA_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          QUOTA01_APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          QUOTA01_APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          QUOTA01_APPLE_ID: ${{ secrets.APPLE_ID }}
+          QUOTA01_APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          QUOTA01_APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           set -euo pipefail
           write_env() {
             local name="$1"
             local value="$2"
-            local delimiter="OPENQUOTA_$(uuidgen)"
+            local delimiter="QUOTA01_$(uuidgen)"
             {
               printf '%s<<%s\n' "$name" "$delimiter"
               printf '%s\n' "$value"
@@ -338,11 +338,11 @@ jobs:
             } >> "$GITHUB_ENV"
           }
 
-          write_env APPLE_CERTIFICATE "$OPENQUOTA_APPLE_CERTIFICATE"
-          write_env APPLE_CERTIFICATE_PASSWORD "$OPENQUOTA_APPLE_CERTIFICATE_PASSWORD"
-          write_env APPLE_ID "$OPENQUOTA_APPLE_ID"
-          write_env APPLE_PASSWORD "$OPENQUOTA_APPLE_PASSWORD"
-          write_env APPLE_TEAM_ID "$OPENQUOTA_APPLE_TEAM_ID"
+          write_env APPLE_CERTIFICATE "$QUOTA01_APPLE_CERTIFICATE"
+          write_env APPLE_CERTIFICATE_PASSWORD "$QUOTA01_APPLE_CERTIFICATE_PASSWORD"
+          write_env APPLE_ID "$QUOTA01_APPLE_ID"
+          write_env APPLE_PASSWORD "$QUOTA01_APPLE_PASSWORD"
+          write_env APPLE_TEAM_ID "$QUOTA01_APPLE_TEAM_ID"
 
       - name: Build and upload platform artifacts
         uses: tauri-apps/tauri-action@v1
@@ -354,7 +354,7 @@ jobs:
           ES_PASSWORD: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && secrets.ES_PASSWORD || '' }}
           ES_CREDENTIAL_ID: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && secrets.ES_CREDENTIAL_ID || '' }}
           ES_TOTP_SECRET: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && secrets.ES_TOTP_SECRET || '' }}
-          OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || '' }}
+          QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || '' }}
         with:
           releaseId: ${{ needs.prepare-release.outputs.release_id }}
           releaseDraft: true

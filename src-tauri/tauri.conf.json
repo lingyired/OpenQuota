@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Usage01",
+  "productName": "Quota01",
   "version": "0.7.7",
-  "identifier": "com.lingyi.usage01",
+  "identifier": "com.lingyi.quota01",
   "build": {
     "beforeDevCommand": "corepack pnpm dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Usage01",
+        "title": "Quota01",
         "width": 440,
         "height": 800,
         "minWidth": 440,

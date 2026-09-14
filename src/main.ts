@@ -8,7 +8,7 @@ import './styles/components.css';
 const target = document.getElementById('app');
 
 if (!target) {
-  throw new Error('Usage01 mount point was not found');
+  throw new Error('Quota01 mount point was not found');
 }
 
 mount(App, { target });

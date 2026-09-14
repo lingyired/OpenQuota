@@ -1,12 +1,12 @@
 [package]
-name = "usage01"
+name = "quota01"
 version = "0.7.7"
 description = "Cross-platform AI quota tracker"
-authors = ["Usage01 contributors"]
+authors = ["Quota01 contributors"]
 edition = "2021"
 
 [lib]
-name = "usage01_lib"
+name = "quota01_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

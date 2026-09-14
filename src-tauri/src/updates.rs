@@ -121,14 +121,14 @@ fn classify_updater_error(error: &UpdaterError, operation: &'static str) -> Upda
     if matches!(error, UpdaterError::Reqwest(_) | UpdaterError::Network(_)) {
         return UpdateFailure::new(
             "network",
-            format!("Usage01 could not {operation} because the network request failed."),
+            format!("Quota01 could not {operation} because the network request failed."),
             "Check your connection or proxy, then try again.",
             true,
         );
     }
     UpdateFailure::new(
         "update_failed",
-        format!("Usage01 could not {operation}."),
+        format!("Quota01 could not {operation}."),
         "Try again or use the release page to download the installer manually.",
         true,
     )
@@ -262,7 +262,7 @@ pub async fn install_update(
         .ok_or_else(|| {
             UpdateFailure::new(
                 "up_to_date",
-                "Usage01 is already up to date.",
+                "Quota01 is already up to date.",
                 "No action is needed.",
                 false,
             )
@@ -308,7 +308,7 @@ pub fn open_update_page() -> Result<(), String> {
         .args(arguments)
         .spawn()
         .map(|_| ())
-        .map_err(|error| format!("The Usage01 download page could not be opened: {error}"))
+        .map_err(|error| format!("The Quota01 download page could not be opened: {error}"))
 }
 
 #[cfg(test)]

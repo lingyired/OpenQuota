@@ -106,7 +106,7 @@ mod tests {
 
     #[test]
     fn background_console_process_has_no_console_window() {
-        let script = r#"Add-Type -Name NativeMethods -Namespace Usage01 -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow();'; [Usage01.NativeMethods]::GetConsoleWindow().ToInt64()"#;
+        let script = r#"Add-Type -Name NativeMethods -Namespace Quota01 -MemberDefinition '[System.Runtime.InteropServices.DllImport("kernel32.dll")] public static extern System.IntPtr GetConsoleWindow();'; [Quota01.NativeMethods]::GetConsoleWindow().ToInt64()"#;
         let output = background_command("powershell")
             .args([
                 "-NoLogo",

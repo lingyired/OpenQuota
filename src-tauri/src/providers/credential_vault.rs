@@ -17,9 +17,9 @@ use zeroize::Zeroizing;
 
 use super::credential_store::{read_owned_password, write_owned_password};
 
-const VAULT_KEY_SERVICE: &str = "com.lingyi.usage01.credentials";
+const VAULT_KEY_SERVICE: &str = "com.lingyi.quota01.credentials";
 const VAULT_KEY_ACCOUNT: &str = "vault-key";
-const VAULT_AAD: &[u8] = b"Usage01 credential vault v1";
+const VAULT_AAD: &[u8] = b"Quota01 credential vault v1";
 const VAULT_VERSION: u8 = 1;
 const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 12;

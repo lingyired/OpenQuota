@@ -1,6 +1,6 @@
 # TraeWork CN
 
-Usage01 tracks the available credit balance for a TraeWork CN account.
+Quota01 tracks the available credit balance for a TraeWork CN account.
 
 ## What it tracks
 
@@ -19,14 +19,14 @@ The total meter uses the usage summary returned by Trae's CN billing endpoint:
 
 ## Setup
 
-When Usage01 reports that TraeWork CN needs sign-in, use **Open Sign-In** directly on the TraeWork CN card.
+When Quota01 reports that TraeWork CN needs sign-in, use **Open Sign-In** directly on the TraeWork CN card.
 The same controls remain available in **Customize**. Complete the login in the window that opens;
-Usage01 captures the session automatically when that window closes. **I Have Signed In** remains
+Quota01 captures the session automatically when that window closes. **I Have Signed In** remains
 available as a manual fallback.
 
-Usage01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the encrypted
+Quota01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the encrypted
 credential vault protected by the operating system credential store. The session is never sent to
-the frontend, written to logs, or shared with a browser profile. Usage01 exchanges it for a short-lived JWT in Rust before
+the frontend, written to logs, or shared with a browser profile. Quota01 exchanges it for a short-lived JWT in Rust before
 requesting credits. Choosing **Disconnect** removes both the stored session and the matching cookie
 from the app's WebView data store.
 

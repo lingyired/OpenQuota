@@ -191,7 +191,7 @@ pub fn read_owned_password(service: &str, account: &str) -> Result<Option<Vec<u8
 
 #[cfg(target_os = "windows")]
 pub fn write_generic_password(_service: &str, _account: &str, _value: &[u8]) -> Result<(), String> {
-    Err("Usage01 does not overwrite credentials owned by another Windows application.".into())
+    Err("Quota01 does not overwrite credentials owned by another Windows application.".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -206,7 +206,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
         .chain(Some(0))
         .collect::<Vec<_>>();
     let username = account.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
-    let comment = format!("Usage01 {account} API key")
+    let comment = format!("Quota01 {account} API key")
         .encode_utf16()
         .chain(Some(0))
         .collect::<Vec<_>>();
@@ -395,7 +395,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
         .map_err(|_| linux_secret_service_unavailable())?;
     let collection = secret_service
         .get_default_collection()
-        .or_else(|_| secret_service.create_collection("Usage01", "default"))
+        .or_else(|_| secret_service.create_collection("Quota01", "default"))
         .map_err(|_| {
             "The Linux Secret Service has no usable default collection. Start or unlock your keyring and try again."
         })?;
@@ -404,7 +404,7 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
     })?;
     collection
         .create_item(
-            &format!("Usage01 {account} API Key"),
+            &format!("Quota01 {account} API Key"),
             HashMap::from([("service", service), ("username", account)]),
             value,
             true,
@@ -528,11 +528,11 @@ mod tests {
     #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
     #[test]
     fn system_credential_store_round_trip_when_requested() {
-        if std::env::var("OPENQUOTA_TEST_CREDENTIAL_STORE").as_deref() != Ok("1") {
+        if std::env::var("QUOTA01_TEST_CREDENTIAL_STORE").as_deref() != Ok("1") {
             return;
         }
 
-        let service = format!("com.lingyi.usage01.credential-test.{}", std::process::id());
+        let service = format!("com.lingyi.quota01.credential-test.{}", std::process::id());
         let account = "round-trip";
         let result = (|| -> Result<(), String> {
             super::delete_owned_password(&service, account)?;

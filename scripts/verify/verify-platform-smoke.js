@@ -13,7 +13,7 @@ const linuxPackages = read('.github/actions/platform-smoke/scripts/linux-package
 const linuxdeploySetup = read('.github/scripts/setup-linuxdeploy.sh');
 const windowsSigningSetup = read('.github/scripts/setup-windows-signing.ps1');
 const windowsSigner = read('.github/scripts/sign-windows.ps1');
-const windowsSignShim = read('.github/scripts/usage01-sign-windows.cmd');
+const windowsSignShim = read('.github/scripts/quota01-sign-windows.cmd');
 const windowsSigningConfig = JSON.parse(read('src-tauri/tauri.windows-signing.conf.json'));
 const releaseTagVerification = read('.github/scripts/verify-release-tag.sh');
 const readme = read('README.md');
@@ -80,11 +80,11 @@ requireContracts('release', release, [
   "if: runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true'",
   'echo \'APPLE_SIGNING_IDENTITY=-\' >> "$GITHUB_ENV"',
   'name: Configure native macOS signing',
-  'write_env APPLE_CERTIFICATE "$OPENQUOTA_APPLE_CERTIFICATE"',
-  'write_env APPLE_CERTIFICATE_PASSWORD "$OPENQUOTA_APPLE_CERTIFICATE_PASSWORD"',
-  'write_env APPLE_ID "$OPENQUOTA_APPLE_ID"',
-  'write_env APPLE_PASSWORD "$OPENQUOTA_APPLE_PASSWORD"',
-  'write_env APPLE_TEAM_ID "$OPENQUOTA_APPLE_TEAM_ID"',
+  'write_env APPLE_CERTIFICATE "$QUOTA01_APPLE_CERTIFICATE"',
+  'write_env APPLE_CERTIFICATE_PASSWORD "$QUOTA01_APPLE_CERTIFICATE_PASSWORD"',
+  'write_env APPLE_ID "$QUOTA01_APPLE_ID"',
+  'write_env APPLE_PASSWORD "$QUOTA01_APPLE_PASSWORD"',
+  'write_env APPLE_TEAM_ID "$QUOTA01_APPLE_TEAM_ID"',
   "needs.validate.outputs.windows_signing == 'true' && matrix.windows-signing-args",
   "ES_USERNAME: ${{ steps.signing_policy.outputs.windows_signing == 'true' && secrets.ES_USERNAME || '' }}",
   "ES_PASSWORD: ${{ steps.signing_policy.outputs.windows_signing == 'true' && secrets.ES_PASSWORD || '' }}",
@@ -100,7 +100,7 @@ requireContracts('release', release, [
   "ES_PASSWORD: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && secrets.ES_PASSWORD || '' }}",
   "ES_CREDENTIAL_ID: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && secrets.ES_CREDENTIAL_ID || '' }}",
   "ES_TOTP_SECRET: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && secrets.ES_TOTP_SECRET || '' }}",
-  "OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || '' }}",
+  "QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || '' }}",
   "release-validation: ${{ (runner.os == 'Linux' || (runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true') || (runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true')) && 'true' || 'false' }}",
   "windows-signer-subject: ${{ runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || '' }}",
   "apple-team-id: ${{ runner.os == 'macOS' && needs.validate.outputs.macos_signing == 'true' && secrets.APPLE_TEAM_ID || '' }}",
@@ -135,7 +135,7 @@ requireContracts('release', release, [
   'APPLE_ID',
   'APPLE_PASSWORD',
   'APPLE_TEAM_ID',
-  'OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT',
+  'QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT',
   'Validate trusted release tag',
   'ref: ${{ github.sha }}',
   '+refs/tags/${RELEASE_TAG}:refs/tags/${RELEASE_TAG}',
@@ -191,8 +191,8 @@ const exactSigningBindings = {
   WINDOWS_SIGNER_SUBJECT: [
     `WINDOWS_SIGNER_SUBJECT: ${expression("steps.signing_policy.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || ''")}`,
   ],
-  OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT: [
-    `OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${expression("runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || ''")}`,
+  QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT: [
+    `QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT: ${expression("runner.os == 'Windows' && needs.validate.outputs.windows_signing == 'true' && vars.WINDOWS_SIGNER_SUBJECT || ''")}`,
   ],
 };
 
@@ -215,9 +215,7 @@ for (const name of [
     `${name}: ${expression(`steps.signing_policy.outputs.macos_signing == 'true' && secrets.${name} || ''`)}`,
   ];
 
-  exactSigningBindings[`OPENQUOTA_${name}`] = [
-    `OPENQUOTA_${name}: ${expression(`secrets.${name}`)}`,
-  ];
+  exactSigningBindings[`QUOTA01_${name}`] = [`QUOTA01_${name}: ${expression(`secrets.${name}`)}`];
 }
 
 requireExactKeyLines('release', release, exactSigningBindings);
@@ -249,8 +247,8 @@ requireContracts('platform smoke action', action, [
   "default: 'false'",
   'windows-signer-subject:',
   'apple-team-id:',
-  'OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT',
-  'OPENQUOTA_EXPECTED_APPLE_TEAM_ID',
+  'QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT',
+  'QUOTA01_EXPECTED_APPLE_TEAM_ID',
   'scripts/windows.ps1',
   'scripts/macos.sh',
   'scripts/linux-packages.sh',
@@ -265,15 +263,15 @@ requireContracts('release tag verification', releaseTagVerification, [
 requireContracts('Windows package smoke', windows, [
   '*-setup.exe',
   'RUNNER_TEMP is required for the Windows installer smoke test',
-  'Refusing to disturb an existing Usage01 installation',
+  'Refusing to disturb an existing Quota01 installation',
   '@(\'/S\', "/D=$installRoot")',
-  'OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT',
+  'QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT',
   'Get-AuthenticodeSignature',
   'TimeStamperCertificate',
   'verify /pa /all /tw',
   'SignerCertificate.Thumbprint',
   'system tray integration ready',
-  'Usage01 startup completed',
+  'Quota01 startup completed',
   'for ($attempt = 0; $attempt -lt 60; $attempt++)',
   'Expected Windows GUI subsystem (2)',
   "-ArgumentList '/S'",
@@ -292,14 +290,14 @@ requireContracts('macOS package smoke', macos, [
   'verify_app_signature "${source_app}"',
   'verify_app_signature "${app}"',
   'Authority=Developer ID Application:',
-  'TeamIdentifier=${OPENQUOTA_EXPECTED_APPLE_TEAM_ID}',
+  'TeamIdentifier=${QUOTA01_EXPECTED_APPLE_TEAM_ID}',
   'flags=0x[0-9a-fA-F]+\\([^)]*runtime[^)]*\\)',
   'Timestamp=',
   'spctl --assess --type execute',
   'xcrun stapler validate "${candidate}"',
   'syspolicy_check distribution',
   'system tray integration ready',
-  'Usage01 startup completed',
+  'Quota01 startup completed',
 ]);
 
 for (const bundle of ['source_app', 'app']) {
@@ -338,10 +336,10 @@ requireContracts('Linux X11 package smoke', linuxX11, [
   'org.freedesktop.DBus.NameHasOwner',
   'desktop integration detected (tray=true)',
   'system tray integration ready',
-  'Usage01 startup completed',
+  'Quota01 startup completed',
   'kill "${watcher_pid}"',
   'system tray became unavailable; using standalone window',
-  'xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Usage01$"',
+  'xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Quota01$"',
   'xdotool windowclose',
   'close_attempted=false',
   'close_requested=false',
@@ -353,7 +351,7 @@ requireContracts('Linux X11 package smoke', linuxX11, [
 requireContracts('Linux Wayland package smoke', linuxWayland, [
   'weston --backend=headless-backend.so',
   'desktop integration detected (tray=false)',
-  'Usage01 startup completed',
+  'Quota01 startup completed',
   'system tray integration ready',
 ]);
 
@@ -365,8 +363,8 @@ requireContracts('Windows signing setup', windowsSigningSetup, [
   'ES_CREDENTIAL_ID',
   'ES_TOTP_SECRET',
   'Get-FileHash',
-  'OPENQUOTA_CODESIGNTOOL_JAVA',
-  'OPENQUOTA_CODESIGNTOOL_JAR',
+  'QUOTA01_CODESIGNTOOL_JAVA',
+  'QUOTA01_CODESIGNTOOL_JAR',
   '$env:GITHUB_ENV',
   '$env:GITHUB_PATH',
 ]);
@@ -374,7 +372,7 @@ requireContracts('Windows signing setup', windowsSigningSetup, [
 requireContracts('Windows signer', windowsSigner, [
   "'sign'",
   '-override=true',
-  'OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT',
+  'QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT',
   'Get-AuthenticodeSignature',
   'SignerCertificate.Subject -ne',
   'TimeStamperCertificate',
@@ -383,14 +381,14 @@ requireContracts('Windows signer', windowsSigner, [
 requireContracts('Windows signing shim', windowsSignShim, [
   'sign-windows.ps1',
   '-FilePath "%~1"',
-  'exit /b %usage01_exit_code%',
+  'exit /b %quota01_exit_code%',
 ]);
 
 const signCommand = windowsSigningConfig.bundle?.windows?.signCommand;
 if (
   signCommand?.cmd !== 'cmd.exe' ||
   JSON.stringify(signCommand.args) !==
-    JSON.stringify(['/d', '/s', '/c', 'usage01-sign-windows.cmd', '%1'])
+    JSON.stringify(['/d', '/s', '/c', 'quota01-sign-windows.cmd', '%1'])
 ) {
   throw new Error('Windows Tauri signing command does not use the reviewed signing shim.');
 }
@@ -404,7 +402,7 @@ for (const obsoleteContract of ['smoke-binary:', 'binary-path:', 'bundle-directo
 }
 
 for (const removedReleaseNoteContract of [
-  'usage01-native-trust:start',
+  'quota01-native-trust:start',
   '## Native package trust',
   'Verify native trust release notes',
 ]) {

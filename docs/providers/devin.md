@@ -1,6 +1,6 @@
 # Devin
 
-Usage01 tracks quota and balance information for the Devin account signed in on your computer.
+Quota01 tracks quota and balance information for the Devin account signed in on your computer.
 
 ## What it tracks
 
@@ -11,18 +11,18 @@ Usage01 tracks quota and balance information for the Devin account signed in on 
 | Extra Balance | Additional usage balance reported by Devin |
 
 Reset times are shown when Devin includes them in the account response.
-If Devin hides the daily quota and does not report a separate weekly value, Usage01 uses the
+If Devin hides the daily quota and does not report a separate weekly value, Quota01 uses the
 remaining daily value for the Weekly row.
 
 ## Sign-in and local data
 
-Sign in through the Devin app or run `devin auth login`. Usage01 checks the local credentials
+Sign in through the Devin app or run `devin auth login`. Quota01 checks the local credentials
 created by the Devin CLI and the signed-in state maintained by the desktop app. The correct
 platform-specific locations are selected automatically.
 
 ## Troubleshooting
 
 - **Not logged in** — run `devin auth login` or sign in to the Devin app.
-- **Login expired** — authenticate again, then refresh Usage01.
+- **Login expired** — authenticate again, then refresh Quota01.
 - **Quota unavailable** — the signed-in account may not expose quota data.
 - **Could not reach Devin** — check the connection and try another refresh.
