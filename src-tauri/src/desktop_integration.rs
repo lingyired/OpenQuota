@@ -141,7 +141,7 @@ pub fn parse_session_type(value: Option<&str>) -> LinuxSessionType {
 
 #[cfg(target_os = "linux")]
 fn status_notifier_host_available() -> bool {
-    match std::env::var("OPENQUOTA_LINUX_TRAY_HOST").as_deref() {
+    match std::env::var("QUOTA01_LINUX_TRAY_HOST").as_deref() {
         Ok("available") => return true,
         Ok("unavailable") => return false,
         _ => {}
@@ -162,7 +162,7 @@ fn status_notifier_host_available() -> bool {
 #[cfg(target_os = "linux")]
 pub fn status_notifier_monitor_forced_off() -> bool {
     matches!(
-        std::env::var("OPENQUOTA_LINUX_TRAY_HOST").as_deref(),
+        std::env::var("QUOTA01_LINUX_TRAY_HOST").as_deref(),
         Ok("available" | "unavailable")
     )
 }

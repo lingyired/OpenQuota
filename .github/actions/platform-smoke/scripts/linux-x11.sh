@@ -19,31 +19,31 @@ case "${release_validation}" in
     ;;
 esac
 test -x "${binary}"
-export OPENQUOTA_SMOKE_BINARY="${binary}"
-export OPENQUOTA_SMOKE_RELEASE_VALIDATION="${release_validation}"
-export OPENQUOTA_SMOKE_TRAY_HOST="${tray_host}"
+export QUOTA01_SMOKE_BINARY="${binary}"
+export QUOTA01_SMOKE_RELEASE_VALIDATION="${release_validation}"
+export QUOTA01_SMOKE_TRAY_HOST="${tray_host}"
 
 xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
   runner_temp="${RUNNER_TEMP:-${TMPDIR:-/tmp}}"
   export HOME
-  HOME="$(mktemp -d "${runner_temp}/usage01-x11-home.XXXXXX")"
+  HOME="$(mktemp -d "${runner_temp}/quota01-x11-home.XXXXXX")"
   export XDG_CONFIG_HOME="${HOME}/xdg"
   export XDG_STATE_HOME="${HOME}/state"
   export XDG_CURRENT_DESKTOP="ubuntu:GNOME"
   export XDG_SESSION_TYPE="x11"
   mkdir -p "${XDG_CONFIG_HOME}" "${XDG_STATE_HOME}"
-  stdio_log="${runner_temp}/usage01-x11-app-${RANDOM}.log"
-  runtime_log="${XDG_STATE_HOME}/usage01/logs/Usage01.log"
-  wm_log="${runner_temp}/usage01-x11-openbox-${RANDOM}.log"
-  watcher_log="${runner_temp}/usage01-x11-watcher-${RANDOM}.log"
+  stdio_log="${runner_temp}/quota01-x11-app-${RANDOM}.log"
+  runtime_log="${XDG_STATE_HOME}/quota01/logs/Quota01.log"
+  wm_log="${runner_temp}/quota01-x11-openbox-${RANDOM}.log"
+  watcher_log="${runner_temp}/quota01-x11-watcher-${RANDOM}.log"
   watcher_pid=""
 
-  if test "${OPENQUOTA_SMOKE_TRAY_HOST}" = available; then
+  if test "${QUOTA01_SMOKE_TRAY_HOST}" = available; then
     command -v dbus-test-tool >/dev/null || {
       echo "dbus-test-tool is required for the Linux tray-host smoke test." >&2
       exit 1
     }
-    unset OPENQUOTA_LINUX_TRAY_HOST
+    unset QUOTA01_LINUX_TRAY_HOST
     dbus-test-tool echo --session --name=org.kde.StatusNotifierWatcher \
       >"${watcher_log}" 2>&1 &
     watcher_pid=$!
@@ -67,7 +67,7 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
       exit 1
     fi
   else
-    export OPENQUOTA_LINUX_TRAY_HOST="unavailable"
+    export QUOTA01_LINUX_TRAY_HOST="unavailable"
   fi
 
   openbox >"${wm_log}" 2>&1 &
@@ -87,7 +87,7 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
   }
   trap cleanup EXIT
 
-  "${OPENQUOTA_SMOKE_BINARY}" >"${stdio_log}" 2>&1 &
+  "${QUOTA01_SMOKE_BINARY}" >"${stdio_log}" 2>&1 &
   app_pid=$!
   ready=false
   for _ in $(seq 1 30); do
@@ -96,18 +96,18 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
       cat "${runtime_log}" >&2 || true
       exit 1
     fi
-    if test "${OPENQUOTA_SMOKE_TRAY_HOST}" = available; then
+    if test "${QUOTA01_SMOKE_TRAY_HOST}" = available; then
       if test -f "${runtime_log}" \
         && grep -Fq "desktop integration detected (tray=true)" "${runtime_log}" \
         && grep -Fq "system tray integration ready" "${runtime_log}" \
-        && grep -Fq "Usage01 startup completed" "${runtime_log}"; then
+        && grep -Fq "Quota01 startup completed" "${runtime_log}"; then
         ready=true
         break
       fi
     elif test -f "${runtime_log}" \
       && grep -Fq "desktop integration detected (tray=false)" "${runtime_log}" \
-      && grep -Fq "Usage01 startup completed" "${runtime_log}" \
-      && xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Usage01$" >/dev/null 2>&1; then
+      && grep -Fq "Quota01 startup completed" "${runtime_log}" \
+      && xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Quota01$" >/dev/null 2>&1; then
       ready=true
       break
     fi
@@ -118,10 +118,10 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
     cat "${runtime_log}" >&2 || true
     cat "${wm_log}" >&2 || true
     cat "${watcher_log}" >&2 || true
-    echo "Usage01 did not enter the expected ${OPENQUOTA_SMOKE_TRAY_HOST} tray-host mode." >&2
+    echo "Quota01 did not enter the expected ${QUOTA01_SMOKE_TRAY_HOST} tray-host mode." >&2
     exit 1
   fi
-  if test "${OPENQUOTA_SMOKE_TRAY_HOST}" = available; then
+  if test "${QUOTA01_SMOKE_TRAY_HOST}" = available; then
     kill "${watcher_pid}"
     wait "${watcher_pid}" 2>/dev/null || true
     watcher_pid=""
@@ -133,7 +133,7 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
         exit 1
       fi
       if grep -Fq "system tray became unavailable; using standalone window" "${runtime_log}" \
-        && xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Usage01$" >/dev/null 2>&1; then
+        && xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Quota01$" >/dev/null 2>&1; then
         fallback_ready=true
         break
       fi
@@ -142,11 +142,11 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
     if test "${fallback_ready}" != true; then
       cat "${stdio_log}" >&2 || true
       cat "${runtime_log}" >&2 || true
-      echo "Usage01 did not expose its standalone window after the tray host stopped." >&2
+      echo "Quota01 did not expose its standalone window after the tray host stopped." >&2
       exit 1
     fi
   elif grep -Fq "system tray integration ready" "${runtime_log}"; then
-    echo "Usage01 created a tray while the tray host was unavailable." >&2
+    echo "Quota01 created a tray while the tray host was unavailable." >&2
     exit 1
   fi
 
@@ -160,10 +160,10 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
       fi
       cat "${stdio_log}" >&2 || true
       cat "${runtime_log}" >&2 || true
-      echo "Usage01 exited before its standalone window was closed." >&2
+      echo "Quota01 exited before its standalone window was closed." >&2
       exit 1
     fi
-    window_id="$(xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Usage01$" 2>/dev/null || true)"
+    window_id="$(xdotool search --onlyvisible --limit 1 --pid "${app_pid}" --name "^Quota01$" 2>/dev/null || true)"
     if test -n "${window_id}"; then
       close_attempted=true
       if xdotool windowclose "${window_id}" 2>/dev/null; then
@@ -176,7 +176,7 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
   if test "${close_requested}" != true; then
     cat "${stdio_log}" >&2 || true
     cat "${runtime_log}" >&2 || true
-    echo "Usage01 did not keep a visible standalone window available for closing." >&2
+    echo "Quota01 did not keep a visible standalone window available for closing." >&2
     exit 1
   fi
   exited=false
@@ -192,7 +192,7 @@ xvfb-run -a dbus-run-session -- bash -euo pipefail -c '
   if test "${exited}" != true; then
     cat "${stdio_log}" >&2 || true
     cat "${runtime_log}" >&2 || true
-    echo "Usage01 did not exit when its standalone window was closed." >&2
+    echo "Quota01 did not exit when its standalone window was closed." >&2
     exit 1
   fi
 '

@@ -13,7 +13,7 @@ use crate::{
     service::UsageViewState,
 };
 
-const TRAY_ID: &str = "usage01-tray";
+const TRAY_ID: &str = "quota01-tray";
 
 #[derive(Debug, Clone, PartialEq)]
 struct TrayMetric {
@@ -62,10 +62,10 @@ pub fn update(
     };
     let groups = resolved_groups(state, settings, registry);
     let tooltip = if groups.is_empty() {
-        "Usage01".to_owned()
+        "Quota01".to_owned()
     } else {
         format!(
-            "Usage01\n{}",
+            "Quota01\n{}",
             groups
                 .iter()
                 .flat_map(|group| group.metrics.iter())
@@ -390,7 +390,7 @@ fn format_tokens(tokens: u64) -> String {
 
 fn mark_icon() -> Image<'static> {
     Image::from_bytes(include_bytes!("../icons/32x32.png"))
-        .expect("bundled Usage01 tray mark must be a valid PNG")
+        .expect("bundled Quota01 tray mark must be a valid PNG")
 }
 
 #[cfg(test)]

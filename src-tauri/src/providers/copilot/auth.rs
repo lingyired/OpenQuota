@@ -14,9 +14,7 @@ use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
 #[cfg(target_os = "macos")]
-use crate::providers::credential_store::{
-    generic_password_exists, generic_password_service_exists, read_generic_password,
-};
+use crate::providers::credential_store::read_generic_password;
 use crate::{
     child_process::background_command, providers::credential_store::decode_go_keyring_value,
 };
@@ -88,12 +86,6 @@ impl GhTokenCommand for LocalGhTokenCommand {
 trait CredentialAccess: Send + Sync {
     fn read(&self, service: &str, account: &str) -> Option<Vec<u8>>;
     fn read_service(&self, service: &str) -> Option<Vec<u8>>;
-    fn exists(&self, service: &str, account: &str) -> bool {
-        self.read(service, account).is_some()
-    }
-    fn service_exists(&self, service: &str) -> bool {
-        self.read_service(service).is_some()
-    }
 }
 
 #[derive(Default)]
@@ -118,16 +110,6 @@ impl CredentialAccess for SystemCredentials {
             options.query.pop()?;
         }
         generic_password(options).ok()
-    }
-
-    #[cfg(target_os = "macos")]
-    fn exists(&self, service: &str, account: &str) -> bool {
-        generic_password_exists(service, account, Duration::from_secs(2)) == Some(true)
-    }
-
-    #[cfg(target_os = "macos")]
-    fn service_exists(&self, service: &str) -> bool {
-        generic_password_service_exists(service, Duration::from_secs(2)) == Some(true)
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -263,39 +245,6 @@ impl CopilotAuthStore {
     #[cfg(test)]
     pub(super) fn load(&self) -> Option<CopilotToken> {
         self.visit_candidates(ControlFlow::Break)
-    }
-
-    pub(super) fn has_local_credentials(&self) -> bool {
-        for path in &self.paths.editor_configs {
-            if self
-                .files
-                .read_text(path)
-                .and_then(|text| editor_oauth_token(&text))
-                .is_some()
-            {
-                return true;
-            }
-        }
-
-        let gh_configs = self.gh_config_texts().collect::<Vec<_>>();
-        if gh_configs
-            .iter()
-            .any(|text| yaml_value(text, "oauth_token").is_some())
-        {
-            return true;
-        }
-        if self.gh_command.token().is_some() {
-            return true;
-        }
-        for text in &gh_configs {
-            let Some(account) = yaml_value(text, "user") else {
-                continue;
-            };
-            if self.credentials.exists(GH_KEYRING_SERVICE, &account) {
-                return true;
-            }
-        }
-        self.credentials.service_exists(GH_KEYRING_SERVICE)
     }
 
     fn gh_config_texts(&self) -> impl Iterator<Item = String> + '_ {
@@ -816,16 +765,5 @@ github.com:
         );
         assert!(token_from_keyring(b"go-keyring-base64:not-base64").is_none());
         assert!(CopilotToken::new("line1\nline2").is_none());
-    }
-
-    #[test]
-    fn detection_and_refresh_share_the_same_usable_source() {
-        let auth = CopilotAuthStore::for_test_token(Some("same-token"));
-        assert!(auth.has_local_credentials());
-        assert_eq!(auth.load().unwrap().as_str(), "same-token");
-
-        let missing = CopilotAuthStore::for_test_token(None);
-        assert!(!missing.has_local_credentials());
-        assert!(missing.load().is_none());
     }
 }

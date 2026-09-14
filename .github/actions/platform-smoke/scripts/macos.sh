@@ -11,8 +11,8 @@ case "${release_validation}" in
     ;;
 esac
 if test "${release_validation}" = true \
-  && test -z "${OPENQUOTA_EXPECTED_APPLE_TEAM_ID:-}"; then
-  echo 'OPENQUOTA_EXPECTED_APPLE_TEAM_ID is required for release validation.' >&2
+  && test -z "${QUOTA01_EXPECTED_APPLE_TEAM_ID:-}"; then
+  echo 'QUOTA01_EXPECTED_APPLE_TEAM_ID is required for release validation.' >&2
   exit 1
 fi
 
@@ -31,7 +31,7 @@ verify_release_trust() {
     echo 'The macOS app is not signed with a Developer ID Application identity.' >&2
     return 1
   }
-  grep -Fq "TeamIdentifier=${OPENQUOTA_EXPECTED_APPLE_TEAM_ID}" <<<"${details}" || {
+  grep -Fq "TeamIdentifier=${QUOTA01_EXPECTED_APPLE_TEAM_ID}" <<<"${details}" || {
     echo "${details}" >&2
     echo 'The macOS app has an unexpected Developer ID team.' >&2
     return 1
@@ -62,12 +62,12 @@ test "${#dmgs[@]}" -eq 1 || {
 dmg="${dmgs[0]}"
 
 runner_temp="${RUNNER_TEMP:?RUNNER_TEMP is required for the macOS package smoke test}"
-mount_dir="$(mktemp -d "${runner_temp}/usage01-macos-dmg.XXXXXX")"
-install_root="$(mktemp -d "${runner_temp}/usage01-macos-install.XXXXXX")"
-app="${install_root}/Applications/Usage01.app"
-binary="${app}/Contents/MacOS/usage01"
-launch_log="${runner_temp}/usage01-macos-${RANDOM}.log"
-app_log="${HOME}/Library/Logs/Usage01/Usage01.log"
+mount_dir="$(mktemp -d "${runner_temp}/quota01-macos-dmg.XXXXXX")"
+install_root="$(mktemp -d "${runner_temp}/quota01-macos-install.XXXXXX")"
+app="${install_root}/Applications/Quota01.app"
+binary="${app}/Contents/MacOS/quota01"
+launch_log="${runner_temp}/quota01-macos-${RANDOM}.log"
+app_log="${HOME}/Library/Logs/Quota01/Quota01.log"
 app_pid=''
 mounted=false
 cleanup() {
@@ -83,17 +83,17 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if pgrep -x usage01 >/dev/null 2>&1; then
-  echo 'Refusing to disturb an existing Usage01 process on the macOS runner.' >&2
+if pgrep -x quota01 >/dev/null 2>&1; then
+  echo 'Refusing to disturb an existing Quota01 process on the macOS runner.' >&2
   exit 1
 fi
 if test -e "${app_log}"; then
-  echo "Refusing to use an existing Usage01 log for the macOS smoke test: ${app_log}" >&2
+  echo "Refusing to use an existing Quota01 log for the macOS smoke test: ${app_log}" >&2
   exit 1
 fi
 
 if test "${release_validation}" = true; then
-  quarantine_value="0081;$(printf '%x' "$(date +%s)");Usage01Smoke;"
+  quarantine_value="0081;$(printf '%x' "$(date +%s)");Quota01Smoke;"
   xattr -w com.apple.quarantine "${quarantine_value}" "${dmg}"
   codesign --verify --strict --verbose=2 "${dmg}"
   dmg_details="$(codesign -dv --verbose=4 "${dmg}" 2>&1)"
@@ -102,7 +102,7 @@ if test "${release_validation}" = true; then
     echo 'The macOS DMG is not signed with a Developer ID Application identity.' >&2
     exit 1
   }
-  grep -Fq "TeamIdentifier=${OPENQUOTA_EXPECTED_APPLE_TEAM_ID}" <<<"${dmg_details}" || {
+  grep -Fq "TeamIdentifier=${QUOTA01_EXPECTED_APPLE_TEAM_ID}" <<<"${dmg_details}" || {
     echo "${dmg_details}" >&2
     echo 'The macOS DMG has an unexpected Developer ID team.' >&2
     exit 1
@@ -116,8 +116,8 @@ fi
 
 hdiutil attach "${dmg}" -mountpoint "${mount_dir}" -nobrowse -readonly >/dev/null
 mounted=true
-source_app="${mount_dir}/Usage01.app"
-source_binary="${source_app}/Contents/MacOS/usage01"
+source_app="${mount_dir}/Quota01.app"
+source_binary="${source_app}/Contents/MacOS/quota01"
 test -x "${source_binary}"
 verify_app_signature "${source_app}"
 if test "${release_validation}" = true; then
@@ -149,7 +149,7 @@ for _ in $(seq 1 30); do
   app_pid="$(pgrep -f "${binary}" | head -n 1 || true)"
   if test -f "${app_log}"; then
     grep -Fq 'system tray integration ready' "${app_log}" && tray_ready=true
-    grep -Fq 'Usage01 startup completed' "${app_log}" && startup_complete=true
+    grep -Fq 'Quota01 startup completed' "${app_log}" && startup_complete=true
   fi
   if test -n "${app_pid}" && test "${tray_ready}" = true && test "${startup_complete}" = true; then
     break
@@ -159,6 +159,6 @@ done
 if test -z "${app_pid}" || test "${tray_ready}" != true || test "${startup_complete}" != true; then
   cat "${launch_log}" >&2 || true
   cat "${app_log}" >&2 || true
-  echo 'Usage01 did not report a ready macOS tray before the startup deadline.' >&2
+  echo 'Quota01 did not report a ready macOS tray before the startup deadline.' >&2
   exit 1
 fi

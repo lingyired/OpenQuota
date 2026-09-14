@@ -1,6 +1,6 @@
 # Codex
 
-Usage01 tracks Codex subscription limits and usage recorded by the Codex CLI.
+Quota01 tracks Codex subscription limits and usage recorded by the Codex CLI.
 
 ## What it tracks
 
@@ -16,16 +16,16 @@ Usage01 tracks Codex subscription limits and usage recorded by the Codex CLI.
 
 ## Sign-in and local data
 
-Sign in with the Codex CLI by running `codex` and choosing your ChatGPT account. Usage01 reads the
+Sign in with the Codex CLI by running `codex` and choosing your ChatGPT account. Quota01 reads the
 same authentication data and respects `CODEX_HOME` when it is set. API-key-only sessions can produce
 local usage history, but they cannot provide ChatGPT subscription limits.
 
 Spend history is calculated locally from the Codex `sessions` and `archived_sessions` logs. Compatible
-Codex usage recorded by pi can also be included. Usage01 does not upload these local records.
+Codex usage recorded by pi can also be included. Quota01 does not upload these local records.
 
 ## Troubleshooting
 
-- **Not logged in** — run `codex`, sign in with ChatGPT, then refresh Usage01.
+- **Not logged in** — run `codex`, sign in with ChatGPT, then refresh Quota01.
 - **Subscription usage unavailable** — replace an API-key-only login with a ChatGPT login.
 - **Session expired or revoked** — sign in again with `codex`.
 - **No local history** — check the active Codex data directory and the value of `CODEX_HOME`.

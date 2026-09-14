@@ -13,13 +13,13 @@ if ([Environment]::OSVersion.Platform -ne [PlatformID]::Win32NT) {
 }
 
 $requiredVariables = @(
-  'OPENQUOTA_CODESIGNTOOL_JAVA',
-  'OPENQUOTA_CODESIGNTOOL_JAR',
+  'QUOTA01_CODESIGNTOOL_JAVA',
+  'QUOTA01_CODESIGNTOOL_JAR',
   'ES_USERNAME',
   'ES_PASSWORD',
   'ES_CREDENTIAL_ID',
   'ES_TOTP_SECRET',
-  'OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT'
+  'QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT'
 )
 
 foreach ($name in $requiredVariables) {
@@ -28,8 +28,8 @@ foreach ($name in $requiredVariables) {
   }
 }
 
-$javaPath = $env:OPENQUOTA_CODESIGNTOOL_JAVA
-$jarPath = $env:OPENQUOTA_CODESIGNTOOL_JAR
+$javaPath = $env:QUOTA01_CODESIGNTOOL_JAVA
+$jarPath = $env:QUOTA01_CODESIGNTOOL_JAR
 if (-not (Test-Path -LiteralPath $javaPath -PathType Leaf)) {
   throw 'CodeSignTool Java runtime does not exist.'
 }
@@ -78,7 +78,7 @@ if ($null -eq $signature.SignerCertificate) {
   throw 'Authenticode verification did not return a signer certificate.'
 }
 
-if ($signature.SignerCertificate.Subject -ne $env:OPENQUOTA_EXPECTED_WINDOWS_SIGNER_SUBJECT) {
+if ($signature.SignerCertificate.Subject -ne $env:QUOTA01_EXPECTED_WINDOWS_SIGNER_SUBJECT) {
   throw "Authenticode signer subject does not match the configured release identity."
 }
 

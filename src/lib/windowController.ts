@@ -168,7 +168,7 @@ export function createWindowController(options: WindowControllerOptions) {
     } catch {
       pendingResizeHeight = null;
       resizeAvailable = false;
-      options.onError('Usage01 window could not adapt to its content.');
+      options.onError('Quota01 window could not adapt to its content.');
     } finally {
       resizeInFlight = false;
     }
