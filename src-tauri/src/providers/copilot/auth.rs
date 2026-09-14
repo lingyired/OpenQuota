@@ -198,27 +198,44 @@ impl CopilotAuthStore {
         mut visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
     ) -> Option<B> {
         let mut seen = HashSet::new();
+        if let Some(result) = self.visit_editor_candidates(&mut seen, &mut visit) {
+            return Some(result);
+        }
+        self.visit_github_cli_candidates(&mut seen, &mut visit)
+    }
 
+    fn visit_editor_candidates<B>(
+        &self,
+        seen: &mut HashSet<[u8; 32]>,
+        visit: &mut impl FnMut(CopilotToken) -> ControlFlow<B>,
+    ) -> Option<B> {
         for path in &self.paths.editor_configs {
             let candidate = self
                 .files
                 .read_text(path)
                 .and_then(|text| editor_oauth_token(&text))
                 .and_then(CopilotToken::new);
-            if let Some(result) = visit_candidate(candidate, &mut seen, &mut visit) {
+            if let Some(result) = visit_candidate(candidate, seen, visit) {
                 return Some(result);
             }
         }
+        None
+    }
 
+    fn visit_github_cli_candidates<B>(
+        &self,
+        seen: &mut HashSet<[u8; 32]>,
+        visit: &mut impl FnMut(CopilotToken) -> ControlFlow<B>,
+    ) -> Option<B> {
         let gh_configs = self.gh_config_texts().collect::<Vec<_>>();
         for text in &gh_configs {
             let candidate = yaml_value(text, "oauth_token").and_then(CopilotToken::new);
-            if let Some(result) = visit_candidate(candidate, &mut seen, &mut visit) {
+            if let Some(result) = visit_candidate(candidate, seen, visit) {
                 return Some(result);
             }
         }
 
-        if let Some(result) = visit_candidate(self.gh_command.token(), &mut seen, &mut visit) {
+        if let Some(result) = visit_candidate(self.gh_command.token(), seen, visit) {
             return Some(result);
         }
 
@@ -230,7 +247,7 @@ impl CopilotAuthStore {
                 .credentials
                 .read(GH_KEYRING_SERVICE, &account)
                 .and_then(|raw| token_from_keyring(&raw));
-            if let Some(result) = visit_candidate(candidate, &mut seen, &mut visit) {
+            if let Some(result) = visit_candidate(candidate, seen, visit) {
                 return Some(result);
             }
         }
@@ -239,7 +256,15 @@ impl CopilotAuthStore {
             .credentials
             .read_service(GH_KEYRING_SERVICE)
             .and_then(|raw| token_from_keyring(&raw));
-        visit_candidate(service_candidate, &mut seen, &mut visit)
+        visit_candidate(service_candidate, seen, visit)
+    }
+
+    pub(super) fn visit_detection_candidates<B>(
+        &self,
+        mut visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
+    ) -> Option<B> {
+        let mut seen = HashSet::new();
+        self.visit_editor_candidates(&mut seen, &mut visit)
     }
 
     #[cfg(test)]
@@ -259,6 +284,24 @@ impl CopilotAuthStore {
         match token {
             Some(token) => Self::for_test_tokens(&[token]),
             None => Self::for_test_tokens(&[]),
+        }
+    }
+
+    #[cfg(test)]
+    pub(super) fn for_test_gh_token(token: &str) -> Self {
+        let path = PathBuf::from("hosts.yml");
+        let files = MemoryFiles::from_pairs(vec![(
+            path.clone(),
+            format!("github.com:\n    oauth_token: {token}\n"),
+        )]);
+        Self {
+            paths: AuthPaths {
+                editor_configs: Vec::new(),
+                gh_configs: vec![path],
+            },
+            files: Arc::new(files),
+            gh_command: Arc::new(NoGhCommand),
+            credentials: Arc::new(NoCredentials),
         }
     }
 
@@ -681,6 +724,33 @@ github.com:
         assert_eq!(auth.load().unwrap().as_str(), "command-token");
         assert_eq!(*gh.calls.lock().unwrap(), 1);
         assert_eq!(*vault.calls.lock().unwrap(), 0);
+    }
+
+    #[test]
+    fn startup_detection_does_not_touch_github_cli_sources() {
+        let gh = command(Some("command-token"));
+        let vault = credentials(Some(("octocat", b"vault-token")));
+        let auth = store(
+            &[(
+                "apps.json",
+                r#"{"github.com":{"oauth_token":"editor-token"}}"#,
+            )],
+            &[("hosts.yml", "github.com:\n    user: octocat\n")],
+            gh.clone(),
+            vault.clone(),
+        );
+        let mut candidates = Vec::new();
+
+        let completed: Option<()> = auth.visit_detection_candidates(|token| {
+            candidates.push(token.as_str().to_owned());
+            std::ops::ControlFlow::Continue(())
+        });
+
+        assert!(completed.is_none());
+        assert_eq!(candidates, ["editor-token"]);
+        assert_eq!(*gh.calls.lock().unwrap(), 0);
+        assert_eq!(*vault.calls.lock().unwrap(), 0);
+        assert_eq!(*vault.service_calls.lock().unwrap(), 0);
     }
 
     #[test]

@@ -306,7 +306,7 @@ impl UsageProvider for CopilotProvider {
 
     fn has_local_credentials(&self) -> bool {
         self.auth
-            .visit_candidates(|token| {
+            .visit_detection_candidates(|token| {
                 let Ok(response) = self.client.fetch_usage(token.as_str()) else {
                     return ControlFlow::Break(false);
                 };
@@ -884,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn detection_and_refresh_use_the_same_auth_chain() {
+    fn detection_and_refresh_use_the_editor_auth_source() {
         let (provider, server) = sequence_provider(
             &["same-secret"],
             vec![(200, paid_body()), (200, paid_body())],
@@ -907,6 +907,24 @@ mod tests {
             missing.refresh().unwrap_err().kind(),
             ProviderErrorKind::Authentication
         );
+    }
+
+    #[test]
+    fn github_cli_only_credentials_are_ignored_by_detection_but_used_by_refresh() {
+        let server = usage_sequence_server(vec![(200, paid_body())]);
+        let provider = CopilotProvider::with_dependencies(
+            CopilotAuthStore::for_test_gh_token("gh-token"),
+            CopilotClient::for_test(
+                &server.base_url,
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1/",
+                Duration::from_secs(1),
+            ),
+        );
+
+        assert!(!provider.has_local_credentials());
+        assert!(provider.refresh().is_ok());
+        server.finish();
     }
 
     #[test]
