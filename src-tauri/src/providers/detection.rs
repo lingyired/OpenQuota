@@ -15,8 +15,9 @@ pub type CredentialProbeResults = HashMap<String, CredentialProbeStatus>;
 
 /// Probes local provider credentials without blocking Tauri's setup thread.
 ///
-/// Each provider owns its credential sources and the probe remains local-only. The probes run on
-/// separate blocking workers because some providers may consult the operating-system credential store.
+/// Each provider owns its credential source and availability check. The probes run on separate
+/// blocking workers because they may consult the operating-system credential store or verify that
+/// credentials grant access to the provider.
 pub async fn detect_local_credentials(
     registry: Arc<ProviderRegistry>,
     provider_ids: &[String],

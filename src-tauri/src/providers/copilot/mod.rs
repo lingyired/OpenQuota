@@ -305,7 +305,22 @@ impl UsageProvider for CopilotProvider {
     }
 
     fn has_local_credentials(&self) -> bool {
-        self.auth.has_local_credentials()
+        self.auth
+            .visit_candidates(|token| {
+                let Ok(response) = self.client.fetch_usage(token.as_str()) else {
+                    return ControlFlow::Break(false);
+                };
+                match require_usage_success(&response) {
+                    Err(CopilotError::InvalidToken) => ControlFlow::Continue(()),
+                    Err(_) => ControlFlow::Break(false),
+                    Ok(()) => match map_usage(&response.body) {
+                        Ok(_) => ControlFlow::Break(true),
+                        Err(CopilotError::QuotaUnavailable) => ControlFlow::Continue(()),
+                        Err(_) => ControlFlow::Break(false),
+                    },
+                }
+            })
+            .unwrap_or(false)
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
@@ -862,10 +877,13 @@ mod tests {
 
     #[test]
     fn detection_and_refresh_use_the_same_auth_chain() {
-        let (provider, server) = single_response_provider(Some("same-secret"), 200, paid_body());
+        let (provider, server) = sequence_provider(
+            &["same-secret"],
+            vec![(200, paid_body()), (200, paid_body())],
+        );
         assert!(provider.has_local_credentials());
         assert!(provider.refresh().is_ok());
-        server.finish();
+        assert_eq!(server.finish().lock().unwrap().len(), 2);
 
         let missing = CopilotProvider::with_dependencies(
             CopilotAuthStore::for_test_token(None),
@@ -881,6 +899,18 @@ mod tests {
             missing.refresh().unwrap_err().kind(),
             ProviderErrorKind::Authentication
         );
+    }
+
+    #[test]
+    fn detection_rejects_a_github_token_without_copilot_entitlement() {
+        let (provider, server) = single_response_provider(
+            Some("github-token-without-copilot"),
+            200,
+            json!({"copilot_plan":"pro"}),
+        );
+
+        assert!(!provider.has_local_credentials());
+        server.finish();
     }
 
     #[test]
