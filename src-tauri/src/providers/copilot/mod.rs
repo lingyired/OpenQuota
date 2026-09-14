@@ -314,7 +314,15 @@ impl UsageProvider for CopilotProvider {
                     Err(CopilotError::InvalidToken) => ControlFlow::Continue(()),
                     Err(_) => ControlFlow::Break(false),
                     Ok(()) => match map_usage(&response.body) {
-                        Ok(_) => ControlFlow::Break(true),
+                        Ok(mapped)
+                            if mapped.is_org_managed_seat
+                                || mapped.quotas.iter().any(|quota| {
+                                    quota.id == "premium" || quota.used_percent > 0.0
+                                }) =>
+                        {
+                            ControlFlow::Break(true)
+                        }
+                        Ok(_) => ControlFlow::Continue(()),
                         Err(CopilotError::QuotaUnavailable) => ControlFlow::Continue(()),
                         Err(_) => ControlFlow::Break(false),
                     },
@@ -907,6 +915,32 @@ mod tests {
             Some("github-token-without-copilot"),
             200,
             json!({"copilot_plan":"pro"}),
+        );
+
+        assert!(!provider.has_local_credentials());
+        server.finish();
+    }
+
+    #[test]
+    fn detection_rejects_unused_free_copilot_limits() {
+        let (provider, server) = single_response_provider(
+            Some("github-token-with-unused-free-copilot"),
+            200,
+            json!({
+                "copilot_plan": "individual",
+                "quota_snapshots": {
+                    "chat": {
+                        "entitlement": 200,
+                        "remaining": 200,
+                        "percent_remaining": 100
+                    },
+                    "completions": {
+                        "entitlement": 2000,
+                        "remaining": 2000,
+                        "percent_remaining": 100
+                    }
+                }
+            }),
         );
 
         assert!(!provider.has_local_credentials());
