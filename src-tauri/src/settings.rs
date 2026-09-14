@@ -687,6 +687,19 @@ pub fn default_settings(registry: &ProviderRegistry, detected: &HashSet<String>)
             .collect(),
         ..AppSettings::default()
     };
+    settings.providers.sort_by(|left, right| {
+        let left_name = registry
+            .definition(&left.id)
+            .map(|definition| definition.display_name.as_str())
+            .unwrap_or(left.id.as_str());
+        let right_name = registry
+            .definition(&right.id)
+            .map(|definition| definition.display_name.as_str())
+            .unwrap_or(right.id.as_str());
+        left_name
+            .cmp(right_name)
+            .then_with(|| left.id.cmp(&right.id))
+    });
     if !settings.providers.iter().any(|provider| provider.enabled) {
         for provider in &mut settings.providers {
             provider.enabled = registry
@@ -1072,6 +1085,21 @@ mod tests {
         let settings = default_settings(&registry, &HashSet::new());
 
         assert_eq!(enabled_ids(&settings), ["claude", "codex", "cursor"]);
+    }
+
+    #[test]
+    fn default_provider_order_is_alphabetical_by_display_name() {
+        let registry = catalog();
+        let settings = default_settings(&registry, &HashSet::new());
+
+        assert_eq!(
+            settings
+                .providers
+                .iter()
+                .map(|provider| provider.id.as_str())
+                .collect::<Vec<_>>(),
+            ["antigravity", "claude", "codex", "cursor", "openrouter"]
+        );
     }
 
     #[test]
@@ -1895,7 +1923,7 @@ mod tests {
                 .take(3)
                 .map(|provider| provider.id.as_str())
                 .collect::<Vec<_>>(),
-            ["claude", "claude@1234abcd", "codex"]
+            ["antigravity", "claude", "claude@1234abcd"]
         );
         assert!(settings
             .providers
