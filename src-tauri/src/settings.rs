@@ -808,7 +808,18 @@ fn normalize_with_persisted_accounts(
                 .map_or(normalized.len(), |index| index + 1);
             normalized.insert(index, provider);
         } else {
-            normalized.push(provider);
+            let index = normalized
+                .iter()
+                .position(|known: &ProviderLayout| {
+                    let known_name = registry
+                        .definition(&known.id)
+                        .map(|definition| definition.display_name.as_str())
+                        .unwrap_or(known.id.as_str());
+                    (known_name, known.id.as_str())
+                        > (definition.display_name.as_str(), definition.id.as_str())
+                })
+                .unwrap_or(normalized.len());
+            normalized.insert(index, provider);
         }
     }
     if migrating_to_multi_provider {
@@ -1902,6 +1913,31 @@ mod tests {
                 .find(|provider| provider.id == "antigravity")
                 .unwrap()
                 .enabled
+        );
+    }
+
+    #[test]
+    fn new_provider_is_inserted_in_alphabetical_order() {
+        let catalog = catalog();
+        let mut settings = default_settings(&catalog, &HashSet::new());
+        settings.known_provider_ids.retain(|id| id != "antigravity");
+        settings
+            .providers
+            .retain(|provider| provider.id != "antigravity");
+
+        normalize(
+            &catalog,
+            &mut settings,
+            &HashSet::from(["antigravity".to_owned()]),
+        );
+
+        assert_eq!(
+            settings
+                .providers
+                .iter()
+                .map(|provider| provider.id.as_str())
+                .collect::<Vec<_>>(),
+            ["antigravity", "claude", "codex", "cursor", "openrouter"]
         );
     }
 
