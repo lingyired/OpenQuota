@@ -25,7 +25,7 @@ use crate::{
 
 pub const MAIN_WINDOW: &str = "main";
 pub const PANEL_WIDTH: f64 = 440.0;
-pub const PANEL_MIN_HEIGHT: u32 = 240;
+pub const PANEL_MIN_HEIGHT: u32 = 360;
 const PANEL_MAX_HEIGHT: u32 = 800;
 const PANEL_DEFAULT_HEIGHT: u32 = 800;
 const PANEL_SCREEN_FRACTION: f64 = 0.85;

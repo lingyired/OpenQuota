@@ -17,7 +17,7 @@
         "width": 440,
         "height": 800,
         "minWidth": 440,
-        "minHeight": 240,
+        "minHeight": 360,
         "maxWidth": 440,
         "resizable": false,
         "fullscreen": false,
