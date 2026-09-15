@@ -71,6 +71,13 @@ impl DesktopIntegration {
         changed
     }
 
+    pub fn set_menu_entry_available(&self, available: bool) {
+        self.tray_available.store(available, Ordering::SeqCst);
+        if !available {
+            self.set_floating(true);
+        }
+    }
+
     pub(crate) fn set_floating(&self, floating: bool) {
         self.floating_window.store(floating, Ordering::SeqCst);
     }
@@ -263,5 +270,18 @@ mod tests {
             Some("KDE Plasma · X11 · standalone window")
         );
         assert!(!integration.disable_tray());
+    }
+
+    #[test]
+    fn losing_the_menu_entry_makes_a_floating_window_exit_on_close() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        assert!(integration.apply_window_mode(WindowMode::Floating));
+        integration.set_menu_entry_available(false);
+        assert!(integration.is_floating());
+        assert!(integration.exits_on_close());
+
+        integration.set_menu_entry_available(true);
+        assert!(!integration.exits_on_close());
     }
 }

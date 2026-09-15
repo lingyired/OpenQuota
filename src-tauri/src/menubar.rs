@@ -15,7 +15,7 @@
 //! 文本组装逻辑为纯函数（可在任意平台单测），所有调用插件的代码
 //! 均以 `#[cfg(target_os = "macos")]` 隔离，非 macOS 零影响。
 
-#[cfg(target_os = "macos")]
+#[cfg(any(target_os = "macos", test))]
 use crate::models::AppSettings;
 #[cfg(any(target_os = "macos", test))]
 use crate::models::{TaskbandColorStyle, TaskbandLayout};
@@ -25,16 +25,21 @@ use crate::tray_presentation::pinned_provider_metrics;
 use crate::tray_presentation::ResolvedTrayMetric;
 #[cfg(target_os = "macos")]
 use crate::{
+    desktop_integration::DesktopIntegration,
     pacing::NotificationEvaluator,
     providers::{provider_icon_svg, ProviderRegistry},
     service::{ProviderService, UsageViewState},
     settings::SettingsService,
+    tray_presentation,
     window::{open_screen, MAIN_WINDOW},
 };
 #[cfg(target_os = "macos")]
 use std::{
     collections::{HashMap, HashSet},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc, Mutex,
+    },
 };
 #[cfg(target_os = "macos")]
 use tauri::{AppHandle, Emitter, EventId, Listener, Manager};
@@ -148,7 +153,7 @@ struct MenubarPlan {
     app_forced: bool,
 }
 
-#[cfg(test)]
+#[cfg(any(target_os = "macos", test))]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppRemovalAction {
     HideOnly,
@@ -187,7 +192,7 @@ pub(crate) fn app_menubar_forced(
     .app_forced
 }
 
-#[cfg(test)]
+#[cfg(any(target_os = "macos", test))]
 fn app_removal_action(
     provider_instances_empty: bool,
     floating_window_visible: bool,
@@ -211,6 +216,7 @@ pub(crate) struct MenubarState {
     menu_signatures: Mutex<HashMap<String, String>>,
     /// 是否已关闭插件的自动 popup（由本模块自己打开主窗口）。
     global: Mutex<bool>,
+    allow_no_menubar: AtomicBool,
 }
 
 #[cfg(target_os = "macos")]
@@ -224,12 +230,21 @@ impl Default for MenubarState {
             remove_listeners: Mutex::new(HashMap::new()),
             menu_signatures: Mutex::new(HashMap::new()),
             global: Mutex::new(false),
+            allow_no_menubar: AtomicBool::new(false),
         }
     }
 }
 
 #[cfg(target_os = "macos")]
 impl MenubarState {
+    pub(crate) fn allows_no_menubar(&self) -> bool {
+        self.allow_no_menubar.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn set_allow_no_menubar(&self, value: bool) {
+        self.allow_no_menubar.store(value, Ordering::SeqCst);
+    }
+
     /// 关闭插件的「左键自动 toggle popup」。Quota01 自己管理主窗口
     /// （与 Windows taskband 一样监听 click 事件再打开），避免与内置
     /// 的 popup / 面板逻辑打架。
@@ -533,6 +548,25 @@ impl MenubarState {
             }
         });
         registered.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), listener_id);
+        drop(registered);
+        self.register_app_remove_listener(app);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn register_app_remove_listener(&self, app: &AppHandle) {
+        let mut registered = self
+            .remove_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if registered.contains_key(APP_MENUBAR_INSTANCE_ID) {
+            return;
+        }
+        let event = format!("multiline-menubar://{APP_MENUBAR_INSTANCE_ID}//remove");
+        let listener_app = app.clone();
+        let listener_id = app.listen(event, move |_event| {
+            handle_app_menubar_removed(&listener_app);
+        });
+        registered.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), listener_id);
     }
 
     #[cfg(target_os = "macos")]
@@ -577,9 +611,8 @@ impl MenubarState {
         registered.insert(instance_id.to_string(), listener_id);
     }
 
-    /// 用户 ⌘ 把菜单栏实例拖出时，插件会 emit `//remove`。此时实例已从
-    /// 系统菜单栏消失，清掉本地状态让下一次对账重建它（macOS 26 可能仍
-    /// 需要用户在 系统设置 → 菜单栏 中重新打开，见插件 README）。
+    /// 用户把 provider 菜单栏实例拖出时，插件会 emit `//remove`。将该
+    /// provider 的菜单栏布局持久化为停用，避免下一次对账自动重建实例。
     #[cfg(target_os = "macos")]
     fn register_remove_listener(&self, app: &AppHandle, instance_id: &str, provider_id: &str) {
         let mut registered = self
@@ -590,23 +623,52 @@ impl MenubarState {
             return;
         }
         let event = format!("multiline-menubar://{instance_id}//remove");
-        let owner_id = provider_id.to_string();
+        let instance_id = instance_id.to_owned();
+        let provider_id = provider_id.to_owned();
+        let listener_instance_id = instance_id.clone();
         let listener_app = app.clone();
         let listener_id = app.listen(event, move |_event| {
-            let menubar = listener_app.state::<MenubarState>();
-            // 只清状态，不把 provider 标记为停用：下次 refresh 对账会重建。
-            let _ = listener_app.multiline_menubar().remove(owner_id.clone());
-            menubar
-                .created
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&owner_id);
-            crate::app_info!(
-                "menubar",
-                "menu bar instance {owner_id} was removed by the user"
-            );
+            let settings_service = listener_app.state::<Arc<SettingsService>>();
+            let mut next = settings_service.get();
+            disable_provider_layout(&mut next, &provider_id);
+            let expected_settings = settings_service.settings_revision();
+            let expected_account = settings_service.account_revision();
+            match settings_service.update_from_view(next, expected_settings, expected_account) {
+                Ok(updated) => {
+                    let provider_service = listener_app.state::<Arc<ProviderService>>();
+                    tray_presentation::update(
+                        &listener_app,
+                        &provider_service.state(),
+                        &updated,
+                        settings_service.registry(),
+                    );
+                    let _ = listener_app.emit(
+                        "settings-state",
+                        crate::commands::settings::settings_view_state(
+                            &listener_app,
+                            settings_service.inner().as_ref(),
+                        ),
+                    );
+                    crate::app_info!(
+                        "menubar",
+                        "menu bar instance {listener_instance_id} was removed by the user"
+                    );
+                }
+                Err(error) => {
+                    listener_app
+                        .state::<MenubarState>()
+                        .created
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .remove(&listener_instance_id);
+                    crate::app_warn!(
+                        "menubar",
+                        "could not persist removal of menu bar instance {listener_instance_id}: {error}"
+                    );
+                }
+            }
         });
-        registered.insert(instance_id.to_string(), listener_id);
+        registered.insert(instance_id, listener_id);
     }
 }
 
@@ -751,13 +813,14 @@ pub(crate) fn update(
     menubar.apply_global(app);
 
     let locale = crate::i18n::resolve(settings.language);
-    // Task 4 replaces this temporary runtime exception with
-    // `MenubarState::allows_no_menubar()`.
     let plan = plan_menubar(
         desired_provider_menubars(state, settings, registry),
         settings.show_app_menubar,
-        false,
+        menubar.allows_no_menubar(),
     );
+    if settings.show_app_menubar || !plan.provider_instances.is_empty() {
+        menubar.set_allow_no_menubar(false);
+    }
     let mut desired_ids = HashSet::new();
     for desired in plan.provider_instances {
         let DesiredProviderMenubar {
@@ -779,11 +842,31 @@ pub(crate) fn update(
     }
 
     if plan.app_instance_visible {
-        // Failure fallback is implemented in Task 4.
-        let _ = menubar.apply_instance(app, APP_MENUBAR_INSTANCE_ID, app_instance_config(true));
-        menubar.register_app_click_listener(app);
-        menubar.register_app_context_menu(app, locale);
-        desired_ids.insert(APP_MENUBAR_INSTANCE_ID.to_owned());
+        let result =
+            menubar.apply_instance(app, APP_MENUBAR_INSTANCE_ID, app_instance_config(true));
+        let visible = result.is_ok()
+            && app
+                .multiline_menubar()
+                .is_visible(APP_MENUBAR_INSTANCE_ID.to_owned())
+                .unwrap_or(false);
+        if visible {
+            menubar.register_app_click_listener(app);
+            menubar.register_app_context_menu(app, locale);
+            desired_ids.insert(APP_MENUBAR_INSTANCE_ID.to_owned());
+        } else {
+            crate::app_warn!("menubar", "could not create the required Quota01 app item");
+            menubar.remove_instance(app, APP_MENUBAR_INSTANCE_ID);
+            let fallback_shown = app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
+                crate::window::apply_window_mode(&window, crate::models::WindowMode::Floating, true)
+                    .is_ok()
+            });
+            app.state::<DesktopIntegration>()
+                .set_menu_entry_available(false);
+            if !fallback_shown {
+                app.exit(0);
+                return;
+            }
+        }
     }
 
     let stale = menubar
@@ -797,6 +880,9 @@ pub(crate) fn update(
     for id in stale {
         menubar.remove_instance(app, &id);
     }
+
+    app.state::<DesktopIntegration>()
+        .set_menu_entry_available(!desired_ids.is_empty());
 }
 
 #[cfg(target_os = "macos")]
@@ -903,6 +989,70 @@ fn quit_application(app: &AppHandle) {
     });
 }
 
+#[cfg(target_os = "macos")]
+fn handle_app_menubar_removed(app: &AppHandle) {
+    let settings_service = app.state::<Arc<SettingsService>>();
+    let provider_service = app.state::<Arc<ProviderService>>();
+    let menubar = app.state::<MenubarState>();
+
+    let mut next = settings_service.get();
+    next.show_app_menubar = false;
+    let expected_settings = settings_service.settings_revision();
+    let expected_account = settings_service.account_revision();
+    let updated = match settings_service.update_from_view(next, expected_settings, expected_account)
+    {
+        Ok(updated) => updated,
+        Err(error) => {
+            crate::app_warn!(
+                "menubar",
+                "could not persist removal of the Quota01 menu bar item: {error}"
+            );
+            menubar.remove_instance(app, APP_MENUBAR_INSTANCE_ID);
+            let current = settings_service.get();
+            let state = provider_service.state();
+            tray_presentation::update(app, &state, &current, settings_service.registry());
+            return;
+        }
+    };
+
+    menubar.remove_instance(app, APP_MENUBAR_INSTANCE_ID);
+    let state = provider_service.state();
+    let provider_instances =
+        desired_provider_menubars(&state, &updated, settings_service.registry());
+    let provider_instances_empty = provider_instances.is_empty();
+    let floating_window_visible = app.state::<DesktopIntegration>().is_floating()
+        && app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
+            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+        });
+
+    match app_removal_action(provider_instances_empty, floating_window_visible) {
+        AppRemovalAction::HideOnly => {}
+        AppRemovalAction::KeepWindowThenExit => {
+            menubar.set_allow_no_menubar(true);
+            app.state::<DesktopIntegration>()
+                .set_menu_entry_available(false);
+        }
+        AppRemovalAction::ExitNow => quit_application(app),
+    }
+
+    let plan = plan_menubar(
+        provider_instances,
+        updated.show_app_menubar,
+        menubar.allows_no_menubar(),
+    );
+    tray_presentation::update(app, &state, &updated, settings_service.registry());
+    let _ = app.emit(
+        "settings-state",
+        crate::commands::settings::settings_view_state(app, settings_service.inner().as_ref()),
+    );
+    let integration = app.state::<DesktopIntegration>();
+    if integration.tray_available() {
+        integration.set_menu_entry_available(
+            plan.app_instance_visible || !plan.provider_instances.is_empty(),
+        );
+    }
+}
+
 /// 「隐藏这个 agent」：与主窗口里 Hide provider 一致，把该 provider 设为
 /// 未启用，随后对账会移除它的全部菜单栏实例与右键菜单。
 /// 与 `taskband.rs::hide_agent` 逻辑一致。
@@ -954,6 +1104,15 @@ fn hide_agent(app: &AppHandle, provider_id: &str) {
     }
 }
 
+#[cfg(any(target_os = "macos", test))]
+fn disable_provider_layout(settings: &mut AppSettings, provider_id: &str) {
+    settings
+        .taskband_providers
+        .entry(provider_id.to_owned())
+        .or_default()
+        .enabled = false;
+}
+
 /// 「刷新数据」：强制刷新该 provider 并更新托盘 / 菜单栏展示。
 #[cfg(target_os = "macos")]
 fn refresh_agent(app: &AppHandle, provider_id: &str) {
@@ -998,8 +1157,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::{app_context_menu_items, app_instance_config};
     use super::{
-        app_removal_action, instance_config, metric_lines, plan_menubar, sanitize_instance_id,
-        AppRemovalAction, AppliedConfig, DesiredProviderMenubar, MenubarConfigInput,
+        app_removal_action, disable_provider_layout, instance_config, metric_lines, plan_menubar,
+        sanitize_instance_id, AppRemovalAction, AppliedConfig, DesiredProviderMenubar,
+        MenubarConfigInput,
     };
     #[cfg(target_os = "macos")]
     use tauri_plugin_multiline_menubar::MenuItemDescriptor;
@@ -1244,6 +1404,27 @@ mod tests {
             AppRemovalAction::KeepWindowThenExit
         );
         assert_eq!(app_removal_action(true, false), AppRemovalAction::ExitNow);
+    }
+
+    #[test]
+    fn provider_removal_disables_only_the_provider_menubar_layout() {
+        let mut settings = AppSettings::default();
+        settings
+            .taskband_providers
+            .insert("codex".into(), TaskbandLayout::default());
+        disable_provider_layout(&mut settings, "codex");
+        assert!(!settings.taskband_providers["codex"].enabled);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn no_menubar_exception_is_off_by_default_and_tracks_updates() {
+        let menubar = super::MenubarState::default();
+        assert!(!menubar.allows_no_menubar());
+        menubar.set_allow_no_menubar(true);
+        assert!(menubar.allows_no_menubar());
+        menubar.set_allow_no_menubar(false);
+        assert!(!menubar.allows_no_menubar());
     }
 
     #[cfg(target_os = "macos")]

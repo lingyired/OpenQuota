@@ -550,7 +550,8 @@ fn settings_view_state_with_error(
         &app.state::<Arc<ProviderService>>().state(),
         &service.get(),
         service.registry(),
-        false,
+        app.state::<crate::menubar::MenubarState>()
+            .allows_no_menubar(),
     );
     #[cfg(not(target_os = "macos"))]
     let app_menubar_forced = false;
