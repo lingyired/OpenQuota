@@ -862,6 +862,45 @@ fn desired_provider_menubars(
     desired
 }
 
+/// Applies the shared runtime-entry policy and the macOS-specific UI side
+/// effects. Startup panic recovery and normal reconciliation both use this so
+/// neither path can leave the process without a usable entry point.
+#[cfg(target_os = "macos")]
+fn apply_runtime_entry(
+    app: &AppHandle,
+    menubar: &MenubarState,
+    has_menu_entry: bool,
+) -> RuntimeEntryOutcome {
+    let floating_window_visible = floating_main_window_visible(app);
+    let outcome = app
+        .state::<DesktopIntegration>()
+        .ensure_runtime_entry_or_exit(
+            has_menu_entry,
+            floating_window_visible,
+            || {
+                app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
+                    crate::window::apply_window_mode(
+                        &window,
+                        crate::models::WindowMode::Floating,
+                        true,
+                    )
+                    .is_ok()
+                })
+            },
+            || app.exit(0),
+        );
+    if outcome == RuntimeEntryOutcome::FloatingWindow {
+        menubar.set_allow_no_menubar(true);
+    }
+    outcome
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn recover_runtime_entry_after_panic(app: &AppHandle) -> bool {
+    let menubar = app.state::<MenubarState>();
+    apply_runtime_entry(app, menubar.inner(), false) != RuntimeEntryOutcome::Exit
+}
+
 /// 对账入口：根据设置 + 快照创建 / 更新 / 移除 macOS 菜单栏实例。
 /// 挂载点在 `tray_presentation::update()` 内（macOS）。
 #[cfg(target_os = "macos")]
@@ -961,18 +1000,7 @@ pub(crate) fn update(
         menubar.remove_instance(app, &id);
     }
 
-    let floating_window_visible = floating_main_window_visible(app);
-    let integration = app.state::<DesktopIntegration>();
-    match integration.ensure_runtime_entry(!actual_ids.is_empty(), floating_window_visible, || {
-        app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
-            crate::window::apply_window_mode(&window, crate::models::WindowMode::Floating, true)
-                .is_ok()
-        })
-    }) {
-        RuntimeEntryOutcome::MenuEntry => {}
-        RuntimeEntryOutcome::FloatingWindow => menubar.set_allow_no_menubar(true),
-        RuntimeEntryOutcome::Exit => app.exit(0),
-    }
+    apply_runtime_entry(app, menubar.inner(), !actual_ids.is_empty());
 }
 
 #[cfg(target_os = "macos")]

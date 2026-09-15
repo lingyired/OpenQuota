@@ -104,6 +104,25 @@ impl DesktopIntegration {
         }
     }
 
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn ensure_runtime_entry_or_exit(
+        &self,
+        has_menu_entry: bool,
+        floating_window_visible: bool,
+        show_floating_window: impl FnOnce() -> bool,
+        exit: impl FnOnce(),
+    ) -> RuntimeEntryOutcome {
+        let outcome = self.ensure_runtime_entry(
+            has_menu_entry,
+            floating_window_visible,
+            show_floating_window,
+        );
+        if outcome == RuntimeEntryOutcome::Exit {
+            exit();
+        }
+        outcome
+    }
+
     pub(crate) fn set_floating(&self, floating: bool) {
         self.floating_window.store(floating, Ordering::SeqCst);
     }
@@ -343,6 +362,41 @@ mod tests {
         assert!(!integration.tray_available());
         assert!(integration.is_floating());
         assert!(integration.exits_on_close());
+    }
+
+    #[test]
+    fn runtime_entry_recovery_only_exits_after_the_floating_fallback_fails() {
+        let recovered =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        let recovered_exit_calls = Cell::new(0);
+
+        let outcome = recovered.ensure_runtime_entry_or_exit(
+            false,
+            false,
+            || true,
+            || recovered_exit_calls.set(recovered_exit_calls.get() + 1),
+        );
+
+        assert_eq!(outcome, RuntimeEntryOutcome::FloatingWindow);
+        assert_eq!(recovered_exit_calls.get(), 0);
+        assert!(!recovered.tray_available());
+        assert!(recovered.is_floating());
+
+        let unrecoverable =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        let unrecoverable_exit_calls = Cell::new(0);
+
+        let outcome = unrecoverable.ensure_runtime_entry_or_exit(
+            false,
+            false,
+            || false,
+            || unrecoverable_exit_calls.set(unrecoverable_exit_calls.get() + 1),
+        );
+
+        assert_eq!(outcome, RuntimeEntryOutcome::Exit);
+        assert_eq!(unrecoverable_exit_calls.get(), 1);
+        assert!(!unrecoverable.tray_available());
+        assert!(unrecoverable.is_floating());
     }
 
     #[test]
