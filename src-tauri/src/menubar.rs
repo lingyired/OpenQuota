@@ -126,6 +126,61 @@ struct MenubarConfigInput {
 }
 
 #[cfg(target_os = "macos")]
+pub(crate) const APP_MENUBAR_INSTANCE_ID: &str = "quota01-app";
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, PartialEq)]
+struct DesiredProviderMenubar {
+    instance_id: String,
+    provider_id: String,
+    provider_name: String,
+    config: AppliedConfig,
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, PartialEq)]
+struct MenubarPlan {
+    provider_instances: Vec<DesiredProviderMenubar>,
+    app_instance_visible: bool,
+    app_forced: bool,
+}
+
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AppRemovalAction {
+    HideOnly,
+    KeepWindowThenExit,
+    ExitNow,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn plan_menubar(
+    provider_instances: Vec<DesiredProviderMenubar>,
+    show_app_menubar: bool,
+    allow_no_menubar: bool,
+) -> MenubarPlan {
+    let provider_instances_empty = provider_instances.is_empty();
+    let app_forced = provider_instances_empty && !show_app_menubar && !allow_no_menubar;
+    MenubarPlan {
+        provider_instances,
+        app_instance_visible: show_app_menubar || app_forced,
+        app_forced,
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn app_removal_action(
+    provider_instances_empty: bool,
+    floating_window_visible: bool,
+) -> AppRemovalAction {
+    match (provider_instances_empty, floating_window_visible) {
+        (false, _) => AppRemovalAction::HideOnly,
+        (true, true) => AppRemovalAction::KeepWindowThenExit,
+        (true, false) => AppRemovalAction::ExitNow,
+    }
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) struct MenubarState {
     created: Mutex<HashMap<String, AppliedConfig>>,
     /// 实例 id -> provider id：点击与右键菜单归属同一个 provider。
@@ -495,6 +550,57 @@ fn instance_config(
 /// 对账入口：根据设置 + 快照创建 / 更新 / 移除 macOS 菜单栏实例。
 /// 挂载点在 `tray_presentation::update()` 内（macOS）。
 #[cfg(target_os = "macos")]
+fn desired_provider_menubars(
+    state: &UsageViewState,
+    settings: &AppSettings,
+    registry: &ProviderRegistry,
+) -> Vec<DesiredProviderMenubar> {
+    let mut desired = Vec::new();
+    for provider in settings
+        .providers
+        .iter()
+        .filter(|provider| provider.enabled)
+    {
+        let Some(definition) = registry.definition(&provider.id) else {
+            continue;
+        };
+        let layout = settings
+            .taskband_providers
+            .get(&provider.id)
+            .cloned()
+            .unwrap_or_default();
+        if !layout.enabled {
+            continue;
+        }
+        let metrics = pinned_provider_metrics(state, provider, settings, registry);
+        if metrics.is_empty() {
+            continue;
+        }
+        let (top_value, bottom_value, bottom_visible) = metric_lines(&metrics);
+        let provider_name = settings.provider_display_name(definition).to_owned();
+        let config = instance_config(
+            MenubarConfigInput {
+                text: (top_value, bottom_value),
+                lines_visible: (true, bottom_visible),
+                leading_icon: provider_icon_svg(&provider.id),
+                tooltip: provider_name.clone(),
+            },
+            &layout,
+            true,
+        );
+        desired.push(DesiredProviderMenubar {
+            instance_id: sanitize_instance_id(&provider.id),
+            provider_id: provider.id.clone(),
+            provider_name,
+            config,
+        });
+    }
+    desired
+}
+
+/// 对账入口：根据设置 + 快照创建 / 更新 / 移除 macOS 菜单栏实例。
+/// 挂载点在 `tray_presentation::update()` 内（macOS）。
+#[cfg(target_os = "macos")]
 pub(crate) fn update(
     app: &AppHandle,
     state: &UsageViewState,
@@ -506,50 +612,16 @@ pub(crate) fn update(
 
     let locale = crate::i18n::resolve(settings.language);
     let mut desired_ids = HashSet::new();
-    for provider in settings.providers.iter() {
-        if !provider.enabled {
-            continue;
-        }
-        if registry.definition(&provider.id).is_none() {
-            continue;
-        }
-        let layout = settings
-            .taskband_providers
-            .get(&provider.id)
-            .cloned()
-            .unwrap_or_default();
-        if !layout.enabled {
-            continue;
-        }
-        // 与 Windows taskband 一致：只展示用户固定的（pinned）指标。
-        let metrics = pinned_provider_metrics(state, provider, settings, registry);
-        if metrics.is_empty() {
-            continue;
-        }
-        let icon_svg = provider_icon_svg(&provider.id);
-        let provider_name = registry
-            .definition(&provider.id)
-            .map(|definition| settings.provider_display_name(definition))
-            .unwrap_or(&provider.id)
-            .to_owned();
-        let (top_value, bottom_value, bottom_visible) = metric_lines(&metrics);
-        let instance_id = sanitize_instance_id(&provider.id);
-
-        // 与 Windows taskband 相同的单实例布局：LeadingIcon 列图标 + 上下两行
-        // 前两个 pinned 指标值。
-        let config = instance_config(
-            MenubarConfigInput {
-                text: (top_value, bottom_value),
-                lines_visible: (true, bottom_visible),
-                leading_icon: icon_svg,
-                tooltip: provider_name.clone(),
-            },
-            &layout,
-            true,
-        );
+    for desired in desired_provider_menubars(state, settings, registry) {
+        let DesiredProviderMenubar {
+            instance_id,
+            provider_id,
+            provider_name,
+            config,
+        } = desired;
         menubar.apply_instance(app, &instance_id, config);
-        menubar.register_click_listener(app, &instance_id, &provider.id);
-        menubar.register_context_menu(app, &instance_id, &provider.id, &provider_name, locale);
+        menubar.register_click_listener(app, &instance_id, &provider_id);
+        menubar.register_context_menu(app, &instance_id, &provider_id, &provider_name, locale);
         desired_ids.insert(instance_id);
     }
 
@@ -742,7 +814,8 @@ mod tests {
     };
 
     use super::{
-        instance_config, metric_lines, sanitize_instance_id, AppliedConfig, MenubarConfigInput,
+        app_removal_action, instance_config, metric_lines, plan_menubar, sanitize_instance_id,
+        AppRemovalAction, AppliedConfig, DesiredProviderMenubar, MenubarConfigInput,
     };
 
     fn metric(id: &str, value: &str) -> ResolvedTrayMetric {
@@ -821,6 +894,62 @@ mod tests {
 
     fn resolved_opencode() -> Vec<ResolvedTrayMetric> {
         opencode_metrics(true)
+    }
+
+    fn provider_menubar(provider_id: &str) -> DesiredProviderMenubar {
+        DesiredProviderMenubar {
+            instance_id: provider_id.to_owned(),
+            provider_id: provider_id.to_owned(),
+            provider_name: provider_id.to_owned(),
+            config: instance_config(
+                MenubarConfigInput {
+                    text: ("75%".into(), String::new()),
+                    lines_visible: (true, false),
+                    leading_icon: Some("svg"),
+                    tooltip: provider_id.to_owned(),
+                },
+                &crate::models::TaskbandLayout::default(),
+                true,
+            ),
+        }
+    }
+
+    #[test]
+    fn app_instance_is_visible_when_requested_or_forced() {
+        let with_provider = || vec![provider_menubar("codex")];
+
+        let requested = plan_menubar(with_provider(), true, false);
+        assert!(requested.app_instance_visible);
+        assert!(!requested.app_forced);
+
+        let hidden = plan_menubar(with_provider(), false, false);
+        assert!(!hidden.app_instance_visible);
+        assert!(!hidden.app_forced);
+
+        let forced = plan_menubar(Vec::new(), false, false);
+        assert!(forced.app_instance_visible);
+        assert!(forced.app_forced);
+
+        let floating_exception = plan_menubar(Vec::new(), false, true);
+        assert!(!floating_exception.app_instance_visible);
+        assert!(!floating_exception.app_forced);
+    }
+
+    #[test]
+    fn app_removal_action_matches_window_mode_and_visibility() {
+        assert_eq!(app_removal_action(false, false), AppRemovalAction::HideOnly);
+        assert_eq!(app_removal_action(false, true), AppRemovalAction::HideOnly);
+        assert_eq!(
+            app_removal_action(true, true),
+            AppRemovalAction::KeepWindowThenExit
+        );
+        assert_eq!(app_removal_action(true, false), AppRemovalAction::ExitNow);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_menubar_instance_id_is_stable() {
+        assert_eq!(super::APP_MENUBAR_INSTANCE_ID, "quota01-app");
     }
 
     #[test]
