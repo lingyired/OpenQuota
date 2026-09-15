@@ -88,6 +88,17 @@ impl DesktopIntegration {
     }
 
     #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn restore_menu_entry_window_mode(
+        &self,
+        mode: WindowMode,
+        apply: impl FnOnce(WindowMode) -> Result<bool, String>,
+    ) -> Result<bool, String> {
+        let floating = apply(mode)?;
+        self.set_floating(floating);
+        Ok(floating)
+    }
+
+    #[cfg(any(target_os = "macos", test))]
     pub(crate) fn ensure_runtime_entry(
         &self,
         has_menu_entry: bool,
@@ -332,6 +343,25 @@ mod tests {
 
         integration.set_menu_entry_available(true);
         assert!(!integration.exits_on_close());
+    }
+
+    #[test]
+    fn menu_entry_recovery_reapplies_the_configured_window_mode() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        integration.set_menu_entry_available(false);
+        integration.set_menu_entry_available(true);
+
+        let mut applied = None;
+        integration
+            .restore_menu_entry_window_mode(WindowMode::Popup, |mode| {
+                applied = Some(mode);
+                Ok(false)
+            })
+            .unwrap();
+
+        assert_eq!(applied, Some(WindowMode::Popup));
+        assert!(!integration.is_floating());
     }
     #[test]
     fn runtime_entry_falls_back_to_a_floating_window_when_no_menu_item_remains() {

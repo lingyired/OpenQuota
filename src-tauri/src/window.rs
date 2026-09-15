@@ -33,6 +33,20 @@ const PANEL_RESIZE_SAVE_DELAY: Duration = Duration::from_millis(120);
 const LIGHT_PANEL_SURFACE: Color = Color(0xff, 0xff, 0xff, 0xff);
 const DARK_PANEL_SURFACE: Color = Color(0x1d, 0x1d, 0x1f, 0xff);
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MainWindowDismissAction {
+    Hide,
+    Exit,
+}
+
+fn main_window_dismiss_action(exits_on_close: bool) -> MainWindowDismissAction {
+    if exits_on_close {
+        MainWindowDismissAction::Exit
+    } else {
+        MainWindowDismissAction::Hide
+    }
+}
+
 #[cfg(target_os = "macos")]
 const MENU_BAR_POPUP_POSITION_UNSET: u64 = u64::MAX;
 #[cfg(target_os = "macos")]
@@ -541,7 +555,7 @@ pub fn toggle_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: Me
     let visible = window.is_visible().unwrap_or(false);
     let minimized = window.is_minimized().unwrap_or(false);
     if visible && !minimized {
-        hide_main_window(window);
+        dismiss_or_hide_main_window(window.app_handle());
     } else {
         show_main_window_below_menu_bar_item(window, anchor);
     }
@@ -644,6 +658,21 @@ pub fn hide_main_window(window: &WebviewWindow) {
     hide_main_native_window(&window.as_ref().window());
 }
 
+pub fn dismiss_or_hide_main_window(app: &AppHandle) {
+    app.state::<PopupDismissGuard>().cancel_pending();
+
+    let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
+        return;
+    };
+    match main_window_dismiss_action(app.state::<DesktopIntegration>().exits_on_close()) {
+        MainWindowDismissAction::Exit => {
+            finish_native_panel_resize(&window);
+            app.exit(0);
+        }
+        MainWindowDismissAction::Hide => hide_main_window(&window),
+    }
+}
+
 pub fn toggle_main_window(app: &AppHandle) {
     app.state::<PopupDismissGuard>().cancel_pending();
 
@@ -654,7 +683,7 @@ pub fn toggle_main_window(app: &AppHandle) {
     let visible = window.is_visible().unwrap_or(false);
     let minimized = window.is_minimized().unwrap_or(false);
     if visible && !minimized {
-        hide_main_window(&window);
+        dismiss_or_hide_main_window(app);
     } else {
         show_main_window(&window);
     }
@@ -1101,9 +1130,12 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             let _ = window.set_resizable(false);
             api.prevent_close();
             let integration = window.app_handle().state::<DesktopIntegration>();
-            if integration.exits_on_close() {
-                window.app_handle().exit(0);
-                return;
+            match main_window_dismiss_action(integration.exits_on_close()) {
+                MainWindowDismissAction::Exit => {
+                    window.app_handle().exit(0);
+                    return;
+                }
+                MainWindowDismissAction::Hide => {}
             }
             window
                 .app_handle()
@@ -1123,14 +1155,27 @@ mod tests {
 
     use super::{
         anchored_menu_bar_position, anchored_taskband_position, anchored_vertical_frame,
-        logical_panel_height, panel_resize_edge_for_context, panel_resize_edge_for_frames,
-        panel_surface_color, resolved_fixed_panel_height, MenuBarAnchor, PanelHeightMode,
-        PanelResizeEdge, PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE,
-        LIGHT_PANEL_SURFACE, PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
+        logical_panel_height, main_window_dismiss_action, panel_resize_edge_for_context,
+        panel_resize_edge_for_frames, panel_surface_color, resolved_fixed_panel_height,
+        MainWindowDismissAction, MenuBarAnchor, PanelHeightMode, PanelResizeEdge,
+        PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
+        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
     };
     use crate::models::ThemePreference;
     use crate::storage::Storage;
     use tauri::Theme;
+
+    #[test]
+    fn dismissing_a_no_menu_floating_window_exits_instead_of_hiding() {
+        assert_eq!(
+            main_window_dismiss_action(true),
+            MainWindowDismissAction::Exit
+        );
+        assert_eq!(
+            main_window_dismiss_action(false),
+            MainWindowDismissAction::Hide
+        );
+    }
 
     #[test]
     fn a_real_resize_owns_the_height_until_automatic_mode_is_restored() {

@@ -37,7 +37,7 @@ use crate::{
 use std::{
     collections::{HashMap, HashSet},
     sync::{
-        atomic::{AtomicBool, Ordering},
+        atomic::{AtomicBool, AtomicU64, Ordering},
         Arc, Mutex,
     },
 };
@@ -217,6 +217,9 @@ pub(crate) struct MenubarState {
     /// 是否已关闭插件的自动 popup（由本模块自己打开主窗口）。
     global: Mutex<bool>,
     allow_no_menubar: AtomicBool,
+    /// Serializes reconciliation and lets a newer plan supersede a queued one.
+    reconcile_generation: AtomicU64,
+    reconcile_lock: Mutex<()>,
 }
 
 #[cfg(target_os = "macos")]
@@ -231,6 +234,8 @@ impl Default for MenubarState {
             menu_signatures: Mutex::new(HashMap::new()),
             global: Mutex::new(false),
             allow_no_menubar: AtomicBool::new(false),
+            reconcile_generation: AtomicU64::new(0),
+            reconcile_lock: Mutex::new(()),
         }
     }
 }
@@ -366,14 +371,19 @@ impl MenubarState {
     fn apply_visible_instance(
         &self,
         apply: impl FnOnce() -> Result<(), String>,
+        drain_queued_native_work: impl FnOnce(),
         is_visible: impl FnOnce() -> bool,
         remove: impl FnOnce(),
     ) -> Result<bool, String> {
         match apply() {
-            Ok(()) if is_visible() => Ok(true),
             Ok(()) => {
-                remove();
-                Ok(false)
+                drain_queued_native_work();
+                if is_visible() {
+                    Ok(true)
+                } else {
+                    remove();
+                    Ok(false)
+                }
             }
             Err(error) => {
                 remove();
@@ -531,15 +541,17 @@ impl MenubarState {
             .insert(instance_id.to_string(), provider_id.to_string());
         let (items, signature) = context_menu_items(instance_id, locale, provider_name);
         let mb = app.multiline_menubar();
-        let mut signatures = self
-            .menu_signatures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if signatures.get(instance_id).map(String::as_str) != Some(signature.as_str()) {
-            let _ = mb.set_menu(instance_id.to_string(), items);
-            signatures.insert(instance_id.to_string(), signature);
+        if let Err(error) =
+            install_context_menu(&self.menu_signatures, instance_id, signature, || {
+                mb.set_menu(instance_id.to_string(), items)
+                    .map_err(|error| error.to_string())
+            })
+        {
+            crate::app_warn!(
+                "menubar",
+                "could not install context menu for {instance_id}: {error}"
+            );
         }
-        drop(signatures);
         self.register_menu_listener(app, instance_id);
         self.register_remove_listener(app, instance_id, provider_id);
     }
@@ -549,15 +561,20 @@ impl MenubarState {
     fn register_app_context_menu(&self, app: &AppHandle, locale: crate::i18n::Locale) {
         let (items, signature) = app_context_menu_items(locale);
         let mb = app.multiline_menubar();
-        let mut signatures = self
-            .menu_signatures
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
-        if signatures.get(APP_MENUBAR_INSTANCE_ID).map(String::as_str) != Some(signature.as_str()) {
-            let _ = mb.set_menu(APP_MENUBAR_INSTANCE_ID.to_owned(), items);
-            signatures.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), signature);
+        if let Err(error) = install_context_menu(
+            &self.menu_signatures,
+            APP_MENUBAR_INSTANCE_ID,
+            signature,
+            || {
+                mb.set_menu(APP_MENUBAR_INSTANCE_ID.to_owned(), items)
+                    .map_err(|error| error.to_string())
+            },
+        ) {
+            crate::app_warn!(
+                "menubar",
+                "could not install context menu for {APP_MENUBAR_INSTANCE_ID}: {error}"
+            );
         }
-        drop(signatures);
 
         let mut registered = self
             .menu_listeners
@@ -734,6 +751,30 @@ impl MenubarState {
     }
 }
 
+/// Install a context menu once per signature. Failed installs must remain
+/// retryable, so the signature is cached only after the plugin accepts it.
+#[cfg(any(target_os = "macos", test))]
+fn install_context_menu(
+    signatures: &Mutex<HashMap<String, String>>,
+    instance_id: &str,
+    signature: String,
+    install: impl FnOnce() -> Result<(), String>,
+) -> Result<(), String> {
+    {
+        let signatures = signatures.lock().unwrap_or_else(|e| e.into_inner());
+        if signatures.get(instance_id).map(String::as_str) == Some(signature.as_str()) {
+            return Ok(());
+        }
+    }
+
+    install()?;
+    signatures
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .insert(instance_id.to_owned(), signature);
+    Ok(())
+}
+
 /// 将品牌色映射到插件 `ColorStyle`：`Default` 在该行无品牌色时保持系统
 /// 菜单栏文字色，有品牌色时回退为该品牌色（与 Windows taskband 一致）。
 #[cfg(target_os = "macos")]
@@ -871,24 +912,44 @@ fn apply_runtime_entry(
     menubar: &MenubarState,
     has_menu_entry: bool,
 ) -> RuntimeEntryOutcome {
+    let integration = app.state::<DesktopIntegration>();
+    let recovering_menu_entry = has_menu_entry && !integration.tray_available();
     let floating_window_visible = floating_main_window_visible(app);
-    let outcome = app
-        .state::<DesktopIntegration>()
-        .ensure_runtime_entry_or_exit(
-            has_menu_entry,
-            floating_window_visible,
-            || {
-                app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
-                    crate::window::apply_window_mode(
-                        &window,
-                        crate::models::WindowMode::Floating,
-                        true,
-                    )
+    let outcome = integration.ensure_runtime_entry_or_exit(
+        has_menu_entry,
+        floating_window_visible,
+        || {
+            app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
+                crate::window::apply_window_mode(&window, crate::models::WindowMode::Floating, true)
                     .is_ok()
-                })
-            },
-            || app.exit(0),
-        );
+            })
+        },
+        || app.exit(0),
+    );
+    if recovering_menu_entry {
+        let configured_mode = app
+            .try_state::<Arc<SettingsService>>()
+            .map(|settings| settings.get().window_mode);
+        if let Some(configured_mode) = configured_mode {
+            let restored = integration.restore_menu_entry_window_mode(configured_mode, |mode| {
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                    crate::window::apply_window_mode(&window, mode, false)
+                        .map(|()| integration.is_floating())
+                } else {
+                    Ok(integration.apply_window_mode(mode))
+                }
+            });
+            if let Err(error) = restored {
+                crate::app_warn!(
+                    "menubar",
+                    "could not restore the configured window mode after the menu bar entry returned: {error}"
+                );
+                // Keep the frontend's trayAvailable-derived mode aligned with
+                // the visible floating fallback if chrome restoration fails.
+                integration.set_menu_entry_available(false);
+            }
+        }
+    }
     if outcome == RuntimeEntryOutcome::FloatingWindow {
         menubar.set_allow_no_menubar(true);
     }
@@ -922,6 +983,44 @@ pub(crate) fn update(
     if settings.show_app_menubar || !plan.provider_instances.is_empty() {
         menubar.set_allow_no_menubar(false);
     }
+
+    let generation = menubar
+        .reconcile_generation
+        .fetch_add(1, Ordering::SeqCst)
+        .wrapping_add(1);
+    let reconcile_app = app.clone();
+    let spawn = std::thread::Builder::new()
+        .name("quota01-menubar-reconcile".to_owned())
+        .spawn(move || {
+            let menubar = reconcile_app.state::<MenubarState>();
+            let _guard = menubar
+                .reconcile_lock
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
+            if menubar.reconcile_generation.load(Ordering::SeqCst) != generation {
+                return;
+            }
+
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                apply_menubar_plan(&reconcile_app, plan, locale);
+            }));
+            if let Err(payload) = result {
+                crate::app_error!("menubar", "menubar reconciliation panicked: {payload:?}");
+                apply_runtime_entry(&reconcile_app, menubar.inner(), false);
+            }
+        });
+    if let Err(error) = spawn {
+        crate::app_warn!(
+            "menubar",
+            "could not start menubar reconciliation worker: {error}"
+        );
+        apply_runtime_entry(app, menubar.inner(), false);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn apply_menubar_plan(app: &AppHandle, plan: MenubarPlan, locale: crate::i18n::Locale) {
+    let menubar = app.state::<MenubarState>();
     let mut actual_ids = HashSet::new();
     for desired in plan.provider_instances {
         let DesiredProviderMenubar {
@@ -932,6 +1031,12 @@ pub(crate) fn update(
         } = desired;
         let visible = menubar.apply_visible_instance(
             || menubar.apply_instance(app, &instance_id, config),
+            || {
+                // `rect` uses the plugin's synchronous main-thread getter. On
+                // the reconciliation worker it drains all queued create/set
+                // blocks before visibility is checked.
+                let _ = app.multiline_menubar().rect(instance_id.clone());
+            },
             || {
                 app.multiline_menubar()
                     .is_visible(instance_id.clone())
@@ -965,6 +1070,11 @@ pub(crate) fn update(
     if plan.app_instance_visible {
         let visible = menubar.apply_visible_instance(
             || menubar.apply_instance(app, APP_MENUBAR_INSTANCE_ID, app_instance_config(true)),
+            || {
+                let _ = app
+                    .multiline_menubar()
+                    .rect(APP_MENUBAR_INSTANCE_ID.to_owned());
+            },
             || {
                 app.multiline_menubar()
                     .is_visible(APP_MENUBAR_INSTANCE_ID.to_owned())
@@ -1281,7 +1391,8 @@ fn open_provider_settings(app: &AppHandle, provider_id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
+    use std::sync::Mutex;
 
     use crate::{
         models::{AppSettings, QuotaFormat, QuotaWindow, SnapshotSource, TaskbandLayout},
@@ -1293,9 +1404,9 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::{app_context_menu_items, app_instance_config};
     use super::{
-        app_removal_action, disable_provider_layout, instance_config, metric_lines, plan_menubar,
-        sanitize_instance_id, AppRemovalAction, AppliedConfig, DesiredProviderMenubar,
-        MenubarConfigInput,
+        app_removal_action, disable_provider_layout, install_context_menu, instance_config,
+        metric_lines, plan_menubar, sanitize_instance_id, AppRemovalAction, AppliedConfig,
+        DesiredProviderMenubar, MenubarConfigInput,
     };
     #[cfg(target_os = "macos")]
     use tauri_plugin_multiline_menubar::MenuItemDescriptor;
@@ -1685,11 +1796,70 @@ mod tests {
         let removed = std::cell::Cell::new(false);
 
         let visible = menubar
-            .apply_visible_instance(|| Ok(()), || false, || removed.set(true))
+            .apply_visible_instance(|| Ok(()), || {}, || false, || removed.set(true))
             .unwrap();
 
         assert!(!visible);
         assert!(removed.get());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn visibility_verification_waits_for_queued_native_work() {
+        let menubar = super::MenubarState::default();
+        let queued = std::cell::Cell::new(false);
+        let drained = std::cell::Cell::new(false);
+        let removed = std::cell::Cell::new(false);
+
+        let visible = menubar
+            .apply_visible_instance(
+                || {
+                    queued.set(true);
+                    Ok(())
+                },
+                || {
+                    assert!(queued.get());
+                    drained.set(true);
+                },
+                || {
+                    assert!(drained.get());
+                    true
+                },
+                || removed.set(true),
+            )
+            .unwrap();
+
+        assert!(visible);
+        assert!(!removed.get());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn failed_context_menu_install_is_not_cached_and_is_retried() {
+        let signatures = Mutex::new(HashMap::new());
+
+        let failed =
+            install_context_menu(&signatures, "quota01-app", "signature".to_owned(), || {
+                Err("menu construction failed".to_owned())
+            });
+        assert_eq!(failed.unwrap_err(), "menu construction failed");
+        assert!(!signatures.lock().unwrap().contains_key("quota01-app"));
+
+        install_context_menu(
+            &signatures,
+            "quota01-app",
+            "signature".to_owned(),
+            || Ok(()),
+        )
+        .unwrap();
+        assert_eq!(
+            signatures
+                .lock()
+                .unwrap()
+                .get("quota01-app")
+                .map(String::as_str),
+            Some("signature")
+        );
     }
 
     #[cfg(target_os = "macos")]
@@ -1702,6 +1872,7 @@ mod tests {
         let error = menubar
             .apply_visible_instance(
                 || Err("creation failed".to_owned()),
+                || {},
                 || {
                     visibility_checked.set(true);
                     true
