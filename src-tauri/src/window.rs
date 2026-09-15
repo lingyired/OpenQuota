@@ -536,6 +536,17 @@ pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: Menu
     let _ = window.set_focus();
 }
 
+#[cfg(target_os = "macos")]
+pub fn toggle_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: MenuBarAnchor) {
+    let visible = window.is_visible().unwrap_or(false);
+    let minimized = window.is_minimized().unwrap_or(false);
+    if visible && !minimized {
+        hide_main_window(window);
+    } else {
+        show_main_window_below_menu_bar_item(window, anchor);
+    }
+}
+
 pub fn show_main_window(window: &WebviewWindow) {
     #[cfg(target_os = "macos")]
     clear_menu_bar_popup_position();

@@ -125,8 +125,11 @@ struct MenubarConfigInput {
     tooltip: String,
 }
 
-#[cfg(all(test, target_os = "macos"))]
+#[cfg(target_os = "macos")]
 pub(crate) const APP_MENUBAR_INSTANCE_ID: &str = "quota01-app";
+
+#[cfg(target_os = "macos")]
+const QUOTA01_MENUBAR_ICON: &str = include_str!("../../assets/quota01-tray.svg");
 
 #[cfg(any(target_os = "macos", test))]
 #[derive(Debug, Clone, PartialEq)]
@@ -140,9 +143,7 @@ struct DesiredProviderMenubar {
 #[cfg(any(target_os = "macos", test))]
 #[derive(Debug, Clone, PartialEq)]
 struct MenubarPlan {
-    #[cfg(test)]
     provider_instances: Vec<DesiredProviderMenubar>,
-    #[cfg(test)]
     app_instance_visible: bool,
     app_forced: bool,
 }
@@ -163,12 +164,9 @@ fn plan_menubar(
 ) -> MenubarPlan {
     let provider_instances_empty = provider_instances.is_empty();
     let app_forced = provider_instances_empty && !show_app_menubar && !allow_no_menubar;
-    #[cfg(test)]
     let app_instance_visible = show_app_menubar || app_forced;
     MenubarPlan {
-        #[cfg(test)]
         provider_instances,
-        #[cfg(test)]
         app_instance_visible,
         app_forced,
     }
@@ -246,78 +244,107 @@ impl MenubarState {
     }
 
     #[cfg(target_os = "macos")]
-    fn apply_instance(&self, app: &AppHandle, id: &str, config: AppliedConfig) {
+    fn apply_instance(
+        &self,
+        app: &AppHandle,
+        id: &str,
+        config: AppliedConfig,
+    ) -> Result<(), String> {
         let mb = app.multiline_menubar();
         let mut created = self.created.lock().unwrap_or_else(|e| e.into_inner());
-        match created.get(id) {
-            None => {
-                let _ = mb.create(id.to_string());
-                let _ = mb.set_text(id.to_string(), config.text.0.clone(), config.text.1.clone());
-                let _ = mb.set_line_visible(
-                    id.to_string(),
-                    config.lines_visible.0,
-                    config.lines_visible.1,
-                );
-                let _ = mb.set_leading_icon(id.to_string(), to_icon(config.leading_icon));
-                let _ = mb.set_colors(
-                    id.to_string(),
-                    to_plugin_color(&config.top_color, id),
-                    to_plugin_color(&config.bottom_color, ""),
-                );
-                let _ = mb.set_bold(id.to_string(), config.top_bold, config.bottom_bold);
-                let _ = mb.set_font_sizes(id.to_string(), config.top_size, config.bottom_size);
-                let _ = mb.set_alignment(id.to_string(), config.top_align, config.bottom_align);
-                let _ = mb.set_tooltip(id.to_string(), config.tooltip.clone());
-                let _ = mb.set_visible(id.to_string(), config.visible);
-            }
-            Some(previous) => {
-                if previous.text != config.text {
-                    let _ =
-                        mb.set_text(id.to_string(), config.text.0.clone(), config.text.1.clone());
-                }
-                if previous.lines_visible != config.lines_visible {
-                    let _ = mb.set_line_visible(
+        let result = (|| -> Result<(), String> {
+            match created.get(id) {
+                None => {
+                    mb.create(id.to_string())
+                        .map_err(|error| error.to_string())?;
+                    mb.set_text(id.to_string(), config.text.0.clone(), config.text.1.clone())
+                        .map_err(|error| error.to_string())?;
+                    mb.set_line_visible(
                         id.to_string(),
                         config.lines_visible.0,
                         config.lines_visible.1,
-                    );
-                }
-                if previous.leading_icon != config.leading_icon {
-                    let _ = mb.set_leading_icon(id.to_string(), to_icon(config.leading_icon));
-                }
-                if previous.top_color != config.top_color
-                    || previous.bottom_color != config.bottom_color
-                {
-                    let _ = mb.set_colors(
+                    )
+                    .map_err(|error| error.to_string())?;
+                    mb.set_leading_icon(id.to_string(), to_icon(config.leading_icon))
+                        .map_err(|error| error.to_string())?;
+                    mb.set_colors(
                         id.to_string(),
                         to_plugin_color(&config.top_color, id),
                         to_plugin_color(&config.bottom_color, ""),
-                    );
+                    )
+                    .map_err(|error| error.to_string())?;
+                    mb.set_bold(id.to_string(), config.top_bold, config.bottom_bold)
+                        .map_err(|error| error.to_string())?;
+                    mb.set_font_sizes(id.to_string(), config.top_size, config.bottom_size)
+                        .map_err(|error| error.to_string())?;
+                    mb.set_alignment(id.to_string(), config.top_align, config.bottom_align)
+                        .map_err(|error| error.to_string())?;
+                    mb.set_tooltip(id.to_string(), config.tooltip.clone())
+                        .map_err(|error| error.to_string())?;
+                    mb.set_visible(id.to_string(), config.visible)
+                        .map_err(|error| error.to_string())?;
                 }
-                if previous.top_bold != config.top_bold
-                    || previous.bottom_bold != config.bottom_bold
-                {
-                    let _ = mb.set_bold(id.to_string(), config.top_bold, config.bottom_bold);
-                }
-                if previous.top_size != config.top_size
-                    || previous.bottom_size != config.bottom_size
-                {
-                    let _ = mb.set_font_sizes(id.to_string(), config.top_size, config.bottom_size);
-                }
-                if previous.top_align != config.top_align
-                    || previous.bottom_align != config.bottom_align
-                {
-                    let _ = mb.set_alignment(id.to_string(), config.top_align, config.bottom_align);
-                }
-                if previous.tooltip != config.tooltip {
-                    let _ = mb.set_tooltip(id.to_string(), config.tooltip.clone());
-                }
-                if previous.visible != config.visible {
-                    let _ = mb.set_visible(id.to_string(), config.visible);
+                Some(previous) => {
+                    if previous.text != config.text {
+                        mb.set_text(id.to_string(), config.text.0.clone(), config.text.1.clone())
+                            .map_err(|error| error.to_string())?;
+                    }
+                    if previous.lines_visible != config.lines_visible {
+                        mb.set_line_visible(
+                            id.to_string(),
+                            config.lines_visible.0,
+                            config.lines_visible.1,
+                        )
+                        .map_err(|error| error.to_string())?;
+                    }
+                    if previous.leading_icon != config.leading_icon {
+                        mb.set_leading_icon(id.to_string(), to_icon(config.leading_icon))
+                            .map_err(|error| error.to_string())?;
+                    }
+                    if previous.top_color != config.top_color
+                        || previous.bottom_color != config.bottom_color
+                    {
+                        mb.set_colors(
+                            id.to_string(),
+                            to_plugin_color(&config.top_color, id),
+                            to_plugin_color(&config.bottom_color, ""),
+                        )
+                        .map_err(|error| error.to_string())?;
+                    }
+                    if previous.top_bold != config.top_bold
+                        || previous.bottom_bold != config.bottom_bold
+                    {
+                        mb.set_bold(id.to_string(), config.top_bold, config.bottom_bold)
+                            .map_err(|error| error.to_string())?;
+                    }
+                    if previous.top_size != config.top_size
+                        || previous.bottom_size != config.bottom_size
+                    {
+                        mb.set_font_sizes(id.to_string(), config.top_size, config.bottom_size)
+                            .map_err(|error| error.to_string())?;
+                    }
+                    if previous.top_align != config.top_align
+                        || previous.bottom_align != config.bottom_align
+                    {
+                        mb.set_alignment(id.to_string(), config.top_align, config.bottom_align)
+                            .map_err(|error| error.to_string())?;
+                    }
+                    if previous.tooltip != config.tooltip {
+                        mb.set_tooltip(id.to_string(), config.tooltip.clone())
+                            .map_err(|error| error.to_string())?;
+                    }
+                    if previous.visible != config.visible {
+                        mb.set_visible(id.to_string(), config.visible)
+                            .map_err(|error| error.to_string())?;
+                    }
                 }
             }
+            Ok(())
+        })();
+        if result.is_ok() {
+            created.insert(id.to_string(), config);
         }
-        created.insert(id.to_string(), config);
+        result
     }
 
     #[cfg(target_os = "macos")]
@@ -399,6 +426,38 @@ impl MenubarState {
         registered.insert(instance_id.to_string(), listener_id);
     }
 
+    /// 为 Quota01 应用实例注册左键监听：再次点击时切换主窗口。
+    #[cfg(target_os = "macos")]
+    fn register_app_click_listener(&self, app: &AppHandle) {
+        let mut registered = self
+            .click_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if registered.contains_key(APP_MENUBAR_INSTANCE_ID) {
+            return;
+        }
+        let event = format!("multiline-menubar://{APP_MENUBAR_INSTANCE_ID}//click");
+        let listener_app = app.clone();
+        let listener_id = app.listen(event, move |event| {
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+                return;
+            };
+            if payload.get("button").and_then(|button| button.as_str()) != Some("left") {
+                return;
+            }
+            let Some(window) = listener_app.get_webview_window(MAIN_WINDOW) else {
+                return;
+            };
+            match menu_bar_click_anchor(&payload) {
+                Some(anchor) => {
+                    crate::window::toggle_main_window_below_menu_bar_item(&window, anchor)
+                }
+                None => crate::window::toggle_main_window(&listener_app),
+            }
+        });
+        registered.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), listener_id);
+    }
+
     /// 为某个实例绑定右键上下文菜单（隐藏 agent / 刷新数据 / 打开该
     /// agent 的设置 / 退出应用），并注册菜单选择监听。菜单文案随语言与
     /// provider 名变化而重建。
@@ -428,6 +487,52 @@ impl MenubarState {
         drop(signatures);
         self.register_menu_listener(app, instance_id);
         self.register_remove_listener(app, instance_id, provider_id);
+    }
+
+    /// 为 Quota01 应用实例绑定 Settings / Quit 菜单。
+    #[cfg(target_os = "macos")]
+    fn register_app_context_menu(&self, app: &AppHandle, locale: crate::i18n::Locale) {
+        let (items, signature) = app_context_menu_items(locale);
+        let mb = app.multiline_menubar();
+        let mut signatures = self
+            .menu_signatures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if signatures.get(APP_MENUBAR_INSTANCE_ID).map(String::as_str) != Some(signature.as_str()) {
+            let _ = mb.set_menu(APP_MENUBAR_INSTANCE_ID.to_owned(), items);
+            signatures.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), signature);
+        }
+        drop(signatures);
+
+        let mut registered = self
+            .menu_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if registered.contains_key(APP_MENUBAR_INSTANCE_ID) {
+            return;
+        }
+        let event = format!("multiline-menubar://{APP_MENUBAR_INSTANCE_ID}//menu");
+        let listener_app = app.clone();
+        let listener_id = app.listen(event, move |event| {
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+                return;
+            };
+            if payload.get("id").and_then(|value| value.as_str()) != Some(APP_MENUBAR_INSTANCE_ID) {
+                return;
+            }
+            let Some(item_id) = payload.get("itemId").and_then(|value| value.as_str()) else {
+                return;
+            };
+            let Some((_, action)) = item_id.rsplit_once("::") else {
+                return;
+            };
+            match action {
+                MENU_ACTION_SETTINGS => open_screen(&listener_app, "settings"),
+                MENU_ACTION_QUIT => quit_application(&listener_app),
+                _ => crate::app_warn!("menubar", "ignored app context menu action {action}"),
+            }
+        });
+        registered.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), listener_id);
     }
 
     #[cfg(target_os = "macos")]
@@ -568,6 +673,20 @@ fn instance_config(
     }
 }
 
+#[cfg(target_os = "macos")]
+fn app_instance_config(visible: bool) -> AppliedConfig {
+    instance_config(
+        MenubarConfigInput {
+            text: (String::new(), String::new()),
+            lines_visible: (false, false),
+            leading_icon: Some(QUOTA01_MENUBAR_ICON),
+            tooltip: "Quota01".to_owned(),
+        },
+        &TaskbandLayout::default(),
+        visible,
+    )
+}
+
 /// 构造 macOS 菜单栏上应显示的 provider 实例集合。只包含已启用、定义
 /// 存在、布局启用且至少有一个可渲染 pinned 指标的 provider。
 #[cfg(target_os = "macos")]
@@ -632,18 +751,39 @@ pub(crate) fn update(
     menubar.apply_global(app);
 
     let locale = crate::i18n::resolve(settings.language);
+    // Task 4 replaces this temporary runtime exception with
+    // `MenubarState::allows_no_menubar()`.
+    let plan = plan_menubar(
+        desired_provider_menubars(state, settings, registry),
+        settings.show_app_menubar,
+        false,
+    );
     let mut desired_ids = HashSet::new();
-    for desired in desired_provider_menubars(state, settings, registry) {
+    for desired in plan.provider_instances {
         let DesiredProviderMenubar {
             instance_id,
             provider_id,
             provider_name,
             config,
         } = desired;
-        menubar.apply_instance(app, &instance_id, config);
+        if let Err(error) = menubar.apply_instance(app, &instance_id, config) {
+            crate::app_warn!(
+                "menubar",
+                "could not apply menu bar instance {instance_id}: {error}"
+            );
+            continue;
+        }
         menubar.register_click_listener(app, &instance_id, &provider_id);
         menubar.register_context_menu(app, &instance_id, &provider_id, &provider_name, locale);
         desired_ids.insert(instance_id);
+    }
+
+    if plan.app_instance_visible {
+        // Failure fallback is implemented in Task 4.
+        let _ = menubar.apply_instance(app, APP_MENUBAR_INSTANCE_ID, app_instance_config(true));
+        menubar.register_app_click_listener(app);
+        menubar.register_app_context_menu(app, locale);
+        desired_ids.insert(APP_MENUBAR_INSTANCE_ID.to_owned());
     }
 
     let stale = menubar
@@ -703,6 +843,26 @@ fn context_menu_items(
     (items, signature)
 }
 
+#[cfg(target_os = "macos")]
+fn app_context_menu_items(locale: crate::i18n::Locale) -> (Vec<MenuItemDescriptor>, String) {
+    let item = |action: &str, text: String| MenuItemDescriptor::Item {
+        id: format!("{APP_MENUBAR_INSTANCE_ID}::{action}"),
+        text,
+        accelerator: None,
+        enabled: Some(true),
+        disabled: None,
+    };
+    let settings = crate::i18n::tr(locale, "menu.settings").to_owned();
+    let quit = crate::i18n::tr(locale, "menu.quit").to_owned();
+    let items = vec![
+        item(MENU_ACTION_SETTINGS, settings.clone()),
+        MenuItemDescriptor::Separator,
+        item(MENU_ACTION_QUIT, quit.clone()),
+    ];
+    let signature = format!("{settings}\u{1}{quit}");
+    (items, signature)
+}
+
 /// 从插件 click 事件载荷中提取被点击实例的屏幕矩形（AppKit points：
 /// 左下原点、y 向上），用于把 popup 锚定到该实例正下方。旧版插件载荷缺
 /// 字段时返回 `None`，调用方回退到默认（托盘居中）定位。
@@ -724,22 +884,23 @@ fn dispatch_context_menu_action(app: &AppHandle, provider_id: &str, action: &str
         MENU_ACTION_HIDE => hide_agent(app, provider_id),
         MENU_ACTION_REFRESH => refresh_agent(app, provider_id),
         MENU_ACTION_SETTINGS => open_provider_settings(app, provider_id),
-        // 菜单项 id 是 `{instance}::quit`，不会命中插件内置的全局
-        // `quit`/`quit2`（那两个 id 会由插件自己延迟退出），所以这里负责
-        // 退出。同样延迟 ~200ms，避开右键菜单 tracking loop 未结束时
-        // 同步 `app.exit` 造成的卡死（插件 v1.6.1 修复的同一问题）。
-        MENU_ACTION_QUIT => {
-            if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-                crate::window::finish_native_panel_resize(&window);
-            }
-            let app = app.clone();
-            std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(200));
-                app.exit(0);
-            });
-        }
+        MENU_ACTION_QUIT => quit_application(app),
         _ => crate::app_warn!("menubar", "ignored context menu action {action}"),
     }
+}
+
+/// 延迟退出应用，避开右键菜单 tracking loop 未结束时同步 `app.exit`
+/// 造成的卡死（插件 v1.6.1 修复的同一问题）。
+#[cfg(target_os = "macos")]
+fn quit_application(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        crate::window::finish_native_panel_resize(&window);
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        app.exit(0);
+    });
 }
 
 /// 「隐藏这个 agent」：与主窗口里 Hide provider 一致，把该 provider 设为
@@ -834,10 +995,14 @@ mod tests {
         tray_presentation::{pinned_provider_metrics, ResolvedTrayMetric},
     };
 
+    #[cfg(target_os = "macos")]
+    use super::{app_context_menu_items, app_instance_config};
     use super::{
         app_removal_action, instance_config, metric_lines, plan_menubar, sanitize_instance_id,
         AppRemovalAction, AppliedConfig, DesiredProviderMenubar, MenubarConfigInput,
     };
+    #[cfg(target_os = "macos")]
+    use tauri_plugin_multiline_menubar::MenuItemDescriptor;
 
     fn metric(id: &str, value: &str) -> ResolvedTrayMetric {
         ResolvedTrayMetric {
@@ -1085,6 +1250,33 @@ mod tests {
     #[test]
     fn app_menubar_instance_id_is_stable() {
         assert_eq!(super::APP_MENUBAR_INSTANCE_ID, "quota01-app");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_instance_is_icon_only_and_uses_the_app_mark() {
+        let config = app_instance_config(true);
+        assert_eq!(config.text, (String::new(), String::new()));
+        assert_eq!(config.lines_visible, (false, false));
+        assert!(config.leading_icon.is_some());
+        assert_eq!(config.tooltip, "Quota01");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_menu_contains_settings_and_quit() {
+        let (items, signature) = app_context_menu_items(crate::i18n::Locale::En);
+        let ids = items
+            .iter()
+            .filter_map(|item| match item {
+                MenuItemDescriptor::Item { id, .. } => Some(id.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert!(ids.contains(&"quota01-app::settings"));
+        assert!(ids.contains(&"quota01-app::quit"));
+        assert!(signature.contains("Settings"));
+        assert!(signature.contains("Quit Quota01"));
     }
 
     #[test]
