@@ -21,6 +21,14 @@ pub enum LinuxDesktop {
     Other,
 }
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeEntryOutcome {
+    MenuEntry,
+    FloatingWindow,
+    Exit,
+}
+
 #[derive(Debug, Clone)]
 pub struct DesktopIntegration {
     tray_available: Arc<AtomicBool>,
@@ -75,6 +83,23 @@ impl DesktopIntegration {
         self.tray_available.store(available, Ordering::SeqCst);
         if !available {
             self.set_floating(true);
+        }
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn ensure_runtime_entry(
+        &self,
+        has_menu_entry: bool,
+        floating_window_visible: bool,
+        show_floating_window: impl FnOnce() -> bool,
+    ) -> RuntimeEntryOutcome {
+        self.set_menu_entry_available(has_menu_entry);
+        if has_menu_entry {
+            RuntimeEntryOutcome::MenuEntry
+        } else if floating_window_visible || show_floating_window() {
+            RuntimeEntryOutcome::FloatingWindow
+        } else {
+            RuntimeEntryOutcome::Exit
         }
     }
 
@@ -208,7 +233,11 @@ pub fn wait_for_status_notifier_loss() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_desktop, parse_session_type, LinuxDesktop, LinuxSessionType};
+    use std::cell::Cell;
+
+    use super::{
+        parse_desktop, parse_session_type, LinuxDesktop, LinuxSessionType, RuntimeEntryOutcome,
+    };
     use crate::models::WindowMode;
 
     #[test]
@@ -283,5 +312,53 @@ mod tests {
 
         integration.set_menu_entry_available(true);
         assert!(!integration.exits_on_close());
+    }
+    #[test]
+    fn runtime_entry_falls_back_to_a_floating_window_when_no_menu_item_remains() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        let fallback_calls = Cell::new(0);
+
+        let outcome = integration.ensure_runtime_entry(false, false, || {
+            fallback_calls.set(fallback_calls.get() + 1);
+            true
+        });
+
+        assert_eq!(outcome, RuntimeEntryOutcome::FloatingWindow);
+        assert_eq!(fallback_calls.get(), 1);
+        assert!(!integration.tray_available());
+        assert!(integration.is_floating());
+        assert!(integration.exits_on_close());
+    }
+
+    #[test]
+    fn runtime_entry_exits_when_no_menu_item_or_floating_window_can_be_shown() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+
+        let outcome = integration.ensure_runtime_entry(false, false, || false);
+
+        assert_eq!(outcome, RuntimeEntryOutcome::Exit);
+        assert!(!integration.tray_available());
+        assert!(integration.is_floating());
+        assert!(integration.exits_on_close());
+    }
+
+    #[test]
+    fn runtime_entry_keeps_an_existing_visible_floating_window_without_reapplying() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        assert!(integration.apply_window_mode(WindowMode::Floating));
+        let fallback_calls = Cell::new(0);
+
+        let outcome = integration.ensure_runtime_entry(false, true, || {
+            fallback_calls.set(fallback_calls.get() + 1);
+            false
+        });
+
+        assert_eq!(outcome, RuntimeEntryOutcome::FloatingWindow);
+        assert_eq!(fallback_calls.get(), 0);
+        assert!(!integration.tray_available());
+        assert!(integration.is_floating());
     }
 }

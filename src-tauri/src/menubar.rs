@@ -25,7 +25,7 @@ use crate::tray_presentation::pinned_provider_metrics;
 use crate::tray_presentation::ResolvedTrayMetric;
 #[cfg(target_os = "macos")]
 use crate::{
-    desktop_integration::DesktopIntegration,
+    desktop_integration::{DesktopIntegration, RuntimeEntryOutcome},
     pacing::NotificationEvaluator,
     providers::{provider_icon_svg, ProviderRegistry},
     service::{ProviderService, UsageViewState},
@@ -363,36 +363,58 @@ impl MenubarState {
     }
 
     #[cfg(target_os = "macos")]
+    fn apply_visible_instance(
+        &self,
+        apply: impl FnOnce() -> Result<(), String>,
+        is_visible: impl FnOnce() -> bool,
+        remove: impl FnOnce(),
+    ) -> Result<bool, String> {
+        match apply() {
+            Ok(()) if is_visible() => Ok(true),
+            Ok(()) => {
+                remove();
+                Ok(false)
+            }
+            Err(error) => {
+                remove();
+                Err(error)
+            }
+        }
+    }
+
+    #[cfg(target_os = "macos")]
     fn remove_instance(&self, app: &AppHandle, id: &str) {
-        let _ = app.multiline_menubar().remove(id.to_string());
+        self.remove_instance_with(
+            id,
+            || {
+                let _ = app.multiline_menubar().remove(id.to_owned());
+            },
+            |listener_id| {
+                app.unlisten(listener_id);
+            },
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    fn remove_instance_with(
+        &self,
+        id: &str,
+        remove_from_plugin: impl FnOnce(),
+        mut unlisten: impl FnMut(EventId),
+    ) {
+        let listeners = self.invalidate_instance_state(id);
+        for listener_id in listeners {
+            unlisten(listener_id);
+        }
+        remove_from_plugin();
+    }
+
+    #[cfg(target_os = "macos")]
+    fn invalidate_instance_state(&self, id: &str) -> Vec<EventId> {
         self.created
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(id);
-        if let Some(listener_id) = self
-            .click_listeners
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id)
-        {
-            app.unlisten(listener_id);
-        }
-        if let Some(listener_id) = self
-            .menu_listeners
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id)
-        {
-            app.unlisten(listener_id);
-        }
-        if let Some(listener_id) = self
-            .remove_listeners
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .remove(id)
-        {
-            app.unlisten(listener_id);
-        }
         self.owners
             .lock()
             .unwrap_or_else(|e| e.into_inner())
@@ -401,6 +423,24 @@ impl MenubarState {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .remove(id);
+
+        [
+            self.click_listeners
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(id),
+            self.menu_listeners
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(id),
+            self.remove_listeners
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(id),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
     }
 
     /// 为某个实例注册左键点击监听；点击统一归属到其所属 provider
@@ -629,11 +669,9 @@ impl MenubarState {
         let listener_app = app.clone();
         let listener_id = app.listen(event, move |_event| {
             let settings_service = listener_app.state::<Arc<SettingsService>>();
-            let mut next = settings_service.get();
-            disable_provider_layout(&mut next, &provider_id);
-            let expected_settings = settings_service.settings_revision();
-            let expected_account = settings_service.account_revision();
-            match settings_service.update_from_view(next, expected_settings, expected_account) {
+            match settings_service
+                .mutate_latest(|settings| disable_provider_layout(settings, &provider_id))
+            {
                 Ok(updated) => {
                     let provider_service = listener_app.state::<Arc<ProviderService>>();
                     tray_presentation::update(
@@ -655,15 +693,39 @@ impl MenubarState {
                     );
                 }
                 Err(error) => {
-                    listener_app
-                        .state::<MenubarState>()
-                        .created
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .remove(&listener_instance_id);
                     crate::app_warn!(
                         "menubar",
                         "could not persist removal of menu bar instance {listener_instance_id}: {error}"
+                    );
+                    let menubar = listener_app.state::<MenubarState>();
+                    recover_removed_instance(
+                        menubar.inner(),
+                        &listener_instance_id,
+                        || {
+                            let _ = listener_app
+                                .multiline_menubar()
+                                .remove(listener_instance_id.clone());
+                        },
+                        |listener_id| {
+                            listener_app.unlisten(listener_id);
+                        },
+                        || {
+                            let current = settings_service.get();
+                            let provider_service = listener_app.state::<Arc<ProviderService>>();
+                            tray_presentation::update(
+                                &listener_app,
+                                &provider_service.state(),
+                                &current,
+                                settings_service.registry(),
+                            );
+                            let _ = listener_app.emit(
+                                "settings-state",
+                                crate::commands::settings::settings_view_state(
+                                    &listener_app,
+                                    settings_service.inner().as_ref(),
+                                ),
+                            );
+                        },
                     );
                 }
             }
@@ -821,7 +883,7 @@ pub(crate) fn update(
     if settings.show_app_menubar || !plan.provider_instances.is_empty() {
         menubar.set_allow_no_menubar(false);
     }
-    let mut desired_ids = HashSet::new();
+    let mut actual_ids = HashSet::new();
     for desired in plan.provider_instances {
         let DesiredProviderMenubar {
             instance_id,
@@ -829,43 +891,61 @@ pub(crate) fn update(
             provider_name,
             config,
         } = desired;
-        if let Err(error) = menubar.apply_instance(app, &instance_id, config) {
-            crate::app_warn!(
+        let visible = menubar.apply_visible_instance(
+            || menubar.apply_instance(app, &instance_id, config),
+            || {
+                app.multiline_menubar()
+                    .is_visible(instance_id.clone())
+                    .unwrap_or(false)
+            },
+            || menubar.remove_instance(app, &instance_id),
+        );
+        match visible {
+            Ok(true) => {
+                menubar.register_click_listener(app, &instance_id, &provider_id);
+                menubar.register_context_menu(
+                    app,
+                    &instance_id,
+                    &provider_id,
+                    &provider_name,
+                    locale,
+                );
+                actual_ids.insert(instance_id);
+            }
+            Ok(false) => crate::app_warn!(
+                "menubar",
+                "menu bar instance {instance_id} was created but is not visible"
+            ),
+            Err(error) => crate::app_warn!(
                 "menubar",
                 "could not apply menu bar instance {instance_id}: {error}"
-            );
-            continue;
+            ),
         }
-        menubar.register_click_listener(app, &instance_id, &provider_id);
-        menubar.register_context_menu(app, &instance_id, &provider_id, &provider_name, locale);
-        desired_ids.insert(instance_id);
     }
 
     if plan.app_instance_visible {
-        let result =
-            menubar.apply_instance(app, APP_MENUBAR_INSTANCE_ID, app_instance_config(true));
-        let visible = result.is_ok()
-            && app
-                .multiline_menubar()
-                .is_visible(APP_MENUBAR_INSTANCE_ID.to_owned())
-                .unwrap_or(false);
-        if visible {
-            menubar.register_app_click_listener(app);
-            menubar.register_app_context_menu(app, locale);
-            desired_ids.insert(APP_MENUBAR_INSTANCE_ID.to_owned());
-        } else {
-            crate::app_warn!("menubar", "could not create the required Quota01 app item");
-            menubar.remove_instance(app, APP_MENUBAR_INSTANCE_ID);
-            let fallback_shown = app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
-                crate::window::apply_window_mode(&window, crate::models::WindowMode::Floating, true)
-                    .is_ok()
-            });
-            app.state::<DesktopIntegration>()
-                .set_menu_entry_available(false);
-            if !fallback_shown {
-                app.exit(0);
-                return;
+        let visible = menubar.apply_visible_instance(
+            || menubar.apply_instance(app, APP_MENUBAR_INSTANCE_ID, app_instance_config(true)),
+            || {
+                app.multiline_menubar()
+                    .is_visible(APP_MENUBAR_INSTANCE_ID.to_owned())
+                    .unwrap_or(false)
+            },
+            || menubar.remove_instance(app, APP_MENUBAR_INSTANCE_ID),
+        );
+        match visible {
+            Ok(true) => {
+                menubar.register_app_click_listener(app);
+                menubar.register_app_context_menu(app, locale);
+                actual_ids.insert(APP_MENUBAR_INSTANCE_ID.to_owned());
             }
+            Ok(false) => {
+                crate::app_warn!("menubar", "the required Quota01 app item is not visible")
+            }
+            Err(error) => crate::app_warn!(
+                "menubar",
+                "could not create the required Quota01 app item: {error}"
+            ),
         }
     }
 
@@ -874,15 +954,25 @@ pub(crate) fn update(
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .keys()
-        .filter(|id| !desired_ids.contains(*id))
+        .filter(|id| !actual_ids.contains(*id))
         .cloned()
         .collect::<Vec<_>>();
     for id in stale {
         menubar.remove_instance(app, &id);
     }
 
-    app.state::<DesktopIntegration>()
-        .set_menu_entry_available(!desired_ids.is_empty());
+    let floating_window_visible = floating_main_window_visible(app);
+    let integration = app.state::<DesktopIntegration>();
+    match integration.ensure_runtime_entry(!actual_ids.is_empty(), floating_window_visible, || {
+        app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
+            crate::window::apply_window_mode(&window, crate::models::WindowMode::Floating, true)
+                .is_ok()
+        })
+    }) {
+        RuntimeEntryOutcome::MenuEntry => {}
+        RuntimeEntryOutcome::FloatingWindow => menubar.set_allow_no_menubar(true),
+        RuntimeEntryOutcome::Exit => app.exit(0),
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -978,6 +1068,26 @@ fn dispatch_context_menu_action(app: &AppHandle, provider_id: &str, action: &str
 /// 延迟退出应用，避开右键菜单 tracking loop 未结束时同步 `app.exit`
 /// 造成的卡死（插件 v1.6.1 修复的同一问题）。
 #[cfg(target_os = "macos")]
+fn recover_removed_instance(
+    menubar: &MenubarState,
+    instance_id: &str,
+    remove_from_plugin: impl FnOnce(),
+    unlisten: impl FnMut(EventId),
+    reconcile: impl FnOnce(),
+) {
+    menubar.remove_instance_with(instance_id, remove_from_plugin, unlisten);
+    reconcile();
+}
+
+#[cfg(target_os = "macos")]
+fn floating_main_window_visible(app: &AppHandle) -> bool {
+    app.state::<DesktopIntegration>().is_floating()
+        && app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
+            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
+        })
+}
+
+#[cfg(target_os = "macos")]
 fn quit_application(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
         crate::window::finish_native_panel_resize(&window);
@@ -995,11 +1105,7 @@ fn handle_app_menubar_removed(app: &AppHandle) {
     let provider_service = app.state::<Arc<ProviderService>>();
     let menubar = app.state::<MenubarState>();
 
-    let mut next = settings_service.get();
-    next.show_app_menubar = false;
-    let expected_settings = settings_service.settings_revision();
-    let expected_account = settings_service.account_revision();
-    let updated = match settings_service.update_from_view(next, expected_settings, expected_account)
+    let updated = match settings_service.mutate_latest(|settings| settings.show_app_menubar = false)
     {
         Ok(updated) => updated,
         Err(error) => {
@@ -1007,10 +1113,23 @@ fn handle_app_menubar_removed(app: &AppHandle) {
                 "menubar",
                 "could not persist removal of the Quota01 menu bar item: {error}"
             );
-            menubar.remove_instance(app, APP_MENUBAR_INSTANCE_ID);
-            let current = settings_service.get();
-            let state = provider_service.state();
-            tray_presentation::update(app, &state, &current, settings_service.registry());
+            recover_removed_instance(
+                menubar.inner(),
+                APP_MENUBAR_INSTANCE_ID,
+                || {
+                    let _ = app
+                        .multiline_menubar()
+                        .remove(APP_MENUBAR_INSTANCE_ID.to_owned());
+                },
+                |listener_id| {
+                    app.unlisten(listener_id);
+                },
+                || {
+                    let current = settings_service.get();
+                    let state = provider_service.state();
+                    tray_presentation::update(app, &state, &current, settings_service.registry());
+                },
+            );
             return;
         }
     };
@@ -1020,10 +1139,7 @@ fn handle_app_menubar_removed(app: &AppHandle) {
     let provider_instances =
         desired_provider_menubars(&state, &updated, settings_service.registry());
     let provider_instances_empty = provider_instances.is_empty();
-    let floating_window_visible = app.state::<DesktopIntegration>().is_floating()
-        && app.get_webview_window(MAIN_WINDOW).is_some_and(|window| {
-            window.is_visible().unwrap_or(false) && !window.is_minimized().unwrap_or(false)
-        });
+    let floating_window_visible = floating_main_window_visible(app);
 
     match app_removal_action(provider_instances_empty, floating_window_visible) {
         AppRemovalAction::HideOnly => {}
@@ -1032,25 +1148,17 @@ fn handle_app_menubar_removed(app: &AppHandle) {
             app.state::<DesktopIntegration>()
                 .set_menu_entry_available(false);
         }
-        AppRemovalAction::ExitNow => quit_application(app),
+        AppRemovalAction::ExitNow => {
+            quit_application(app);
+            return;
+        }
     }
 
-    let plan = plan_menubar(
-        provider_instances,
-        updated.show_app_menubar,
-        menubar.allows_no_menubar(),
-    );
     tray_presentation::update(app, &state, &updated, settings_service.registry());
     let _ = app.emit(
         "settings-state",
         crate::commands::settings::settings_view_state(app, settings_service.inner().as_ref()),
     );
-    let integration = app.state::<DesktopIntegration>();
-    if integration.tray_available() {
-        integration.set_menu_entry_available(
-            plan.app_instance_visible || !plan.provider_instances.is_empty(),
-        );
-    }
 }
 
 /// 「隐藏这个 agent」：与主窗口里 Hide provider 一致，把该 provider 设为
@@ -1541,5 +1649,100 @@ mod tests {
                 visible: true,
             }
         );
+    }
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn invisible_menu_instance_is_cleaned_up_and_not_counted() {
+        let menubar = super::MenubarState::default();
+        let removed = std::cell::Cell::new(false);
+
+        let visible = menubar
+            .apply_visible_instance(|| Ok(()), || false, || removed.set(true))
+            .unwrap();
+
+        assert!(!visible);
+        assert!(removed.get());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn failed_menu_instance_application_is_cleaned_up_and_not_counted() {
+        let menubar = super::MenubarState::default();
+        let removed = std::cell::Cell::new(false);
+        let visibility_checked = std::cell::Cell::new(false);
+
+        let error = menubar
+            .apply_visible_instance(
+                || Err("creation failed".to_owned()),
+                || {
+                    visibility_checked.set(true);
+                    true
+                },
+                || removed.set(true),
+            )
+            .unwrap_err();
+
+        assert_eq!(error, "creation failed");
+        assert!(removed.get());
+        assert!(!visibility_checked.get());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn provider_removal_failure_fully_invalidates_before_reconciliation() {
+        let menubar = super::MenubarState::default();
+        let config = provider_menubar("codex").config;
+        menubar
+            .created
+            .lock()
+            .unwrap()
+            .insert("codex".to_owned(), config);
+        menubar
+            .owners
+            .lock()
+            .unwrap()
+            .insert("codex".to_owned(), "codex".to_owned());
+        menubar
+            .click_listeners
+            .lock()
+            .unwrap()
+            .insert("codex".to_owned(), 11);
+        menubar
+            .menu_listeners
+            .lock()
+            .unwrap()
+            .insert("codex".to_owned(), 12);
+        menubar
+            .remove_listeners
+            .lock()
+            .unwrap()
+            .insert("codex".to_owned(), 13);
+        menubar
+            .menu_signatures
+            .lock()
+            .unwrap()
+            .insert("codex".to_owned(), "signature".to_owned());
+
+        let mut plugin_removed = false;
+        let mut unlistened = Vec::new();
+        let mut reconciled = false;
+        super::recover_removed_instance(
+            &menubar,
+            "codex",
+            || plugin_removed = true,
+            |listener_id| unlistened.push(listener_id),
+            || reconciled = true,
+        );
+
+        unlistened.sort_unstable();
+        assert!(plugin_removed);
+        assert_eq!(unlistened, vec![11, 12, 13]);
+        assert!(reconciled);
+        assert!(menubar.created.lock().unwrap().is_empty());
+        assert!(menubar.owners.lock().unwrap().is_empty());
+        assert!(menubar.click_listeners.lock().unwrap().is_empty());
+        assert!(menubar.menu_listeners.lock().unwrap().is_empty());
+        assert!(menubar.remove_listeners.lock().unwrap().is_empty());
+        assert!(menubar.menu_signatures.lock().unwrap().is_empty());
     }
 }

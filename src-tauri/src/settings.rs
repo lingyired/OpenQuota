@@ -342,6 +342,19 @@ impl SettingsService {
         )
     }
 
+    pub fn mutate_latest(
+        &self,
+        mutate: impl FnOnce(&mut AppSettings),
+    ) -> Result<AppSettings, String> {
+        let mut current = self
+            .settings
+            .write()
+            .map_err(|_| "Quota01 settings are temporarily unavailable.".to_owned())?;
+        let mut settings = current.clone();
+        mutate(&mut settings);
+        self.update_locked(&mut current, &mut settings, None, None, false)
+    }
+
     fn update_internal(
         &self,
         settings: &mut AppSettings,
@@ -353,6 +366,23 @@ impl SettingsService {
             .settings
             .write()
             .map_err(|_| "Quota01 settings are temporarily unavailable.".to_owned())?;
+        self.update_locked(
+            &mut current,
+            settings,
+            expected_settings_revision,
+            expected_account_revision,
+            reset_all_account_names,
+        )
+    }
+
+    fn update_locked(
+        &self,
+        current: &mut AppSettings,
+        settings: &mut AppSettings,
+        expected_settings_revision: Option<u64>,
+        expected_account_revision: Option<u64>,
+        reset_all_account_names: bool,
+    ) -> Result<AppSettings, String> {
         if expected_settings_revision
             .is_some_and(|revision| revision != self.settings_revision.load(Ordering::SeqCst))
         {
@@ -360,7 +390,7 @@ impl SettingsService {
                 "Settings changed before they could be saved. Please try again.".to_owned(),
             );
         }
-        let enabled_before = enabled_provider_set(&current);
+        let enabled_before = enabled_provider_set(current);
         let detected = current
             .providers
             .iter()
@@ -986,7 +1016,7 @@ fn normalize_metrics(metrics: &mut Vec<MetricLayout>, definitions: &[MetricDefin
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{atomic::Ordering, Arc},
+        sync::{atomic::Ordering, Arc, Barrier},
     };
 
     use serde_json::Value;
@@ -2444,5 +2474,48 @@ mod tests {
         assert!(!openrouter.detected);
         assert!(openrouter.enabled);
         assert_eq!(service.credential_revision.load(Ordering::SeqCst), 1);
+    }
+    #[test]
+    fn mutate_latest_serializes_concurrent_settings_updates() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let service =
+            Arc::new(SettingsService::new_for_test(storage, catalog(), &HashSet::new()).unwrap());
+
+        for _ in 0..64 {
+            service
+                .mutate_latest(|settings| {
+                    settings.density = crate::models::DensityPreference::Default;
+                    settings.always_show_pacing = true;
+                })
+                .unwrap();
+
+            let barrier = Arc::new(Barrier::new(2));
+            std::thread::scope(|scope| {
+                let left_service = service.as_ref();
+                let left_barrier = barrier.clone();
+                scope.spawn(move || {
+                    left_barrier.wait();
+                    left_service
+                        .mutate_latest(|settings| {
+                            settings.density = crate::models::DensityPreference::Compact;
+                        })
+                        .unwrap();
+                });
+
+                let right_service = service.as_ref();
+                let right_barrier = barrier.clone();
+                scope.spawn(move || {
+                    right_barrier.wait();
+                    right_service
+                        .mutate_latest(|settings| settings.always_show_pacing = false)
+                        .unwrap();
+                });
+            });
+
+            let settings = service.get();
+            assert_eq!(settings.density, crate::models::DensityPreference::Compact);
+            assert!(!settings.always_show_pacing);
+        }
     }
 }
