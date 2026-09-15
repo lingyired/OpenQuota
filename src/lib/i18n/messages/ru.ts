@@ -155,6 +155,8 @@ export const ru = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Показывать значок Quota01 в строке меню',
+    appMenubarForced: 'Значки Provider не отображаются, поэтому Quota01 остаётся видимым.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

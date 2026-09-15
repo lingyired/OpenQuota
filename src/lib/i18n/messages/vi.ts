@@ -155,6 +155,8 @@ export const vi = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Hiện biểu tượng Quota01 trên thanh menu',
+    appMenubarForced: 'Không có biểu tượng Provider nào hiển thị, nên Quota01 vẫn hiển thị.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

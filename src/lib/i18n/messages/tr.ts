@@ -155,6 +155,8 @@ export const tr = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Quota01 menü çubuğu simgesini göster',
+    appMenubarForced: 'Görünür Provider menü çubuğu simgesi olmadığından Quota01 görünür kalır.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

@@ -155,6 +155,8 @@ export const ko = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Quota01 메뉴 막대 아이콘 표시',
+    appMenubarForced: '표시되는 Provider 메뉴 막대 아이콘이 없어 Quota01 아이콘이 계속 표시됩니다.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

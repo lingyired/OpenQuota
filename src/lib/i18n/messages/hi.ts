@@ -155,6 +155,9 @@ export const hi = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Quota01 मेनू बार आइकन दिखाएँ',
+    appMenubarForced:
+      'कोई Provider मेनू बार आइकन दिखाई नहीं दे रहा, इसलिए Quota01 दिखाई देता रहेगा।',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

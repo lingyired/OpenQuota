@@ -155,6 +155,8 @@ export const ar = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'إظهار أيقونة Quota01 في شريط القوائم',
+    appMenubarForced: 'لا تظهر أي أيقونات Provider، لذا تظل أيقونة Quota01 ظاهرة.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

@@ -155,6 +155,8 @@ export const zhTw = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: '顯示 Quota01 選單列圖示',
+    appMenubarForced: '目前沒有 Provider 選單列圖示，因此 Quota01 會保持顯示。',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',
