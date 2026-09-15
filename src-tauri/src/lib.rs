@@ -36,17 +36,23 @@ use std::sync::Arc;
 use popup::PopupDismissGuard;
 use service::ProviderService;
 use settings::{CredentialDetectionPlan, SettingsService};
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+#[cfg(not(target_os = "macos"))]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    App, AppHandle, Emitter, Manager,
 };
+#[cfg(not(target_os = "macos"))]
+use tauri::{App, AppHandle, Emitter, Manager};
+#[cfg(target_os = "macos")]
+use tauri::{AppHandle, Emitter, Manager};
 #[cfg(not(target_os = "linux"))]
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+#[cfg(not(target_os = "macos"))]
+use crate::window::open_screen;
 use crate::{
     desktop_integration::DesktopIntegration,
     pacing::NotificationEvaluator,
@@ -61,11 +67,11 @@ use crate::{
     },
     storage::Storage,
     window::{
-        handle_window_event, open_screen, show_main_window, toggle_main_window, PanelResizeSession,
-        MAIN_WINDOW,
+        handle_window_event, show_main_window, toggle_main_window, PanelResizeSession, MAIN_WINDOW,
     },
 };
 
+#[cfg(not(target_os = "macos"))]
 fn install_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Settings are managed before install_tray runs; the tray menu is built
     // once at startup from the initial language preference.
@@ -480,6 +486,9 @@ pub fn run() {
                 let _ = register_shortcut(app.handle(), &shortcut);
             }
 
+            #[cfg(target_os = "macos")]
+            let tray_installed = true;
+            #[cfg(not(target_os = "macos"))]
             let tray_installed = if desktop_integration.tray_available() {
                 match install_tray(app) {
                     Ok(()) => {

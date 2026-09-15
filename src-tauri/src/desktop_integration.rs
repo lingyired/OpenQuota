@@ -73,6 +73,7 @@ impl DesktopIntegration {
         floating
     }
 
+    #[cfg(any(not(target_os = "macos"), test))]
     pub fn disable_tray(&self) -> bool {
         let changed = self.tray_available.swap(false, Ordering::SeqCst);
         self.set_floating(true);
