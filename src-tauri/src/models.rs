@@ -902,6 +902,8 @@ pub struct AppSettings {
     pub provider_names: BTreeMap<String, String>,
     pub language: LanguagePreference,
     pub show_total_spend: bool,
+    #[serde(default = "default_true")]
+    pub show_app_menubar: bool,
     pub theme: ThemePreference,
     pub density: DensityPreference,
     pub reduce_animations: bool,
@@ -930,12 +932,13 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            schema_version: 8,
+            schema_version: 9,
             providers: Vec::new(),
             known_provider_ids: Vec::new(),
             provider_names: BTreeMap::new(),
             language: LanguagePreference::System,
             show_total_spend: true,
+            show_app_menubar: true,
             theme: ThemePreference::System,
             density: DensityPreference::Default,
             reduce_animations: false,
@@ -981,6 +984,7 @@ pub struct SettingsViewState {
     pub integration_error: Option<String>,
     pub tray_available: bool,
     pub platform_summary: Option<String>,
+    pub app_menubar_forced: bool,
 }
 
 #[cfg(test)]
@@ -1070,6 +1074,19 @@ mod tests {
     #[test]
     fn always_show_pacing_defaults_to_enabled() {
         assert!(AppSettings::default().always_show_pacing);
+    }
+
+    #[test]
+    fn app_menubar_defaults_to_visible() {
+        assert!(AppSettings::default().show_app_menubar);
+    }
+
+    #[test]
+    fn older_settings_default_the_app_menubar_to_visible() {
+        let mut value = serde_json::to_value(AppSettings::default()).unwrap();
+        value.as_object_mut().unwrap().remove("showAppMenubar");
+        let settings: AppSettings = serde_json::from_value(value).unwrap();
+        assert!(settings.show_app_menubar);
     }
 
     #[test]

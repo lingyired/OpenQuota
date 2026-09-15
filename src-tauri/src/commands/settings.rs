@@ -438,12 +438,7 @@ pub fn request_notification_permission(
     if error.is_some() {
         crate::app_error!("notifications", "notification permission request failed");
     }
-    settings.view_state(
-        notification_permission(&app),
-        error,
-        app.state::<DesktopIntegration>().tray_available(),
-        app.state::<DesktopIntegration>().platform_summary(),
-    )
+    settings_view_state(&app, &settings)
 }
 
 #[tauri::command]
@@ -514,11 +509,21 @@ pub(crate) fn settings_view_state(app: &AppHandle, service: &SettingsService) ->
                 Some("The saved global shortcut is currently unavailable.".to_owned());
         }
     }
+    #[cfg(target_os = "macos")]
+    let app_menubar_forced = crate::menubar::app_menubar_forced(
+        &app.state::<Arc<ProviderService>>().state(),
+        &service.get(),
+        service.registry(),
+        false,
+    );
+    #[cfg(not(target_os = "macos"))]
+    let app_menubar_forced = false;
     let mut state = service.view_state(
         notification_permission(app),
         integration_error,
         app.state::<DesktopIntegration>().tray_available(),
         app.state::<DesktopIntegration>().platform_summary(),
+        app_menubar_forced,
     );
     if let Some(enabled) = autostart {
         state.settings.launch_at_login = enabled;

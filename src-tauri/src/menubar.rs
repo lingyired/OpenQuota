@@ -137,10 +137,12 @@ struct DesiredProviderMenubar {
     config: AppliedConfig,
 }
 
-#[cfg(test)]
+#[cfg(any(target_os = "macos", test))]
 #[derive(Debug, Clone, PartialEq)]
 struct MenubarPlan {
+    #[cfg(test)]
     provider_instances: Vec<DesiredProviderMenubar>,
+    #[cfg(test)]
     app_instance_visible: bool,
     app_forced: bool,
 }
@@ -153,7 +155,7 @@ enum AppRemovalAction {
     ExitNow,
 }
 
-#[cfg(test)]
+#[cfg(any(target_os = "macos", test))]
 fn plan_menubar(
     provider_instances: Vec<DesiredProviderMenubar>,
     show_app_menubar: bool,
@@ -161,11 +163,30 @@ fn plan_menubar(
 ) -> MenubarPlan {
     let provider_instances_empty = provider_instances.is_empty();
     let app_forced = provider_instances_empty && !show_app_menubar && !allow_no_menubar;
+    #[cfg(test)]
+    let app_instance_visible = show_app_menubar || app_forced;
     MenubarPlan {
+        #[cfg(test)]
         provider_instances,
-        app_instance_visible: show_app_menubar || app_forced,
+        #[cfg(test)]
+        app_instance_visible,
         app_forced,
     }
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn app_menubar_forced(
+    state: &UsageViewState,
+    settings: &AppSettings,
+    registry: &ProviderRegistry,
+    allow_no_menubar: bool,
+) -> bool {
+    plan_menubar(
+        desired_provider_menubars(state, settings, registry),
+        settings.show_app_menubar,
+        allow_no_menubar,
+    )
+    .app_forced
 }
 
 #[cfg(test)]
@@ -982,6 +1003,32 @@ mod tests {
         }
 
         assert!(super::desired_provider_menubars(&state, &settings, &registry).is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_menubar_forced_tracks_visible_provider_instances() {
+        let (state, mut settings, registry) = opencode_fixture(true);
+        settings.show_app_menubar = false;
+
+        assert!(!super::app_menubar_forced(
+            &state, &settings, &registry, false
+        ));
+
+        settings.taskband_providers.insert(
+            "opencode".to_owned(),
+            TaskbandLayout {
+                enabled: false,
+                ..TaskbandLayout::default()
+            },
+        );
+
+        assert!(super::app_menubar_forced(
+            &state, &settings, &registry, false
+        ));
+        assert!(!super::app_menubar_forced(
+            &state, &settings, &registry, true
+        ));
     }
 
     fn provider_menubar(provider_id: &str) -> DesiredProviderMenubar {
