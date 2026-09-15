@@ -125,7 +125,7 @@ struct MenubarConfigInput {
     tooltip: String,
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(test, target_os = "macos"))]
 pub(crate) const APP_MENUBAR_INSTANCE_ID: &str = "quota01-app";
 
 #[cfg(any(target_os = "macos", test))]
@@ -137,7 +137,7 @@ struct DesiredProviderMenubar {
     config: AppliedConfig,
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 #[derive(Debug, Clone, PartialEq)]
 struct MenubarPlan {
     provider_instances: Vec<DesiredProviderMenubar>,
@@ -145,7 +145,7 @@ struct MenubarPlan {
     app_forced: bool,
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AppRemovalAction {
     HideOnly,
@@ -153,7 +153,7 @@ enum AppRemovalAction {
     ExitNow,
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 fn plan_menubar(
     provider_instances: Vec<DesiredProviderMenubar>,
     show_app_menubar: bool,
@@ -168,7 +168,7 @@ fn plan_menubar(
     }
 }
 
-#[cfg(any(target_os = "macos", test))]
+#[cfg(test)]
 fn app_removal_action(
     provider_instances_empty: bool,
     floating_window_visible: bool,
@@ -547,8 +547,8 @@ fn instance_config(
     }
 }
 
-/// 对账入口：根据设置 + 快照创建 / 更新 / 移除 macOS 菜单栏实例。
-/// 挂载点在 `tray_presentation::update()` 内（macOS）。
+/// 构造 macOS 菜单栏上应显示的 provider 实例集合。只包含已启用、定义
+/// 存在、布局启用且至少有一个可渲染 pinned 指标的 provider。
 #[cfg(target_os = "macos")]
 fn desired_provider_menubars(
     state: &UsageViewState,
@@ -807,7 +807,7 @@ mod tests {
     use std::collections::HashSet;
 
     use crate::{
-        models::{QuotaFormat, QuotaWindow, SnapshotSource},
+        models::{AppSettings, QuotaFormat, QuotaWindow, SnapshotSource, TaskbandLayout},
         providers::{codex, opencode, ProviderRegistry},
         settings::default_settings,
         tray_presentation::{pinned_provider_metrics, ResolvedTrayMetric},
@@ -829,7 +829,13 @@ mod tests {
     /// 用真实 provider 定义解析指标，验证 macOS menubar 与 Windows taskband
     /// 使用同一套 pinned 选择规则。`pin_first_two` 模拟用户固定了前两个
     /// quota 指标。
-    fn opencode_metrics(pin_first_two: bool) -> Vec<ResolvedTrayMetric> {
+    fn opencode_fixture(
+        pin_first_two: bool,
+    ) -> (
+        crate::service::UsageViewState,
+        AppSettings,
+        ProviderRegistry,
+    ) {
         let catalog =
             ProviderRegistry::from_definitions(vec![opencode::definition(), codex::definition()])
                 .unwrap();
@@ -843,12 +849,6 @@ mod tests {
                 }
             }
         }
-        let provider = catalog_settings
-            .providers
-            .iter()
-            .find(|p| p.id == "opencode")
-            .unwrap()
-            .clone();
         let snapshot = crate::models::ProviderSnapshot {
             credit_packages: Vec::new(),
             provider_id: "opencode".into(),
@@ -889,11 +889,99 @@ mod tests {
             .collect(),
             last_full_refresh_at: None,
         };
-        pinned_provider_metrics(&state, &provider, &catalog_settings, &catalog)
+        (state, catalog_settings, catalog)
+    }
+
+    fn opencode_metrics(pin_first_two: bool) -> Vec<ResolvedTrayMetric> {
+        let (state, settings, registry) = opencode_fixture(pin_first_two);
+        let provider = settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == "opencode")
+            .unwrap();
+        pinned_provider_metrics(&state, provider, &settings, &registry)
     }
 
     fn resolved_opencode() -> Vec<ResolvedTrayMetric> {
         opencode_metrics(true)
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desired_provider_menubars_ignores_disabled_providers() {
+        let (state, mut settings, registry) = opencode_fixture(true);
+        assert_eq!(
+            super::desired_provider_menubars(&state, &settings, &registry).len(),
+            1
+        );
+
+        settings
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == "opencode")
+            .unwrap()
+            .enabled = false;
+
+        assert!(super::desired_provider_menubars(&state, &settings, &registry).is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desired_provider_menubars_ignores_missing_definitions() {
+        let (state, mut settings, registry) = opencode_fixture(true);
+        assert_eq!(
+            super::desired_provider_menubars(&state, &settings, &registry).len(),
+            1
+        );
+
+        settings
+            .providers
+            .iter_mut()
+            .find(|provider| provider.id == "opencode")
+            .unwrap()
+            .id = "missing".to_owned();
+
+        assert!(super::desired_provider_menubars(&state, &settings, &registry).is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desired_provider_menubars_ignores_disabled_provider_layouts() {
+        let (state, mut settings, registry) = opencode_fixture(true);
+        assert_eq!(
+            super::desired_provider_menubars(&state, &settings, &registry).len(),
+            1
+        );
+
+        settings.taskband_providers.insert(
+            "opencode".to_owned(),
+            TaskbandLayout {
+                enabled: false,
+                ..TaskbandLayout::default()
+            },
+        );
+
+        assert!(super::desired_provider_menubars(&state, &settings, &registry).is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn desired_provider_menubars_ignores_providers_without_renderable_metrics() {
+        let (state, mut settings, registry) = opencode_fixture(true);
+        assert_eq!(
+            super::desired_provider_menubars(&state, &settings, &registry).len(),
+            1
+        );
+
+        for provider in &mut settings.providers {
+            if provider.id == "opencode" {
+                for metric in &mut provider.metrics {
+                    metric.pinned = false;
+                }
+            }
+        }
+
+        assert!(super::desired_provider_menubars(&state, &settings, &registry).is_empty());
     }
 
     fn provider_menubar(provider_id: &str) -> DesiredProviderMenubar {
