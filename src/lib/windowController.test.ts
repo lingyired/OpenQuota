@@ -199,6 +199,51 @@ describe('hybrid window controller', () => {
     controller.dispose();
   });
 
+  it('recovers dashboard height when the stage overflow grows after an empty state', async () => {
+    const page = document.querySelector<HTMLElement>('.screen-page')!;
+    const stage = document.querySelector<HTMLElement>('.screen-stage')!;
+    let renderedHeight = 240;
+    let stageScrollHeight = 240;
+    page.getBoundingClientRect = vi.fn(
+      () =>
+        ({
+          width: 292,
+          height: renderedHeight,
+          top: 0,
+          right: 292,
+          bottom: renderedHeight,
+          left: 0,
+          x: 0,
+          y: 0,
+        }) as DOMRect,
+    );
+    Object.defineProperty(page, 'offsetHeight', { configurable: true, value: 240 });
+    Object.defineProperty(page, 'scrollHeight', { configurable: true, value: 240 });
+    Object.defineProperty(stage, 'scrollHeight', {
+      configurable: true,
+      get: () => stageScrollHeight,
+    });
+
+    const controller = createWindowController({
+      screen: () => 'dashboard',
+      refreshing: () => false,
+      reordering: () => false,
+      automatic: () => true,
+      reducedMotion: () => true,
+      onError: vi.fn(),
+    });
+
+    controller.scheduleFit();
+    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenLastCalledWith(370));
+
+    renderedHeight = 240;
+    stageScrollHeight = 600;
+    controller.scheduleFit();
+
+    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenLastCalledWith(730));
+    controller.dispose();
+  });
+
   it('uses the full scroll height when the stage constrains a long screen page', async () => {
     const page = document.querySelector<HTMLElement>('.screen-page')!;
     page.dataset.screen = 'settings';

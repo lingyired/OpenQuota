@@ -796,7 +796,10 @@
     );
     listeners.add(
       onOpenScreen((target) => {
-        if (target.startsWith('provider:')) {
+        if (target === 'dashboard') {
+          focusedProviderId = null;
+          navigate('dashboard');
+        } else if (target.startsWith('provider:')) {
           void openProviderCustomization(target.slice(9));
         } else navigate(target === 'settings' ? 'settings' : 'customize');
       }),

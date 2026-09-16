@@ -36,17 +36,21 @@ use std::sync::Arc;
 use popup::PopupDismissGuard;
 use service::ProviderService;
 use settings::{CredentialDetectionPlan, SettingsService};
-#[cfg(not(target_os = "linux"))]
+#[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
+#[cfg(not(target_os = "macos"))]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    App, AppHandle, Emitter, Manager,
+    App,
 };
+use tauri::{AppHandle, Emitter, Manager};
 #[cfg(not(target_os = "linux"))]
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
+#[cfg(not(target_os = "macos"))]
+use crate::window::open_screen;
 use crate::{
     desktop_integration::DesktopIntegration,
     pacing::NotificationEvaluator,
@@ -61,34 +65,15 @@ use crate::{
     },
     storage::Storage,
     window::{
-        handle_window_event, open_screen, show_main_window, toggle_main_window, PanelResizeSession,
-        MAIN_WINDOW,
+        handle_window_event, show_main_window, toggle_main_window, PanelResizeSession, MAIN_WINDOW,
     },
 };
 
+#[cfg(not(target_os = "macos"))]
 fn install_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Settings are managed before install_tray runs; the tray menu is built
     // once at startup from the initial language preference.
     let locale = i18n::resolve(app.state::<Arc<SettingsService>>().get().language);
-    #[cfg(target_os = "macos")]
-    let menu = {
-        let settings_item = MenuItem::with_id(
-            app,
-            "settings",
-            i18n::tr(locale, "menu.settings_short"),
-            true,
-            Some("CmdOrCtrl+,"),
-        )?;
-        let separator = PredefinedMenuItem::separator(app)?;
-        let quit = MenuItem::with_id(
-            app,
-            "quit",
-            i18n::tr(locale, "menu.quit"),
-            true,
-            Some("CmdOrCtrl+Q"),
-        )?;
-        Menu::with_items(app, &[&settings_item, &separator, &quit])?
-    };
     #[cfg(not(target_os = "macos"))]
     let menu = {
         let open = MenuItem::with_id(
@@ -161,7 +146,11 @@ fn install_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
                 ..
             }
         ) {
-            toggle_main_window(tray.app_handle());
+            // A menubar click is an explicit request to open the popup. Do not
+            // merely toggle the current window: if the context menu previously
+            // opened Settings, toggling would reopen that screen and make the
+            // left-click appear to behave like the right-click action.
+            open_screen(tray.app_handle(), "dashboard");
         }
     });
     tray.build(app)?;
@@ -480,6 +469,9 @@ pub fn run() {
                 let _ = register_shortcut(app.handle(), &shortcut);
             }
 
+            #[cfg(target_os = "macos")]
+            let tray_installed = true;
+            #[cfg(not(target_os = "macos"))]
             let tray_installed = if desktop_integration.tray_available() {
                 match install_tray(app) {
                     Ok(()) => {

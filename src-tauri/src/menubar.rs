@@ -61,6 +61,12 @@ fn brand_color(provider_id: &str) -> Option<&'static str> {
         .map(|(_, color)| *color)
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) const APP_MENUBAR_INSTANCE_ID: &str = "quota01-app";
+
+#[cfg(target_os = "macos")]
+const APP_MARK_SVG: &str = include_str!("../../assets/quota01-tray.svg");
+
 /// 组装菜单栏实例的两行文本，与 Windows taskband 对齐：最多取前 2 个指标
 /// 值（无标签前缀）。返回 `（第一行值，第二行值，是否显示第二行）`。
 pub(crate) fn metric_lines(metrics: &[ResolvedTrayMetric]) -> (String, String, bool) {
@@ -323,6 +329,43 @@ impl MenubarState {
         registered.insert(instance_id.to_string(), listener_id);
     }
 
+    /// The app mark is a synthetic menubar item, not a Tauri tray. Its left
+    /// click opens the dashboard popup; the provider items above keep their
+    /// provider-focused behavior.
+    #[cfg(target_os = "macos")]
+    fn register_app_click_listener(&self, app: &AppHandle) {
+        let mut registered = self
+            .click_listeners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if registered.contains_key(APP_MENUBAR_INSTANCE_ID) {
+            return;
+        }
+        let event = format!("multiline-menubar://{APP_MENUBAR_INSTANCE_ID}//click");
+        let listener_app = app.clone();
+        let listener_id = app.listen(event, move |event| {
+            let Ok(payload) = serde_json::from_str::<serde_json::Value>(event.payload()) else {
+                return;
+            };
+            if payload.get("button").and_then(|b| b.as_str()) != Some("left") {
+                return;
+            }
+            listener_app
+                .state::<crate::popup::PopupDismissGuard>()
+                .cancel_pending();
+            if let Some(window) = listener_app.get_webview_window(MAIN_WINDOW) {
+                match menu_bar_click_anchor(&payload) {
+                    Some(anchor) => {
+                        crate::window::show_main_window_below_menu_bar_item(&window, anchor)
+                    }
+                    None => crate::window::show_main_window(&window),
+                }
+            }
+            let _ = listener_app.emit("open-screen", "dashboard");
+        });
+        registered.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), listener_id);
+    }
+
     /// 为某个实例绑定右键上下文菜单（隐藏 agent / 刷新数据 / 打开该
     /// agent 的设置 / 退出应用），并注册菜单选择监听。菜单文案随语言与
     /// provider 名变化而重建。
@@ -352,6 +395,30 @@ impl MenubarState {
         drop(signatures);
         self.register_menu_listener(app, instance_id);
         self.register_remove_listener(app, instance_id, provider_id);
+    }
+
+    #[cfg(target_os = "macos")]
+    fn register_app_context_menu(&self, app: &AppHandle, locale: crate::i18n::Locale) {
+        self.owners
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(
+                APP_MENUBAR_INSTANCE_ID.to_owned(),
+                APP_MENUBAR_INSTANCE_ID.to_owned(),
+            );
+        let (items, signature) = app_context_menu_items(locale);
+        let mb = app.multiline_menubar();
+        let mut signatures = self
+            .menu_signatures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        if signatures.get(APP_MENUBAR_INSTANCE_ID).map(String::as_str) != Some(signature.as_str()) {
+            let _ = mb.set_menu(APP_MENUBAR_INSTANCE_ID.to_owned(), items);
+            signatures.insert(APP_MENUBAR_INSTANCE_ID.to_owned(), signature);
+        }
+        drop(signatures);
+        self.register_menu_listener(app, APP_MENUBAR_INSTANCE_ID);
+        self.register_remove_listener(app, APP_MENUBAR_INSTANCE_ID, APP_MENUBAR_INSTANCE_ID);
     }
 
     #[cfg(target_os = "macos")]
@@ -492,6 +559,20 @@ fn instance_config(
     }
 }
 
+#[cfg(target_os = "macos")]
+fn app_instance_config(visible: bool) -> AppliedConfig {
+    instance_config(
+        MenubarConfigInput {
+            text: (String::new(), String::new()),
+            lines_visible: (false, false),
+            leading_icon: Some(APP_MARK_SVG),
+            tooltip: "Quota01".to_owned(),
+        },
+        &TaskbandLayout::default(),
+        visible,
+    )
+}
+
 /// 对账入口：根据设置 + 快照创建 / 更新 / 移除 macOS 菜单栏实例。
 /// 挂载点在 `tray_presentation::update()` 内（macOS）。
 #[cfg(target_os = "macos")]
@@ -506,6 +587,15 @@ pub(crate) fn update(
 
     let locale = crate::i18n::resolve(settings.language);
     let mut desired_ids = HashSet::new();
+
+    // Keep the app mark in the same synthetic menubar implementation as the
+    // provider items. This deliberately replaces the native Tauri TrayIcon on
+    // macOS so a left click cannot be intercepted by a native tray menu.
+    menubar.apply_instance(app, APP_MENUBAR_INSTANCE_ID, app_instance_config(true));
+    menubar.register_app_click_listener(app);
+    menubar.register_app_context_menu(app, locale);
+    desired_ids.insert(APP_MENUBAR_INSTANCE_ID.to_owned());
+
     for provider in settings.providers.iter() {
         if !provider.enabled {
             continue;
@@ -575,6 +665,27 @@ const MENU_ACTION_SETTINGS: &str = "settings";
 #[cfg(target_os = "macos")]
 const MENU_ACTION_QUIT: &str = "quit";
 
+#[cfg(target_os = "macos")]
+fn app_context_menu_items(locale: crate::i18n::Locale) -> (Vec<MenuItemDescriptor>, String) {
+    let item = |action: &str, text: String| MenuItemDescriptor::Item {
+        id: format!("{APP_MENUBAR_INSTANCE_ID}::{action}"),
+        text,
+        accelerator: None,
+        enabled: Some(true),
+        disabled: None,
+    };
+    let settings = crate::i18n::tr(locale, "menu.settings_short").to_owned();
+    let quit = crate::i18n::tr(locale, "menu.quit").to_owned();
+    (
+        vec![
+            item(MENU_ACTION_SETTINGS, settings.clone()),
+            MenuItemDescriptor::Separator,
+            item(MENU_ACTION_QUIT, quit.clone()),
+        ],
+        format!("{settings}\u{1}{quit}"),
+    )
+}
+
 /// 组装某个 provider 实例的右键菜单项及其签名。macOS 插件的菜单事件按
 /// 进程级 item id 回传（插件内部 `MENU_ITEM_OWNERS` 全局表、后注册者
 /// 覆盖先注册者），因此菜单项 id 必须跨实例全局唯一 —— 采用与 Windows
@@ -627,6 +738,23 @@ fn menu_bar_click_anchor(payload: &serde_json::Value) -> Option<crate::window::M
 /// 分发右键菜单选择到对应动作。
 #[cfg(target_os = "macos")]
 fn dispatch_context_menu_action(app: &AppHandle, provider_id: &str, action: &str) {
+    if provider_id == APP_MENUBAR_INSTANCE_ID {
+        match action {
+            MENU_ACTION_SETTINGS => open_screen(app, "settings"),
+            MENU_ACTION_QUIT => {
+                if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                    crate::window::finish_native_panel_resize(&window);
+                }
+                let app = app.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    app.exit(0);
+                });
+            }
+            _ => crate::app_warn!("menubar", "ignored app context menu action {action}"),
+        }
+        return;
+    }
     match action {
         MENU_ACTION_HIDE => hide_agent(app, provider_id),
         MENU_ACTION_REFRESH => refresh_agent(app, provider_id),
@@ -904,5 +1032,36 @@ mod tests {
                 visible: true,
             }
         );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_instance_config_is_icon_only() {
+        let config = super::app_instance_config(true);
+
+        assert_eq!(config.text, (String::new(), String::new()));
+        assert_eq!(config.lines_visible, (false, false));
+        assert!(config.leading_icon.is_some());
+        assert_eq!(config.tooltip, "Quota01");
+        assert!(config.visible);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn app_context_menu_contains_settings_and_quit() {
+        let (items, _) = super::app_context_menu_items(crate::i18n::Locale::En);
+        let ids = items
+            .iter()
+            .filter_map(|item| match item {
+                tauri_plugin_multiline_menubar::MenuItemDescriptor::Item { id, .. } => {
+                    Some(id.as_str())
+                }
+                tauri_plugin_multiline_menubar::MenuItemDescriptor::Separator => None,
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+
+        assert!(ids.contains(&"quota01-app::settings"));
+        assert!(ids.contains(&"quota01-app::quit"));
     }
 }

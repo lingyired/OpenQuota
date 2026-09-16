@@ -1,4 +1,6 @@
-use tauri::{image::Image, AppHandle};
+#[cfg(not(target_os = "macos"))]
+use tauri::image::Image;
+use tauri::AppHandle;
 
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 use crate::models::ProviderLayout;
@@ -13,6 +15,7 @@ use crate::{
     service::UsageViewState,
 };
 
+#[cfg(not(target_os = "macos"))]
 const TRAY_ID: &str = "quota01-tray";
 
 #[derive(Debug, Clone, PartialEq)]
@@ -33,6 +36,7 @@ pub(crate) struct ResolvedTrayMetric {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[cfg(any(not(target_os = "macos"), test))]
 struct TrayGroup {
     #[cfg(test)]
     provider_id: String,
@@ -55,55 +59,62 @@ pub fn update(
     #[cfg(target_os = "windows")]
     crate::taskband::update(app, state, settings, registry);
     #[cfg(target_os = "macos")]
-    crate::menubar::update(app, state, settings, registry);
-
-    let Some(tray) = app.tray_by_id(TRAY_ID) else {
-        return;
-    };
-    let groups = resolved_groups(state, settings, registry);
-    let tooltip = if groups.is_empty() {
-        "Quota01".to_owned()
-    } else {
-        format!(
-            "Quota01\n{}",
-            groups
-                .iter()
-                .flat_map(|group| group.metrics.iter())
-                .map(|metric| metric.detail.as_str())
-                .collect::<Vec<_>>()
-                .join(" · ")
-        )
-    };
-    #[cfg(not(target_os = "linux"))]
-    if tray.set_tooltip(Some(tooltip)).is_err() {
-        crate::app_warn!("tray", "tray tooltip update failed");
+    {
+        crate::menubar::update(app, state, settings, registry);
     }
-    #[cfg(target_os = "linux")]
-    let _ = tooltip;
 
     #[cfg(not(target_os = "macos"))]
     {
-        let icon = primary_gauge(&groups)
-            .map(|gauge| tray_icon::render_gauge(gauge.display_fraction, gauge.remaining_fraction))
-            .unwrap_or_else(mark_icon);
-        if tray.set_icon(Some(icon)).is_err() {
-            crate::app_warn!("tray", "tray icon update failed");
+        let Some(tray) = app.tray_by_id(TRAY_ID) else {
+            return;
+        };
+        let groups = resolved_groups(state, settings, registry);
+        let tooltip = if groups.is_empty() {
+            "Quota01".to_owned()
+        } else {
+            format!(
+                "Quota01\n{}",
+                groups
+                    .iter()
+                    .flat_map(|group| group.metrics.iter())
+                    .map(|metric| metric.detail.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" · ")
+            )
+        };
+        #[cfg(not(target_os = "linux"))]
+        if tray.set_tooltip(Some(tooltip)).is_err() {
+            crate::app_warn!("tray", "tray tooltip update failed");
         }
-    }
+        #[cfg(target_os = "linux")]
+        let _ = tooltip;
 
-    #[cfg(target_os = "macos")]
-    {
-        // 菜单栏的指标内容已交给 multiline-menubar 插件逐 provider 渲染；
-        // 托盘/状态项只保留应用 mark + 右键菜单（settings/quit），
-        // 对应 Windows 的「系统托盘 + taskband」双轨结构。
-        if tray.set_title(Some("")).is_err() {
-            crate::app_warn!("tray", "macOS menu bar title clear failed");
-        }
-        if tray
-            .set_icon_with_as_template(Some(mark_icon()), true)
-            .is_err()
+        #[cfg(not(target_os = "macos"))]
         {
-            crate::app_warn!("tray", "macOS menu bar icon update failed");
+            let icon = primary_gauge(&groups)
+                .map(|gauge| {
+                    tray_icon::render_gauge(gauge.display_fraction, gauge.remaining_fraction)
+                })
+                .unwrap_or_else(mark_icon);
+            if tray.set_icon(Some(icon)).is_err() {
+                crate::app_warn!("tray", "tray icon update failed");
+            }
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // 菜单栏的指标内容已交给 multiline-menubar 插件逐 provider 渲染；
+            // 托盘/状态项只保留应用 mark + 右键菜单（settings/quit），
+            // 对应 Windows 的「系统托盘 + taskband」双轨结构。
+            if tray.set_title(Some("")).is_err() {
+                crate::app_warn!("tray", "macOS menu bar title clear failed");
+            }
+            if tray
+                .set_icon_with_as_template(Some(mark_icon()), true)
+                .is_err()
+            {
+                crate::app_warn!("tray", "macOS menu bar icon update failed");
+            }
         }
     }
 }
@@ -116,6 +127,7 @@ fn primary_gauge(groups: &[TrayGroup]) -> Option<TrayGauge> {
         .find_map(|metric| metric.gauge)
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn resolved_groups(
     state: &UsageViewState,
     settings: &AppSettings,
@@ -195,6 +207,7 @@ pub(crate) fn pinned_provider_metrics(
 
 /// 某个 pinned 指标在快照中暂时没有数据时的占位显示：值显示 NA，
 /// 让 menubar / taskband 仍保留用户固定出的行位（例如第二行 NA）。
+#[cfg(any(not(target_os = "macos"), test))]
 fn tray_metric_unavailable(definition: &MetricDefinition) -> TrayMetric {
     TrayMetric {
         value: "NA".to_owned(),
@@ -391,6 +404,7 @@ fn format_tokens(tokens: u64) -> String {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn mark_icon() -> Image<'static> {
     Image::from_bytes(include_bytes!("../icons/32x32.png"))
         .expect("bundled Quota01 tray mark must be a valid PNG")

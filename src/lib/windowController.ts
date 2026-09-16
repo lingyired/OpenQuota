@@ -91,7 +91,12 @@ export function createWindowController(options: WindowControllerOptions) {
     const pageHeight = Math.max(renderedHeight, page.offsetHeight, page.scrollHeight);
     const stageStyle = window.getComputedStyle(stage);
     const stagePadding = cssPixels(stageStyle.paddingTop) + cssPixels(stageStyle.paddingBottom);
-    const stageHeight = pageHeight + stagePadding;
+    // Dashboard content lives in a constrained grid row, so the page's rendered height can stay
+    // at the old popup height even after providers return. The stage scroll height still exposes
+    // the content that is overflowing that row. Its value already includes the stage padding.
+    const stageContentHeight =
+      screen === 'dashboard' ? Math.max(pageHeight, stage.scrollHeight - stagePadding) : pageHeight;
+    const stageHeight = stageContentHeight + stagePadding;
     if (screen === 'dashboard') stage.style.removeProperty('height');
     else stage.style.height = `${stageHeight}px`;
 

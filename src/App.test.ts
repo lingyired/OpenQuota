@@ -2078,5 +2078,13 @@ describe('Quota01 Windows taskband focus', () => {
     await waitFor(() => {
       expect(screen.getByRole('group', { name: 'Always Visible metrics' })).toBeInTheDocument();
     });
+
+    openScreen?.({ payload: 'dashboard' });
+    await waitFor(() => {
+      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+      expect(
+        screen.queryByRole('group', { name: 'Always Visible metrics' }),
+      ).not.toBeInTheDocument();
+    });
   });
 });
