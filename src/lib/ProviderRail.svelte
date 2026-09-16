@@ -2,6 +2,7 @@
   import { locale } from 'svelte-i18n';
   import Icon from './Icon.svelte';
   import { t, tBackend, tStore } from './i18n';
+  import { railLineFontSize } from './metricFormat';
   import { providerIconColor } from './providerIconPaths';
   import ProviderIcon from './ProviderIcon.svelte';
   import { providerTabReadings, type ProviderTabReading } from './providerTabSummary';
@@ -120,11 +121,15 @@
         <span class="provider-rail__values" aria-hidden="true">
           {#if tab.provider}
             {#if tab.readings.length > 0}
-              {#each tab.readings as reading (reading.id)}
-                <span
-                  class="provider-rail__reading"
-                  class:provider-rail__reading--empty={!reading.available}>{reading.reading}</span
-                >
+              {#each tab.readings as reading, readingIndex (reading.id)}
+                {#each reading.lines as line, lineIndex (`${reading.id}-${lineIndex}`)}
+                  <span
+                    class="provider-rail__reading"
+                    class:provider-rail__reading--empty={!reading.available}
+                    class:provider-rail__reading--first={readingIndex > 0 && lineIndex === 0}
+                    style={`font-size: ${railLineFontSize(line)}px`}>{line}</span
+                  >
+                {/each}
               {/each}
             {:else}
               <span class="provider-rail__reading provider-rail__reading--empty">--</span>
@@ -140,8 +145,8 @@
 
 <style>
   .provider-rail {
-    width: 80px;
-    min-width: 80px;
+    width: 92px;
+    min-width: 92px;
     min-height: 0;
     border-inline-end: 1px solid var(--separator);
     background: var(--tray);
@@ -165,8 +170,8 @@
     position: relative;
     display: flex;
     width: 100%;
-    height: 60px;
-    flex: 0 0 60px;
+    height: 66px;
+    flex: 0 0 66px;
     flex-direction: row;
     align-items: center;
     justify-content: flex-start;
@@ -227,9 +232,9 @@
     align-items: flex-start;
     gap: 0;
     color: var(--provider-rail-accent, var(--secondary));
-    font-size: 10px;
+    font-size: 11px;
     font-variant-numeric: tabular-nums;
-    line-height: 12px;
+    line-height: 13px;
     letter-spacing: -0.3px;
   }
 
@@ -247,6 +252,11 @@
     color: var(--tertiary);
   }
 
+  /* Separates consecutive metrics; a metric's own values stay stacked tight. */
+  .provider-rail__reading--first {
+    margin-block-start: 3px;
+  }
+
   .provider-rail__all {
     color: var(--secondary);
     font-size: 8px;
@@ -256,8 +266,8 @@
 
   @media (pointer: coarse) {
     .provider-rail__tab {
-      height: 64px;
-      flex-basis: 64px;
+      height: 72px;
+      flex-basis: 72px;
     }
   }
 

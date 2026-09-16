@@ -3,6 +3,7 @@ import claudeColor from '@lobehub/icons-static-svg/icons/claude-color.svg';
 import codebuddyColor from '@lobehub/icons-static-svg/icons/codebuddy-color.svg';
 import codexColor from '@lobehub/icons-static-svg/icons/codex-color.svg';
 import copilotColor from '@lobehub/icons-static-svg/icons/copilot-color.svg';
+import deepseekColor from '@lobehub/icons-static-svg/icons/deepseek-color.svg';
 import devinColor from '@lobehub/icons-static-svg/icons/devin-color.svg';
 import kimiColor from '@lobehub/icons-static-svg/icons/kimi-color.svg';
 import minimaxColor from '@lobehub/icons-static-svg/icons/minimax-color.svg';
@@ -29,7 +30,7 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   codex: { source: codex, color: null },
   copilot: { source: copilot, color: null },
   cursor: { source: cursor, color: null },
-  deepseek: { source: deepseek, color: null },
+  deepseek: { source: deepseek, color: '#4D6BFE' },
   devin: { source: devin, color: null },
   grok: { source: grok, color: null },
   kimi: { source: kimi, color: '#1783FF' },
@@ -47,6 +48,7 @@ const colorAssetSlugs: Record<string, string> = {
   claude: 'claude',
   codex: 'codex',
   copilot: 'copilot',
+  deepseek: 'deepseek',
   devin: 'devin',
   kimi: 'kimi',
   minimax: 'minimax',
@@ -60,6 +62,7 @@ const colorAssets: Record<string, string> = {
   codex: codexColor,
   codebuddy: codebuddyColor,
   copilot: copilotColor,
+  deepseek: deepseekColor,
   devin: devinColor,
   kimi: kimiColor,
   minimax: minimaxColor,
@@ -68,7 +71,6 @@ const colorAssets: Record<string, string> = {
 
 const fallbackColors: Record<string, string> = {
   cursor: 'var(--provider-cursor)',
-  deepseek: '#5786FE',
   grok: 'var(--provider-grok)',
   opencode: 'var(--provider-opencode)',
   trae: '#32F08C',

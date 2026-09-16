@@ -3340,6 +3340,7 @@ dependencies = [
  "chacha20poly1305",
  "chrono",
  "fontdue",
+ "kurbo",
  "notify-rust",
  "rand 0.9.4",
  "regex",

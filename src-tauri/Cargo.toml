@@ -62,3 +62,6 @@ zbus = "5.13"
 
 [dev-dependencies]
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
+# Only `menu_bar` consumes this today; it converts elliptical arcs so bundled
+# brand marks can keep their upstream SVG path data verbatim.
+kurbo = "0.13"

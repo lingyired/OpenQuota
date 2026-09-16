@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { pinnedMetricLayouts, providerTabReadings } from './providerTabSummary';
-import type { AppSettings, ProviderLayout } from './types';
+import { ProviderCatalogIndex } from './metrics';
+import type { AppSettings, ProviderLayout, ProviderSnapshot } from './types';
 import { claudeState, codexState, providerCatalogIndex, settingsState } from '../test/appFixtures';
 
 function provider(id: string, metrics: ProviderLayout['metrics']): ProviderLayout {
@@ -8,6 +9,59 @@ function provider(id: string, metrics: ProviderLayout['metrics']): ProviderLayou
 }
 
 const usedSettings: AppSettings = { ...settingsState.settings, usageDisplay: 'used' };
+
+const deepseekCatalog = new ProviderCatalogIndex({
+  apiKeyProviderIds: ['deepseek'],
+  providers: [
+    {
+      id: 'deepseek',
+      displayName: 'DeepSeek',
+      shortName: 'DS',
+      fallbackEnabled: false,
+      localUsageSourceNote: null,
+      links: [],
+      metrics: [
+        {
+          id: 'deepseek.balance',
+          label: 'Balance',
+          source: { kind: 'value', sourceId: 'balance' },
+          pinnable: true,
+          defaultEnabled: true,
+          defaultSection: 'alwaysVisible',
+          defaultPinned: true,
+          tray: { shortLabel: 'B', suffix: null },
+        },
+      ],
+    },
+  ],
+});
+
+function deepseekBalances(wallets: [number, string][]): ProviderSnapshot {
+  return {
+    providerId: 'deepseek',
+    plan: 'Available',
+    quotas: [],
+    creditPackages: [],
+    valueMetrics: [
+      {
+        id: 'balance',
+        label: 'Balance',
+        values: wallets.map(([number, label]) => ({
+          number,
+          kind: 'count' as const,
+          label,
+          estimated: false,
+        })),
+        expiriesAt: [],
+      },
+    ],
+    statusMetrics: [],
+    notices: [],
+    usage: { today: null, yesterday: null, last30Days: null, daily: [], unknownModels: [] },
+    refreshedAt: '2026-07-10T10:00:00Z',
+    warnings: [],
+  };
+}
 
 describe('provider tab summaries', () => {
   it('uses the first two pinned metrics even when a pinned metric is hidden in the dashboard', () => {
@@ -57,8 +111,71 @@ describe('provider tab summaries', () => {
     expect(readings[0]).toMatchObject({ reading: '$12.50', available: true });
 
     expect(providerTabReadings(extra, null, usedSettings, providerCatalogIndex)).toEqual([
-      { id: 'claude.extra', label: 'Extra Usage', reading: '--', available: false },
+      { id: 'claude.extra', label: 'Extra Usage', reading: '--', lines: ['--'], available: false },
     ]);
+  });
+
+  it('keeps unit words out of the rail lines while the full reading stays accessible', () => {
+    const today = provider('codex', [
+      { id: 'codex.today', enabled: true, section: 'alwaysVisible', pinned: true },
+    ]);
+
+    expect(
+      providerTabReadings(today, codexState.snapshot, usedSettings, providerCatalogIndex),
+    ).toMatchObject([{ reading: '$3.84 · 2.1M tokens', lines: ['$3.84', '2.1M'] }]);
+  });
+
+  it('uses currency symbols and one line per wallet for balance readings', () => {
+    const deepseek = provider('deepseek', [
+      { id: 'deepseek.balance', enabled: true, section: 'alwaysVisible', pinned: true },
+    ]);
+
+    expect(
+      providerTabReadings(
+        deepseek,
+        deepseekBalances([
+          [110, 'CNY'],
+          [3.25, 'USD'],
+        ]),
+        usedSettings,
+        deepseekCatalog,
+      ),
+    ).toMatchObject([{ reading: '110 CNY · 3.3 USD', lines: ['¥110', '$3.3'] }]);
+  });
+
+  it('caps rail lines per metric and counts the hidden wallets', () => {
+    const deepseek = provider('deepseek', [
+      { id: 'deepseek.balance', enabled: true, section: 'alwaysVisible', pinned: true },
+    ]);
+
+    expect(
+      providerTabReadings(
+        deepseek,
+        deepseekBalances([
+          [110, 'CNY'],
+          [3.25, 'USD'],
+          [8.5, 'JPY'],
+        ]),
+        usedSettings,
+        deepseekCatalog,
+      ),
+    ).toMatchObject([{ lines: ['¥110', '$3.3 +1'] }]);
+  });
+
+  it('keeps percent and dollar rail lines unchanged', () => {
+    const codex = provider('codex', [
+      { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
+    ]);
+    const extra = provider('claude', [
+      { id: 'claude.extra', enabled: true, section: 'alwaysVisible', pinned: true },
+    ]);
+
+    expect(
+      providerTabReadings(codex, codexState.snapshot, usedSettings, providerCatalogIndex),
+    ).toMatchObject([{ reading: '32%', lines: ['32%'] }]);
+    expect(
+      providerTabReadings(extra, claudeState.snapshot, usedSettings, providerCatalogIndex),
+    ).toMatchObject([{ reading: '$12.50', lines: ['$12.50'] }]);
   });
 
   it('formats a pinned usage metric with the same cost and token summary as the dashboard', () => {

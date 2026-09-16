@@ -1,7 +1,8 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ProviderCatalogIndex } from './metrics';
 import ProviderRail from './ProviderRail.svelte';
-import type { SettingsViewState, UsageViewState } from './types';
+import type { ProviderSnapshot, SettingsViewState, UsageViewState } from './types';
 import { claudeState, codexState, providerCatalogIndex, settingsState } from '../test/appFixtures';
 
 afterEach(() => {
@@ -93,5 +94,109 @@ describe('ProviderRail', () => {
     expect(
       screen.getByRole('tab', { name: /Claude/ }).querySelector('.provider-icon'),
     ).toHaveAttribute('width', '22');
+  });
+
+  it('renders one short line per reading value without unit words', () => {
+    const settings: SettingsViewState['settings'] = {
+      ...settingsState.settings,
+      providers: [
+        {
+          id: 'codex',
+          enabled: true,
+          detected: true,
+          expanded: false,
+          metrics: [{ id: 'codex.today', enabled: true, section: 'alwaysVisible', pinned: true }],
+        },
+      ],
+    };
+    render(ProviderRail, {
+      viewState: { providers: { codex: codexState } },
+      settings,
+      catalog: providerCatalogIndex,
+      selectedProviderId: null,
+      onSelect: vi.fn(),
+    });
+
+    const codex = screen.getByRole('tab', { name: /Codex.*Today.*\$3\.84 · 2\.1M tokens/ });
+    const lines = Array.from(codex.querySelectorAll('.provider-rail__reading')).map(
+      (line) => line.textContent,
+    );
+    expect(lines).toEqual(['$3.84', '2.1M']);
+  });
+
+  it('shrinks long readings instead of clipping them', () => {
+    const catalog = new ProviderCatalogIndex({
+      apiKeyProviderIds: [],
+      providers: [
+        {
+          id: 'claude',
+          displayName: 'Claude',
+          shortName: 'Cl',
+          fallbackEnabled: false,
+          localUsageSourceNote: null,
+          links: [],
+          metrics: [
+            {
+              id: 'claude.status',
+              label: 'Status',
+              source: { kind: 'status', sourceId: 'status' },
+              pinnable: true,
+              defaultEnabled: true,
+              defaultSection: 'alwaysVisible',
+              defaultPinned: true,
+              tray: { shortLabel: 'S', suffix: null },
+            },
+          ],
+        },
+      ],
+    });
+    const snapshot: ProviderSnapshot = {
+      providerId: 'claude',
+      plan: 'Pro',
+      quotas: [],
+      creditPackages: [],
+      valueMetrics: [],
+      statusMetrics: [{ id: 'status', label: 'Status', text: 'Unavailable', tone: 'warning' }],
+      notices: [],
+      usage: { today: null, yesterday: null, last30Days: null, daily: [], unknownModels: [] },
+      refreshedAt: '2026-07-10T10:00:00Z',
+      warnings: [],
+    };
+    const settings: SettingsViewState['settings'] = {
+      ...settingsState.settings,
+      providers: [
+        {
+          id: 'claude',
+          enabled: true,
+          detected: true,
+          expanded: false,
+          metrics: [{ id: 'claude.status', enabled: true, section: 'alwaysVisible', pinned: true }],
+        },
+      ],
+    };
+    render(ProviderRail, {
+      viewState: {
+        providers: {
+          claude: {
+            source: 'live',
+            refreshing: false,
+            stale: false,
+            error: null,
+            errorKind: null,
+            lastAttemptAt: null,
+            snapshot,
+          },
+        },
+      },
+      settings,
+      catalog,
+      selectedProviderId: null,
+      onSelect: vi.fn(),
+    });
+
+    const claude = screen.getByRole('tab', { name: /Claude.*Status.*Unavailable/ });
+    const reading = claude.querySelector<HTMLElement>('.provider-rail__reading');
+    expect(reading?.textContent).toBe('Unavailable');
+    expect(Number.parseFloat(reading?.style.fontSize ?? '0')).toBeLessThan(11);
   });
 });

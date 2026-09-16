@@ -1,6 +1,7 @@
 use std::sync::OnceLock;
 
 use fontdue::{Font, FontSettings};
+use kurbo::{Arc, Point, SvgArc, Vec2};
 use roxmltree::Document;
 use svgtypes::{PathParser, PathSegment};
 use tauri::image::Image;
@@ -411,7 +412,49 @@ fn parse_svg_path(source: &str) -> Result<Path, String> {
                     current = subpath_start;
                     previous_cubic_control = None;
                 }
-                _ => return Err("only M, L, H, V, C, S and Z path commands are supported".into()),
+                PathSegment::EllipticalArc {
+                    abs,
+                    rx,
+                    ry,
+                    x_axis_rotation,
+                    large_arc,
+                    sweep,
+                    x,
+                    y,
+                } => {
+                    let origin = current.ok_or_else(|| "arc has no current point".to_owned())?;
+                    let coordinate_origin = if abs { (0.0, 0.0) } else { origin };
+                    let end = (
+                        coordinate_origin.0 + x as f32,
+                        coordinate_origin.1 + y as f32,
+                    );
+                    let svg_arc = SvgArc {
+                        from: Point::new(origin.0 as f64, origin.1 as f64),
+                        to: Point::new(end.0 as f64, end.1 as f64),
+                        radii: Vec2::new(rx, ry),
+                        x_rotation: x_axis_rotation.to_radians(),
+                        large_arc,
+                        sweep,
+                    };
+                    match Arc::from_svg_arc(&svg_arc) {
+                        Some(arc) => arc.to_cubic_beziers(0.01, |first, second, point| {
+                            builder.cubic_to(
+                                first.x as f32,
+                                first.y as f32,
+                                second.x as f32,
+                                second.y as f32,
+                                point.x as f32,
+                                point.y as f32,
+                            );
+                        }),
+                        None => builder.line_to(end.0, end.1),
+                    }
+                    current = Some(end);
+                    previous_cubic_control = None;
+                }
+                _ => {
+                    return Err("only M, L, H, V, C, S, A and Z path commands are supported".into())
+                }
             }
         }
     }

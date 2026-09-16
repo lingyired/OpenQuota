@@ -1493,7 +1493,7 @@
     .content--dashboard {
       display: grid;
       min-height: 0;
-      grid-template-columns: 80px minmax(0, 1fr);
+      grid-template-columns: 92px minmax(0, 1fr);
       grid-template-rows: auto minmax(0, 1fr);
       padding: 0;
       overflow: hidden;

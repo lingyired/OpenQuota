@@ -42,11 +42,11 @@ describe('popover geometry contract', () => {
     expect(css).not.toMatch(/\.popover\s*{[^}]*\n\s*width: 440px;/s);
   });
 
-  it('reserves an eighty-pixel provider rail beside the dashboard', () => {
+  it('reserves a ninety-two-pixel provider rail beside the dashboard', () => {
     expect(css).toMatch(
-      /\.content--dashboard\s*{[^}]*grid-template-columns: 80px minmax\(0, 1fr\);/s,
+      /\.content--dashboard\s*{[^}]*grid-template-columns: 92px minmax\(0, 1fr\);/s,
     );
-    expect(css).toMatch(/\.provider-rail\s*{[^}]*width: 80px;/s);
+    expect(css).toMatch(/\.provider-rail\s*{[^}]*width: 92px;/s);
     expect(css).toMatch(
       /:root\[data-density='compact'\] \.content--dashboard\s*{[^}]*padding: 0;/s,
     );
@@ -54,7 +54,7 @@ describe('popover geometry contract', () => {
       /\.provider-rail__tab\s*{[^}]*flex-direction: row;[^}]*align-items: center;/s,
     );
     expect(css).toMatch(
-      /\.provider-rail__values\s*{[^}]*flex-direction: column;[^}]*align-items: flex-start;/s,
+      /\.provider-rail__values\s*{[^}]*flex-direction: column;[^}]*align-items: flex-start;[^}]*font-size: 11px;[^}]*line-height: 13px;/s,
     );
     expect(css).toMatch(
       /\.provider-rail__tab:focus,\s*\.provider-rail__tab:focus-visible\s*{[^}]*outline: none;/s,

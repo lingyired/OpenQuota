@@ -36,6 +36,7 @@ describe('native visual contract', () => {
     ['claude', 'claude'],
     ['codex', 'codex'],
     ['copilot', 'copilot'],
+    ['deepseek', 'deepseek'],
     ['devin', 'devin'],
     ['kimi', 'kimi'],
     ['minimax', 'minimax'],
@@ -61,9 +62,6 @@ describe('native visual contract', () => {
     cleanup();
     const zai = render(ProviderIcon, { providerId: 'zai' });
     expect(zai.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
-    cleanup();
-    const deepseek = render(ProviderIcon, { providerId: 'deepseek' });
-    expect(deepseek.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
     cleanup();
     const trae = render(ProviderIcon, { providerId: 'trae-cn' });
     expect(trae.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
