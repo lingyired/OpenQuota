@@ -848,7 +848,7 @@ mod tests {
     fn workbuddy_nearest_expiring_tray_value_is_a_bare_count() {
         let snapshot = ProviderSnapshot {
             credit_packages: Vec::new(),
-            provider_id: "workbuddy".into(),
+            provider_id: "workbuddy-cn".into(),
             plan: None,
             quotas: Vec::new(),
             value_metrics: vec![ValueMetric {
@@ -872,7 +872,7 @@ mod tests {
             ProviderRegistry::from_definitions(vec![workbuddy::definition(), codex::definition()])
                 .unwrap();
         let metric = super::tray_metric(
-            catalog.metric("workbuddy.nearestExpiring").unwrap(),
+            catalog.metric("workbuddy-cn.nearestExpiring").unwrap(),
             &snapshot,
             crate::models::UsageDisplay::Left,
         )
@@ -885,7 +885,7 @@ mod tests {
     fn workbuddy_credits_tray_value_tracks_the_remaining_balance() {
         let snapshot = ProviderSnapshot {
             credit_packages: Vec::new(),
-            provider_id: "workbuddy".into(),
+            provider_id: "workbuddy-cn".into(),
             plan: None,
             quotas: vec![QuotaWindow {
                 id: "credits".into(),
@@ -922,7 +922,7 @@ mod tests {
                 .unwrap();
 
         let metric = super::tray_metric(
-            catalog.metric("workbuddy.credits").unwrap(),
+            catalog.metric("workbuddy-cn.credits").unwrap(),
             &snapshot,
             crate::models::UsageDisplay::Used,
         )

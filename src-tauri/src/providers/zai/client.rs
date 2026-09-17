@@ -3,10 +3,7 @@ use std::time::Duration;
 use reqwest::{blocking::Client, StatusCode};
 use serde_json::Value;
 
-use super::ZaiError;
-
-const SUBSCRIPTION_URL: &str = "https://api.z.ai/api/biz/subscription/list";
-const QUOTA_URL: &str = "https://api.z.ai/api/monitor/usage/quota/limit";
+use super::{Site, ZaiError};
 
 #[derive(Debug)]
 pub struct ZaiResponse {
@@ -21,8 +18,12 @@ pub struct ZaiClient {
 }
 
 impl ZaiClient {
-    pub fn new() -> Result<Self, ZaiError> {
-        Self::with_endpoints(SUBSCRIPTION_URL, QUOTA_URL, Duration::from_secs(15))
+    pub fn new(site: Site) -> Result<Self, ZaiError> {
+        Self::with_endpoints(
+            site.subscription_url(),
+            site.quota_url(),
+            Duration::from_secs(15),
+        )
     }
 
     fn with_endpoints(

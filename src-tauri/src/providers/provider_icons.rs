@@ -20,7 +20,6 @@ const CODEX: &str = brand_icon!("codex");
 const COPILOT: &str = brand_icon!("copilot");
 const CURSOR: &str = brand_icon!("cursor");
 const DEEPSEEK: &str = brand_icon!("deepseek");
-const DEVIN: &str = brand_icon!("devin");
 const ANTIGRAVITY: &str = brand_icon!("antigravity");
 const GROK: &str = brand_icon!("grok");
 const OPENCODE: &str = brand_icon!("opencode");
@@ -40,16 +39,18 @@ pub(crate) fn provider_icon_svg(provider_id: &str) -> Option<&'static str> {
         "copilot" => Some(COPILOT),
         "cursor" => Some(CURSOR),
         "deepseek" => Some(DEEPSEEK),
-        "devin" => Some(DEVIN),
         "antigravity" => Some(ANTIGRAVITY),
         "grok" => Some(GROK),
         "opencode" => Some(OPENCODE),
         "openrouter" => Some(OPENROUTER),
-        "zai" => Some(ZAI),
-        "kimi" => Some(KIMI),
-        "minimax" => Some(MINIMAX),
+        // `provider_family` only strips the `@account` suffix, so mainland-China
+        // variants (`-cn`) keep their own id here and need explicit arms. They share
+        // the brand mark of their parent provider.
+        "zai" | "zai-cn" => Some(ZAI),
+        "kimi" | "kimi-cn" => Some(KIMI),
+        "minimax" | "minimax-cn" => Some(MINIMAX),
         "trae-cn" => Some(TRAE),
-        "workbuddy" => Some(WORKBUDDY),
+        "workbuddy" | "workbuddy-cn" => Some(WORKBUDDY),
         _ => None,
     }
 }

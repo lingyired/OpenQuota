@@ -39,7 +39,7 @@ describe('Total Spend projection', () => {
   it('excludes credit-based usage from token and cost projections', () => {
     const providers = [
       {
-        id: 'workbuddy',
+        id: 'workbuddy-cn',
         usage: usage({
           tokens: 0,
           amount: 1250,

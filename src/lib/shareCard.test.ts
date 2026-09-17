@@ -46,11 +46,6 @@ describe('share card layout', () => {
       y: 16,
       scale: 0.22,
     });
-    expect(providerIconPlacement('devin', 16, 16, 22)).toEqual({
-      x: 17.32,
-      y: 16,
-      scale: 0.44,
-    });
     const opencode = providerIconPlacement('opencode', 16, 16, 22);
     expect(opencode.x).toBeCloseTo(18.2);
     expect(opencode.y).toBe(16);
@@ -338,7 +333,7 @@ describe('share card layout', () => {
     const catalog = new ProviderCatalogIndex({
       providers: [
         {
-          id: 'workbuddy',
+          id: 'workbuddy-cn',
           displayName: 'Workbuddy CN',
           shortName: 'WB',
           fallbackEnabled: false,
@@ -346,7 +341,7 @@ describe('share card layout', () => {
           links: [],
           metrics: [
             {
-              id: 'workbuddy.creditPackages',
+              id: 'workbuddy-cn.creditPackages',
               label: '可用积分包',
               source: { kind: 'creditPackages' },
               pinnable: false,
@@ -402,7 +397,7 @@ describe('share card layout', () => {
       },
     ];
     const snapshot: ProviderSnapshot = {
-      providerId: 'workbuddy',
+      providerId: 'workbuddy-cn',
       plan: null,
       quotas: [],
       creditPackages: packages,
@@ -414,13 +409,13 @@ describe('share card layout', () => {
       refreshedAt: '2026-09-11T00:00:00Z',
     };
     const layout: ProviderLayout = {
-      id: 'workbuddy',
+      id: 'workbuddy-cn',
       enabled: true,
       detected: true,
       expanded: false,
       metrics: [
         {
-          id: 'workbuddy.creditPackages',
+          id: 'workbuddy-cn.creditPackages',
           enabled: true,
           section: 'alwaysVisible',
           pinned: false,
@@ -467,7 +462,7 @@ describe('share card layout', () => {
     const catalog = new ProviderCatalogIndex({
       providers: [
         {
-          id: 'workbuddy',
+          id: 'workbuddy-cn',
           displayName: 'Workbuddy CN',
           shortName: 'WB',
           fallbackEnabled: false,
@@ -475,7 +470,7 @@ describe('share card layout', () => {
           links: [],
           metrics: [
             {
-              id: 'workbuddy.creditPackages',
+              id: 'workbuddy-cn.creditPackages',
               label: '可用积分包',
               source: { kind: 'creditPackages' },
               pinnable: false,
@@ -489,7 +484,7 @@ describe('share card layout', () => {
       ],
     });
     const snapshot: ProviderSnapshot = {
-      providerId: 'workbuddy',
+      providerId: 'workbuddy-cn',
       plan: null,
       quotas: [],
       creditPackages: [
@@ -510,13 +505,13 @@ describe('share card layout', () => {
       refreshedAt: '2026-09-11T00:00:00Z',
     };
     const layout: ProviderLayout = {
-      id: 'workbuddy',
+      id: 'workbuddy-cn',
       enabled: true,
       detected: true,
       expanded: false,
       metrics: [
         {
-          id: 'workbuddy.creditPackages',
+          id: 'workbuddy-cn.creditPackages',
           enabled: true,
           section: 'alwaysVisible',
           pinned: false,

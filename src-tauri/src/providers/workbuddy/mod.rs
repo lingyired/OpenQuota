@@ -24,7 +24,7 @@ use self::{
 };
 use super::{ProviderError, ProviderRefresh, UsageProvider};
 
-const PROVIDER_ID: &str = "workbuddy";
+const PROVIDER_ID: &str = "workbuddy-cn";
 const SOURCE_NOTE: &str = "WorkBuddy official usage";
 
 pub(crate) fn definition() -> ProviderDefinition {
@@ -40,7 +40,7 @@ pub(crate) fn definition() -> ProviderDefinition {
         ],
         metrics: vec![
             MetricDefinition::new(
-                "workbuddy.nearestExpiring",
+                "workbuddy-cn.nearestExpiring",
                 "近期到期的积分包",
                 MetricSource::NearestCreditPackage {
                     source_id: "nearestExpiring".into(),
@@ -53,7 +53,7 @@ pub(crate) fn definition() -> ProviderDefinition {
                 None,
             ),
             MetricDefinition::value(
-                "workbuddy.credits",
+                "workbuddy-cn.credits",
                 "Credits",
                 "balance",
                 true,
@@ -63,7 +63,7 @@ pub(crate) fn definition() -> ProviderDefinition {
                 None,
             ),
             MetricDefinition::new(
-                "workbuddy.creditPackages",
+                "workbuddy-cn.creditPackages",
                 "可用积分包",
                 MetricSource::CreditPackages,
                 false,
@@ -74,27 +74,27 @@ pub(crate) fn definition() -> ProviderDefinition {
                 None,
             ),
             MetricDefinition::usage(
-                "workbuddy.today",
+                "workbuddy-cn.today",
                 "Today",
                 UsagePeriodSelection::Today,
                 MetricSection::OnDemand,
                 "T",
             ),
             MetricDefinition::usage(
-                "workbuddy.yesterday",
+                "workbuddy-cn.yesterday",
                 "Yesterday",
                 UsagePeriodSelection::Yesterday,
                 MetricSection::OnDemand,
                 "Y",
             ),
             MetricDefinition::usage(
-                "workbuddy.last30",
+                "workbuddy-cn.last30",
                 "Last 30 Days",
                 UsagePeriodSelection::Last30Days,
                 MetricSection::OnDemand,
                 "M",
             ),
-            MetricDefinition::trend("workbuddy.trend"),
+            MetricDefinition::trend("workbuddy-cn.trend"),
         ],
     }
 }
@@ -684,13 +684,13 @@ fn build_snapshot(
     let completeness = usage.completeness;
     let notices = match completeness {
         UsageCompleteness::Partial => vec![ProviderNotice {
-            id: "workbuddy.usagePartial".into(),
+            id: "workbuddy-cn.usagePartial".into(),
             title: "Usage data is partial".into(),
             message: "Some WorkBuddy usage records could not be loaded.".into(),
             tone: ProviderNoticeTone::Warning,
         }],
         UsageCompleteness::Unavailable => vec![ProviderNotice {
-            id: "workbuddy.usageUnavailable".into(),
+            id: "workbuddy-cn.usageUnavailable".into(),
             title: "Usage data unavailable".into(),
             message: "WorkBuddy balance is available, but usage details could not be loaded."
                 .into(),
@@ -765,14 +765,14 @@ mod tests {
     #[test]
     fn definition_exposes_credit_and_usage_metrics() {
         let definition = definition();
-        assert_eq!(definition.id, "workbuddy");
+        assert_eq!(definition.id, "workbuddy-cn");
         assert_eq!(definition.short_name, "WB");
         assert_eq!(definition.display_name, "Workbuddy CN");
-        assert_eq!(definition.metrics[0].id, "workbuddy.nearestExpiring");
+        assert_eq!(definition.metrics[0].id, "workbuddy-cn.nearestExpiring");
         let nearest = definition
             .metrics
             .iter()
-            .find(|metric| metric.id == "workbuddy.nearestExpiring")
+            .find(|metric| metric.id == "workbuddy-cn.nearestExpiring")
             .expect("nearest expiring metric");
         assert_eq!(nearest.label, "近期到期的积分包");
         assert!(nearest.pinnable);
@@ -786,7 +786,7 @@ mod tests {
         let packages = definition
             .metrics
             .iter()
-            .find(|metric| metric.id == "workbuddy.creditPackages")
+            .find(|metric| metric.id == "workbuddy-cn.creditPackages")
             .expect("credit packages metric");
         assert_eq!(packages.source, MetricSource::CreditPackages);
         assert!(packages.default_enabled);
@@ -795,11 +795,11 @@ mod tests {
         assert!(definition
             .metrics
             .iter()
-            .any(|metric| metric.id == "workbuddy.credits"));
+            .any(|metric| metric.id == "workbuddy-cn.credits"));
         assert!(definition
             .metrics
             .iter()
-            .any(|metric| metric.id == "workbuddy.trend"));
+            .any(|metric| metric.id == "workbuddy-cn.trend"));
     }
 
     #[test]
@@ -808,7 +808,7 @@ mod tests {
         let credits = definition
             .metrics
             .iter()
-            .find(|metric| metric.id == "workbuddy.credits")
+            .find(|metric| metric.id == "workbuddy-cn.credits")
             .expect("credits metric");
         assert_eq!(
             credits.source,
@@ -820,7 +820,7 @@ mod tests {
         assert!(!definition
             .metrics
             .iter()
-            .any(|metric| metric.id == "workbuddy.balance"));
+            .any(|metric| metric.id == "workbuddy-cn.balance"));
     }
 
     #[test]

@@ -15,12 +15,15 @@ describe('native visual contract', () => {
     'cursor',
     'antigravity',
     'copilot',
-    'devin',
     'grok',
     'opencode',
     'openrouter',
     'zai',
-    'workbuddy',
+    'zai-cn',
+    'kimi-cn',
+    'minimax',
+    'minimax-cn',
+    'workbuddy-cn',
     'deepseek',
     'trae-cn',
   ])('packages the exact %s provider icon', (providerId) => {
@@ -37,11 +40,13 @@ describe('native visual contract', () => {
     ['codex', 'codex'],
     ['copilot', 'copilot'],
     ['deepseek', 'deepseek'],
-    ['devin', 'devin'],
     ['kimi', 'kimi'],
+    ['kimi-cn', 'kimi'],
     ['minimax', 'minimax'],
+    ['minimax-cn', 'minimax'],
     ['openrouter', 'openrouter'],
     ['workbuddy', 'codebuddy'],
+    ['workbuddy-cn', 'codebuddy'],
   ])('uses the full-color Lobe asset for %s', (providerId, slug) => {
     const { container } = render(ProviderIcon, { providerId });
     const icon = container.querySelector<HTMLImageElement>('img.provider-icon');

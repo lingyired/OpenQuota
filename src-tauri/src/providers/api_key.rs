@@ -94,6 +94,10 @@ impl ConfigFileReader for ProcessConfigFiles {
 #[derive(Clone)]
 pub struct ApiKeyStore {
     provider_id: String,
+    /// Vault account names a provider used before it was renamed. Read-only
+    /// fallbacks: they keep a saved key working across a rename, while writes
+    /// and deletes always target the current `provider_id`.
+    legacy_provider_ids: Vec<String>,
     environment_names: Vec<String>,
     config_paths: Vec<String>,
     secrets: Arc<dyn SecretBackend>,
@@ -107,8 +111,21 @@ impl ApiKeyStore {
         environment_names: &[&str],
         config_paths: &[&str],
     ) -> Self {
+        Self::new_with_sources_and_legacy(provider_id, &[], environment_names, config_paths)
+    }
+
+    pub fn new_with_sources_and_legacy(
+        provider_id: &str,
+        legacy_provider_ids: &[&str],
+        environment_names: &[&str],
+        config_paths: &[&str],
+    ) -> Self {
         Self {
             provider_id: provider_id.to_owned(),
+            legacy_provider_ids: legacy_provider_ids
+                .iter()
+                .map(|value| (*value).to_owned())
+                .collect(),
             environment_names: environment_names
                 .iter()
                 .map(|value| (*value).to_owned())
@@ -132,12 +149,22 @@ impl ApiKeyStore {
     ) -> Self {
         Self {
             provider_id: provider_id.to_owned(),
+            legacy_provider_ids: Vec::new(),
             environment_names: vec![environment_name.to_owned()],
             config_paths: Vec::new(),
             secrets,
             environment,
             config_files: Arc::new(ProcessConfigFiles),
         }
+    }
+
+    #[cfg(test)]
+    pub fn with_legacy_provider_ids(mut self, legacy_provider_ids: &[&str]) -> Self {
+        self.legacy_provider_ids = legacy_provider_ids
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect();
+        self
     }
 
     #[cfg(test)]
@@ -151,6 +178,7 @@ impl ApiKeyStore {
     ) -> Self {
         Self {
             provider_id: provider_id.to_owned(),
+            legacy_provider_ids: Vec::new(),
             environment_names: environment_names
                 .iter()
                 .map(|value| (*value).to_owned())
@@ -213,20 +241,41 @@ impl ApiKeyStore {
     }
 
     pub fn delete(&self) -> Result<(), String> {
-        self.secrets.delete(&self.provider_id)
+        self.secrets.delete(&self.provider_id)?;
+        for account in &self.legacy_provider_ids {
+            if self.secrets.exists(account)? {
+                self.secrets.delete(account)?;
+            }
+        }
+        Ok(())
+    }
+
+    fn saved_accounts(&self) -> impl Iterator<Item = &str> {
+        std::iter::once(self.provider_id.as_str())
+            .chain(self.legacy_provider_ids.iter().map(String::as_str))
     }
 
     fn saved_key(&self) -> Result<Option<SecretString>, String> {
-        let Some(value) = self.secrets.read(&self.provider_id)? else {
-            return Ok(None);
-        };
-        let value = std::str::from_utf8(value.as_slice())
-            .map_err(|_| "The saved API key has an unsupported encoding.".to_owned())?;
-        Ok(non_empty(value.to_owned()))
+        for account in self.saved_accounts() {
+            let Some(value) = self.secrets.read(account)? else {
+                continue;
+            };
+            let value = std::str::from_utf8(value.as_slice())
+                .map_err(|_| "The saved API key has an unsupported encoding.".to_owned())?;
+            if let Some(value) = non_empty(value.to_owned()) {
+                return Ok(Some(value));
+            }
+        }
+        Ok(None)
     }
 
     fn saved_key_exists(&self) -> Result<bool, String> {
-        self.secrets.exists(&self.provider_id)
+        for account in self.saved_accounts() {
+            if self.secrets.exists(account)? {
+                return Ok(true);
+            }
+        }
+        Ok(false)
     }
 
     fn environment_key(&self) -> Option<SecretString> {
@@ -267,10 +316,17 @@ fn key_from_config(bytes: &[u8]) -> Option<SecretString> {
             .ok()?
             .as_object()?
             .clone();
-        return ["apiKey", "api_key", "key"]
-            .iter()
-            .find_map(|name| object.get(*name)?.as_str().map(str::to_owned))
-            .and_then(non_empty);
+        return [
+            "apiKey",
+            "api_key",
+            "userToken",
+            "user_token",
+            "token",
+            "key",
+        ]
+        .iter()
+        .find_map(|name| object.get(*name)?.as_str().map(str::to_owned))
+        .and_then(non_empty);
     }
     non_empty(text.to_owned())
 }
@@ -308,7 +364,10 @@ mod tests {
 
     use crate::models::ApiKeyStatus;
 
-    use super::{ApiKeyStore, ConfigFileReader, EnvironmentReader, SecretBackend, SecretBytes};
+    use super::{
+        key_from_config, ApiKeyStore, ConfigFileReader, EnvironmentReader, SecretBackend,
+        SecretBytes,
+    };
 
     #[derive(Default)]
     struct MemorySecrets(Mutex<HashMap<String, Vec<u8>>>);
@@ -566,5 +625,55 @@ mod tests {
                 .map(|value| value.as_str()),
             Some("plain-text-key")
         );
+    }
+
+    #[test]
+    fn config_file_accepts_token_style_aliases() {
+        for name in [
+            "apiKey",
+            "api_key",
+            "userToken",
+            "user_token",
+            "token",
+            "key",
+        ] {
+            let body = format!(r#"{{"{name}":" value-{name} "}}"#);
+            assert_eq!(
+                key_from_config(body.as_bytes()).unwrap().as_str(),
+                format!("value-{name}")
+            );
+        }
+    }
+
+    #[test]
+    fn legacy_vault_accounts_keep_a_saved_key_alive_across_a_rename() {
+        let secrets = Arc::new(MemorySecrets::default());
+        secrets
+            .write("kimi", b"legacy-key")
+            .expect("seed the legacy account");
+        let store = || {
+            ApiKeyStore::with_source_backends(
+                "kimi-cn",
+                &["KIMI_API_KEY"],
+                &[],
+                secrets.clone(),
+                Arc::new(MemoryEnvironment(HashMap::new())),
+                Arc::new(MemoryConfigFiles(HashMap::new())),
+            )
+            .with_legacy_provider_ids(&["kimi"])
+        };
+
+        let legacy = store();
+        assert_eq!(legacy.load().unwrap().unwrap().as_str(), "legacy-key");
+        assert_eq!(legacy.status().unwrap(), ApiKeyStatus::Saved);
+        assert!(legacy.has_credentials());
+
+        legacy.save("replacement").unwrap();
+        assert_eq!(store().load().unwrap().unwrap().as_str(), "replacement");
+
+        store().delete().unwrap();
+        assert!(store().load().unwrap().is_none());
+        assert_eq!(store().status().unwrap(), ApiKeyStatus::NotSet);
+        assert!(!store().has_credentials());
     }
 }

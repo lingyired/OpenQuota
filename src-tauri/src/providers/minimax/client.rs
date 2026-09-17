@@ -3,9 +3,7 @@ use std::time::Duration;
 use reqwest::{blocking::Client, StatusCode};
 use serde_json::Value;
 
-use super::MiniMaxError;
-
-const REMAINS_URL: &str = "https://www.minimax.io/v1/token_plan/remains";
+use super::{MiniMaxError, Site};
 
 #[derive(Debug)]
 pub struct EndpointResponse {
@@ -19,8 +17,8 @@ pub struct MiniMaxClient {
 }
 
 impl MiniMaxClient {
-    pub fn new() -> Result<Self, MiniMaxError> {
-        Self::with_endpoint(REMAINS_URL, Duration::from_secs(15))
+    pub fn new(site: Site) -> Result<Self, MiniMaxError> {
+        Self::with_endpoint(site.remains_url(), Duration::from_secs(15))
     }
 
     fn with_endpoint(url: &str, timeout: Duration) -> Result<Self, MiniMaxError> {

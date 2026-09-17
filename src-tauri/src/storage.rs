@@ -110,6 +110,18 @@ impl Storage {
                 [],
             )?;
         }
+        // Rows written under a since-renamed provider id would be orphaned by the id change,
+        // dropping cached snapshots and usage history. Idempotent: once moved nothing matches.
+        for (from, to) in crate::providers::RENAMED_PROVIDER_IDS {
+            for table in ["provider_snapshots", "daily_usage", "log_file_cache"] {
+                connection.execute(
+                    &format!(
+                        "UPDATE OR REPLACE {table} SET provider_id = ?1 WHERE provider_id = ?2"
+                    ),
+                    params![to, from],
+                )?;
+            }
+        }
         Ok(Self {
             connection: Mutex::new(connection),
         })
@@ -854,5 +866,47 @@ mod tests {
         storage
             .save_log_events("codex", PathBuf::from("new.jsonl").as_path(), 10, 20, "[]")
             .unwrap();
+    }
+
+    #[test]
+    fn rows_written_under_a_renamed_provider_id_move_on_open() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("quota01.db");
+        drop(Storage::open(&path).unwrap());
+
+        let legacy = Connection::open(&path).unwrap();
+        legacy
+            .execute_batch(
+                "INSERT INTO provider_snapshots (provider_id, payload, refreshed_at, identity_key)
+                   VALUES ('kimi', '{}', '2026-09-01T00:00:00Z', NULL);
+                 INSERT INTO daily_usage
+                     (provider_id, date, tokens, estimated_cost_usd, estimate_complete)
+                   VALUES ('workbuddy', '2026-09-01', 12, NULL, 1);
+                 INSERT INTO log_file_cache
+                     (provider_id, path, size, modified_nanos, events_json)
+                   VALUES ('workbuddy', '/tmp/a.jsonl', 1, 1, '[]');",
+            )
+            .unwrap();
+        drop(legacy);
+
+        let storage = Storage::open(&path).unwrap();
+        drop(storage);
+
+        let connection = Connection::open(&path).unwrap();
+        let count = |table: &str, provider_id: &str| -> i64 {
+            connection
+                .query_row(
+                    &format!("SELECT COUNT(*) FROM {table} WHERE provider_id = ?1"),
+                    rusqlite::params![provider_id],
+                    |row| row.get(0),
+                )
+                .unwrap()
+        };
+        assert_eq!(count("provider_snapshots", "kimi"), 0);
+        assert_eq!(count("provider_snapshots", "kimi-cn"), 1);
+        assert_eq!(count("daily_usage", "workbuddy"), 0);
+        assert_eq!(count("daily_usage", "workbuddy-cn"), 1);
+        assert_eq!(count("log_file_cache", "workbuddy"), 0);
+        assert_eq!(count("log_file_cache", "workbuddy-cn"), 1);
     }
 }

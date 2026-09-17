@@ -10,7 +10,7 @@ afterEach(cleanup);
 const catalog: ProviderCatalog = {
   providers: [
     {
-      id: 'workbuddy',
+      id: 'workbuddy-cn',
       displayName: 'Workbuddy CN',
       shortName: 'WB',
       fallbackEnabled: false,
@@ -18,7 +18,7 @@ const catalog: ProviderCatalog = {
       links: [],
       metrics: [
         {
-          id: 'workbuddy.nearestExpiring',
+          id: 'workbuddy-cn.nearestExpiring',
           label: '近期到期的积分包',
           source: { kind: 'nearestCreditPackage', sourceId: 'nearestExpiring' },
           pinnable: true,
@@ -33,7 +33,7 @@ const catalog: ProviderCatalog = {
 };
 
 const snapshot: ProviderSnapshot = {
-  providerId: 'workbuddy',
+  providerId: 'workbuddy-cn',
   plan: null,
   quotas: [],
   creditPackages: [
@@ -64,7 +64,7 @@ describe('MetricRenderer nearest credit package', () => {
   it('renders the nearest package with a progress meter and expiry', () => {
     render(MetricRenderer, {
       layout: {
-        id: 'workbuddy.nearestExpiring',
+        id: 'workbuddy-cn.nearestExpiring',
         enabled: true,
         section: 'alwaysVisible',
         pinned: true,

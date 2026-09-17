@@ -27,15 +27,15 @@ Workbuddy CN 的积分包查询、汇总、Popup 展示、分享卡片、拖拽�
 
 根因：同一份积分被拆成了两个口径相反的指标。
 
-- `workbuddy.credits` 是“已用 / 总量”的额度指标（已用 `2295.58`、总量 `3315`）。
-- `workbuddy.balance` 是“剩余积分”的值指标（剩余 `1019.42`）。
+- `workbuddy-cn.credits` 是“已用 / 总量”的额度指标（已用 `2295.58`、总量 `3315`）。
+- `workbuddy-cn.balance`(已移除) 是“剩余积分”的值指标（剩余 `1019.42`）。
 - menubar 默认固定前者，所以按 `usageDisplay = used` 显示已用 `2296`；Popup 里最醒目的却是后者的 `1K`。
 
 修复：统一为剩余积分口径。
 
-- `workbuddy.credits` 改为引用 `balance` 值指标，表示可用（剩余）积分，并保持默认固定。
-- 移除重复的 `workbuddy.balance` 指标。
-- 旧设置里的 `workbuddy.balance` 条目会在启动归一化时被安全丢弃，已固定的 `workbuddy.credits` 自动改为显示剩余积分。
+- `workbuddy-cn.credits` 改为引用 `balance` 值指标，表示可用（剩余）积分，并保持默认固定。
+- 移除重复的 `workbuddy-cn.balance`(已移除) 指标。
+- 旧设置里的 `workbuddy-cn.balance`(已移除) 条目会在启动归一化时被安全丢弃，已固定的 `workbuddy-cn.credits` 自动改为显示剩余积分。
 - 数值不再附带 `credits` 单位词：Popup 标题已经写明 Credits，menubar/taskband 只显示 `1.0K` 这样的纯数字。
 - 快照不再产出 `credits` quota。快照契约是双向的：快照里出现的每个 quota/value/status 都必须被 provider 指标定义引用，否则刷新会以 `Provider data does not match its registered metric contract.` 失败。已用/总量改由「可用积分包」逐包展示。
 

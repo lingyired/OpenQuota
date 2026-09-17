@@ -21,23 +21,132 @@ use self::{
 
 use super::{ProviderError, UsageProvider};
 
-pub(crate) fn definition() -> ProviderDefinition {
+/// Z.ai ships the same GLM Coding Plan backend under two brands: `z.ai` for the
+/// international site and 智谱 BigModel (`open.bigmodel.cn`) for mainland China.
+/// Both endpoints answer the same paths with the same response shapes, so one
+/// implementation serves either site.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Site {
+    Global,
+    Cn,
+}
+
+impl Site {
+    pub(crate) const fn id(self) -> &'static str {
+        match self {
+            Self::Global => "zai",
+            Self::Cn => "zai-cn",
+        }
+    }
+
+    pub(crate) const fn display_name(self) -> &'static str {
+        match self {
+            Self::Global => "Z.ai",
+            Self::Cn => "Z.ai CN",
+        }
+    }
+
+    pub(crate) const fn short_name(self) -> &'static str {
+        match self {
+            Self::Global => "Z",
+            Self::Cn => "ZC",
+        }
+    }
+
+    pub(crate) const fn environment_names(self) -> &'static [&'static str] {
+        match self {
+            Self::Global => &["ZAI_API_KEY", "GLM_API_KEY"],
+            Self::Cn => &["ZAI_CN_API_KEY", "BIGMODEL_API_KEY", "ZHIPU_API_KEY"],
+        }
+    }
+
+    pub(crate) const fn config_paths(self) -> &'static [&'static str] {
+        match self {
+            Self::Global => &["~/.config/quota01/zai.json", "~/.config/zai/key.json"],
+            Self::Cn => &["~/.config/quota01/zai-cn.json"],
+        }
+    }
+
+    pub(crate) const fn subscription_url(self) -> &'static str {
+        match self {
+            Self::Global => "https://api.z.ai/api/biz/subscription/list",
+            Self::Cn => "https://open.bigmodel.cn/api/biz/subscription/list",
+        }
+    }
+
+    pub(crate) const fn quota_url(self) -> &'static str {
+        match self {
+            Self::Global => "https://api.z.ai/api/monitor/usage/quota/limit",
+            Self::Cn => "https://open.bigmodel.cn/api/monitor/usage/quota/limit",
+        }
+    }
+
+    pub(crate) const fn missing_key_message(self) -> &'static str {
+        match self {
+            Self::Global => {
+                "Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/quota01/zai.json."
+            }
+            Self::Cn => {
+                "Add a Z.ai CN API key in Customize, set ZAI_CN_API_KEY, or configure ~/.config/quota01/zai-cn.json."
+            }
+        }
+    }
+
+    pub(crate) const fn invalid_key_message(self) -> &'static str {
+        match self {
+            Self::Global => {
+                "The Z.ai API key is invalid. Check it at z.ai/manage-apikey/apikey-list."
+            }
+            Self::Cn => {
+                "The Z.ai CN API key is invalid. Check it at open.bigmodel.cn/user-center/apikeys."
+            }
+        }
+    }
+
+    pub(crate) const fn unreadable_key_message(self) -> &'static str {
+        match self {
+            Self::Global => "The Z.ai API key could not be read or updated.",
+            Self::Cn => "The Z.ai CN API key could not be read or updated.",
+        }
+    }
+
+    pub(crate) const fn no_coding_plan_message(self) -> &'static str {
+        match self {
+            Self::Global => "No active GLM Coding Plan. Subscribe at z.ai/subscribe to view usage.",
+            Self::Cn => {
+                "No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage."
+            }
+        }
+    }
+
+    fn links(self) -> Vec<ProviderLink> {
+        match self {
+            Self::Global => vec![
+                ProviderLink::new(
+                    "Dashboard",
+                    "https://z.ai/manage-apikey/coding-plan/personal/my-plan",
+                ),
+                ProviderLink::new("API Keys", "https://z.ai/manage-apikey/apikey-list"),
+            ],
+            Self::Cn => vec![
+                ProviderLink::new("Dashboard", "https://open.bigmodel.cn/user-center/usage"),
+                ProviderLink::new("API Keys", "https://open.bigmodel.cn/user-center/apikeys"),
+            ],
+        }
+    }
+}
+
+pub(crate) fn definition(site: Site) -> ProviderDefinition {
     ProviderDefinition {
-        id: "zai".into(),
-        display_name: "Z.ai".into(),
-        short_name: "Z".into(),
+        id: site.id().into(),
+        display_name: site.display_name().into(),
+        short_name: site.short_name().into(),
         fallback_enabled: false,
         local_usage_source_note: None,
-        links: vec![
-            ProviderLink::new(
-                "Dashboard",
-                "https://z.ai/manage-apikey/coding-plan/personal/my-plan",
-            ),
-            ProviderLink::new("API Keys", "https://z.ai/manage-apikey/apikey-list"),
-        ],
+        links: site.links(),
         metrics: vec![
             MetricDefinition::quota(
-                "zai.session",
+                &format!("{}.session", site.id()),
                 "Session",
                 "session",
                 false,
@@ -47,7 +156,7 @@ pub(crate) fn definition() -> ProviderDefinition {
                 "S",
             ),
             MetricDefinition::quota(
-                "zai.weekly",
+                &format!("{}.weekly", site.id()),
                 "Weekly",
                 "weekly",
                 false,
@@ -57,7 +166,7 @@ pub(crate) fn definition() -> ProviderDefinition {
                 "W",
             ),
             MetricDefinition::quota(
-                "zai.webSearches",
+                &format!("{}.webSearches", site.id()),
                 "Web Searches",
                 "webSearches",
                 false,
@@ -72,66 +181,71 @@ pub(crate) fn definition() -> ProviderDefinition {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(super) enum ZaiError {
-    #[error(
-        "Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/quota01/zai.json."
-    )]
-    MissingKey,
-    #[error("The Z.ai API key is invalid. Check it at z.ai/manage-apikey/apikey-list.")]
-    InvalidKey,
+    #[error("{}", .0.missing_key_message())]
+    MissingKey(Site),
+    #[error("{}", .0.invalid_key_message())]
+    InvalidKey(Site),
     #[error("Could not reach Z.ai. Check your internet connection.")]
     ConnectionFailed,
     #[error("Z.ai usage data is temporarily unavailable.")]
     InvalidResponse,
     #[error("Z.ai request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("No active GLM Coding Plan. Subscribe at z.ai/subscribe to view usage.")]
-    NoCodingPlan,
-    #[error("The Z.ai API key could not be read or updated.")]
-    CredentialStorage,
+    #[error("{}", .0.no_coding_plan_message())]
+    NoCodingPlan(Site),
+    #[error("{}", .0.unreadable_key_message())]
+    CredentialStorage(Site),
 }
 
 impl From<ZaiError> for ProviderError {
     fn from(error: ZaiError) -> Self {
         let kind = match error {
-            ZaiError::MissingKey | ZaiError::InvalidKey => ProviderErrorKind::Authentication,
+            ZaiError::MissingKey(_) | ZaiError::InvalidKey(_) => ProviderErrorKind::Authentication,
             ZaiError::ConnectionFailed => ProviderErrorKind::Network,
             ZaiError::RequestFailed(429) => ProviderErrorKind::RateLimited,
             ZaiError::RequestFailed(401 | 403) => ProviderErrorKind::Authentication,
-            ZaiError::NoCodingPlan => ProviderErrorKind::Permission,
+            ZaiError::NoCodingPlan(_) => ProviderErrorKind::Permission,
             ZaiError::RequestFailed(_) | ZaiError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            ZaiError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            ZaiError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
         };
         ProviderError::new(kind, error.to_string())
     }
 }
 
 pub struct ZaiProvider {
+    site: Site,
     auth: ZaiAuthStore,
     client: Arc<ZaiClient>,
 }
 
 impl ZaiProvider {
     pub fn new() -> Result<Self, ProviderError> {
+        Self::with_site(Site::Global)
+    }
+
+    fn with_site(site: Site) -> Result<Self, ProviderError> {
         Ok(Self {
-            auth: ZaiAuthStore::new(),
-            client: Arc::new(ZaiClient::new().map_err(ProviderError::from)?),
+            site,
+            auth: ZaiAuthStore::new(site),
+            client: Arc::new(ZaiClient::new(site).map_err(ProviderError::from)?),
         })
     }
 
     #[cfg(test)]
     fn with_dependencies(auth: ZaiAuthStore, client: ZaiClient) -> Self {
         Self {
+            site: Site::Global,
             auth,
             client: Arc::new(client),
         }
     }
 
     fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let quota = required_response(self.client.fetch_quota(api_key))?;
+        let quota = required_response(self.site, self.client.fetch_quota(api_key))?;
         if is_no_coding_plan(&quota.body) {
-            return Err(ZaiError::NoCodingPlan.into());
+            return Err(ZaiError::NoCodingPlan(self.site).into());
         }
         let subscription = self
             .client
@@ -144,7 +258,7 @@ impl ZaiProvider {
         )?;
         Ok(ProviderSnapshot {
             credit_packages: Vec::new(),
-            provider_id: "zai".into(),
+            provider_id: self.site.id().into(),
             plan: mapped.plan,
             quotas: mapped.quotas,
             value_metrics: Vec::new(),
@@ -159,7 +273,7 @@ impl ZaiProvider {
 
 impl UsageProvider for ZaiProvider {
     fn definition(&self) -> ProviderDefinition {
-        definition()
+        definition(self.site)
     }
 
     fn has_local_credentials(&self) -> bool {
@@ -171,7 +285,7 @@ impl UsageProvider for ZaiProvider {
             .auth
             .load()
             .map_err(ProviderError::from)?
-            .ok_or_else(|| ProviderError::from(ZaiError::MissingKey))?;
+            .ok_or_else(|| ProviderError::from(ZaiError::MissingKey(self.site)))?;
         self.refresh_snapshot(api_key.as_str())
     }
 
@@ -192,13 +306,56 @@ impl UsageProvider for ZaiProvider {
     }
 }
 
-fn required_response(response: Result<ZaiResponse, ZaiError>) -> Result<ZaiResponse, ZaiError> {
+/// Mainland-China runtime for the 智谱 BigModel site. It shares every code path
+/// with [`ZaiProvider`]; only the site (id, endpoints, credential sources) differs.
+pub struct ZaiCnProvider(ZaiProvider);
+
+impl ZaiCnProvider {
+    pub fn new() -> Result<Self, ProviderError> {
+        Ok(Self(ZaiProvider::with_site(Site::Cn)?))
+    }
+}
+
+impl UsageProvider for ZaiCnProvider {
+    fn definition(&self) -> ProviderDefinition {
+        definition(Site::Cn)
+    }
+
+    fn has_local_credentials(&self) -> bool {
+        self.0.has_local_credentials()
+    }
+
+    fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.0.refresh()
+    }
+
+    fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
+        self.0.api_key_status()
+    }
+
+    fn supports_api_key_configuration(&self) -> bool {
+        true
+    }
+
+    fn save_api_key(&self, value: &str) -> Result<(), ProviderError> {
+        self.0.save_api_key(value)
+    }
+
+    fn delete_api_key(&self) -> Result<(), ProviderError> {
+        self.0.delete_api_key()
+    }
+}
+
+fn required_response(
+    site: Site,
+    response: Result<ZaiResponse, ZaiError>,
+) -> Result<ZaiResponse, ZaiError> {
     let response = response?;
     if matches!(
         response.status,
         StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
     ) {
-        return Err(ZaiError::InvalidKey);
+        return Err(ZaiError::InvalidKey(site));
     }
     if !response.status.is_success() {
         return Err(ZaiError::RequestFailed(response.status.as_u16()));
@@ -222,7 +379,7 @@ mod tests {
         },
     };
 
-    use super::{auth::ZaiAuthStore, client::ZaiClient, definition, ZaiProvider};
+    use super::{auth::ZaiAuthStore, client::ZaiClient, definition, Site, ZaiProvider};
 
     #[derive(Default)]
     struct MemorySecrets(Mutex<HashMap<String, Vec<u8>>>);
@@ -261,15 +418,18 @@ mod tests {
     }
 
     fn auth(key: Option<&str>) -> ZaiAuthStore {
-        ZaiAuthStore::with_store(ApiKeyStore::with_backends(
-            "zai",
-            "ZAI_API_KEY",
-            Arc::new(MemorySecrets::default()),
-            Arc::new(Environment(
-                key.map(|value| HashMap::from([("ZAI_API_KEY".into(), value.into())]))
-                    .unwrap_or_default(),
-            )),
-        ))
+        ZaiAuthStore::with_store(
+            Site::Global,
+            ApiKeyStore::with_backends(
+                "zai",
+                "ZAI_API_KEY",
+                Arc::new(MemorySecrets::default()),
+                Arc::new(Environment(
+                    key.map(|value| HashMap::from([("ZAI_API_KEY".into(), value.into())]))
+                        .unwrap_or_default(),
+                )),
+            ),
+        )
     }
 
     fn provider(
@@ -442,7 +602,7 @@ mod tests {
 
     #[test]
     fn definition_exposes_expected_links_and_default_metric_layout() {
-        let mut definition = definition();
+        let mut definition = definition(Site::Global);
         crate::providers::normalize_default_pins(&mut definition.metrics);
         assert_eq!(definition.id, "zai");
         assert_eq!(definition.display_name, "Z.ai");

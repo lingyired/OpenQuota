@@ -15,9 +15,10 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT license"></a>
 </p>
 
-Quota01 brings usage data from Claude Code, Codex, Cursor, Copilot, and other AI coding providers
-into one compact panel. See session and weekly limits, reset times, token usage, and estimated
-spend at a glance.
+Quota01 brings usage data from mainland-China AI coding providers — DeepSeek, Kimi, MiniMax,
+TraeWork, WorkBuddy, and Z.ai — alongside international ones like Claude Code, Codex, Cursor, and
+Copilot into one compact panel. See session and weekly limits, reset times, token usage, and
+estimated spend at a glance.
 
 <p align="center">
   <img src="assets/quota01-demo.gif" alt="Quota01 dashboard showing animated AI usage in light and dark themes" width="840">
@@ -48,6 +49,25 @@ from this repository's official release page; on macOS, manual approval may be r
 
 ## Supported providers
 
+Quota01 focuses on mainland-China providers and adds the international vendors with frontier models
+of their own. Mainland-China sites are the `-cn` variants; where a vendor runs separate account
+systems for China and the rest of the world, both are listed as separate providers.
+
+### Mainland China
+
+- **[DeepSeek](docs/providers/deepseek.md)** — balance, cumulative spend, and today's spend by
+  currency through secure WebView sign-in (no API key)
+- **[Kimi CN](docs/providers/kimi-cn.md)** — Kimi Code session and weekly quotas (API key)
+- **[MiniMax CN](docs/providers/minimax-cn.md)** — Token Plan session and weekly quotas on
+  `minimaxi.com` (API key)
+- **[TraeWork CN](docs/providers/trae-work-cn.md)** — available Trae credits through secure WebView sign-in
+- **[Workbuddy CN](docs/providers/workbuddy-cn.md)** — credit packages, available credits, and usage
+  history from the WorkBuddy or CodeBuddy login already on your computer (no API key)
+- **[Z.ai CN](docs/providers/zai-cn.md)** — GLM Coding Plan session, weekly, and web-search quotas on
+  `open.bigmodel.cn` (API key)
+
+### International
+
 - **[Claude Code](docs/providers/claude.md)** — multiple accounts, session and weekly limits,
   model-specific usage, token history, and estimated spend
 - **[Codex](docs/providers/codex.md)** — session and weekly limits, credits, token history, model
@@ -57,25 +77,23 @@ from this repository's official release page; on macOS, manual approval may be r
 - **[Antigravity](docs/providers/antigravity.md)** — shared Gemini and Claude quota pools
 - **[Copilot](docs/providers/copilot.md)** — premium requests, extra usage, chat and completion
   quotas, plus organization billing
-- **[Devin](docs/providers/devin.md)** — daily and weekly limits, reset times, and extra usage balance
 - **[Grok](docs/providers/grok.md)** — weekly allowance, extra usage status, token history, and
   estimated spend
 - **[OpenCode](docs/providers/opencode.md)** — OpenCode Go session, weekly and monthly spend caps,
   plus local hosted usage history
 - **[OpenRouter](docs/providers/openrouter.md)** — credit balance and daily, weekly and monthly spend
   (API key)
-- **[Z.ai](docs/providers/zai.md)** — GLM Coding Plan session, weekly, and web-search quotas (API key)
-- **[Kimi](docs/providers/kimi.md)** — Kimi Code session and weekly quotas (API key)
-- **[MiniMax](docs/providers/minimax.md)** — Token Plan session and weekly quotas (API key)
-- **[DeepSeek](docs/providers/deepseek.md)** — current API balance by currency (API key)
-- **[TraeWork CN](docs/providers/trae-work-cn.md)** — available Trae credits through secure WebView sign-in
+- **[MiniMax](docs/providers/minimax.md)** — Token Plan session and weekly quotas on `minimax.io`
+  (API key)
+- **[Z.ai](docs/providers/zai.md)** — GLM Coding Plan session, weekly, and web-search quotas on
+  `api.z.ai` (API key)
 
-Most providers use credentials already available on your computer. OpenRouter, Z.ai, Kimi, MiniMax,
-and DeepSeek require API keys, which you can add in Customize; Quota01 stores them securely in your
-encrypted credential vault protected by the operating system credential store. TraeWork CN uses a
-WebView sign-in and stores only the session cookie in the credential store. Codex subscription
-limits require a ChatGPT login and are not
-available in API-key-only sessions.
+Most providers use credentials already available on your computer. OpenRouter, Z.ai, Z.ai CN, Kimi
+CN, MiniMax, and MiniMax CN require API keys, which you can add in Customize; Quota01 stores them
+securely in your encrypted credential vault protected by the operating system credential store.
+DeepSeek and TraeWork CN use a WebView sign-in and store only the resulting account session in the
+credential store. Workbuddy CN reuses the WorkBuddy or CodeBuddy login data on disk. Codex
+subscription limits require a ChatGPT login and are not available in API-key-only sessions.
 
 ## Features
 

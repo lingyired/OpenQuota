@@ -3,7 +3,7 @@ use serde_json::Value;
 
 use crate::models::{QuotaFormat, QuotaWindow};
 
-use super::MiniMaxError;
+use super::{MiniMaxError, Site};
 
 const WEEKLY_PERIOD_SECONDS: u64 = 7 * 24 * 60 * 60;
 const DEFAULT_INTERVAL_PERIOD_SECONDS: u64 = 5 * 60 * 60;
@@ -30,11 +30,11 @@ pub fn api_error_message(body: &Value) -> Option<String> {
     }
 }
 
-pub fn map_usage(body: &Value) -> Result<MiniMaxMappedUsage, MiniMaxError> {
+pub fn map_usage(site: Site, body: &Value) -> Result<MiniMaxMappedUsage, MiniMaxError> {
     if let Some(message) = api_error_message(body) {
         let normalized = message.to_ascii_lowercase();
         if normalized.contains("no token plan") {
-            return Err(MiniMaxError::NoTokenPlan);
+            return Err(MiniMaxError::NoTokenPlan(site));
         }
         return Err(MiniMaxError::InvalidResponse);
     }
@@ -173,7 +173,7 @@ mod tests {
     use chrono::{TimeZone, Utc};
     use serde_json::{json, Value};
 
-    use super::{api_error_message, map_usage};
+    use super::{api_error_message, map_usage, Site};
     use crate::providers::minimax::MiniMaxError;
 
     fn captured() -> Value {
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn captured_payload_includes_an_unlimited_weekly_window() {
-        let mapped = map_usage(&captured()).unwrap();
+        let mapped = map_usage(Site::Global, &captured()).unwrap();
 
         assert_eq!(mapped.plan.as_deref(), Some("Token Plan"));
         assert_eq!(
@@ -223,15 +223,18 @@ mod tests {
     #[test]
     fn rejects_payloads_without_the_general_model() {
         assert!(matches!(
-            map_usage(&json!({
-                "model_remains":[{
-                    "model_name":"video","current_weekly_remaining_percent":40,
-                    "current_interval_remaining_percent":90,
-                    "weekly_start_time":0,"weekly_end_time":604800000,
-                    "start_time":0,"end_time":18000000
-                }],
-                "base_resp":{"status_code":0}
-            })),
+            map_usage(
+                Site::Global,
+                &json!({
+                    "model_remains":[{
+                        "model_name":"video","current_weekly_remaining_percent":40,
+                        "current_interval_remaining_percent":90,
+                        "weekly_start_time":0,"weekly_end_time":604800000,
+                        "start_time":0,"end_time":18000000
+                    }],
+                    "base_resp":{"status_code":0}
+                })
+            ),
             Err(MiniMaxError::InvalidResponse)
         ));
     }
@@ -242,7 +245,7 @@ mod tests {
         body["model_remains"][0]["current_weekly_status"] = json!(2);
         body["model_remains"][0]["weekly_boost_permille"] = json!(1500);
         body["model_remains"][0]["current_weekly_remaining_percent"] = json!(150);
-        let mapped = map_usage(&body).unwrap();
+        let mapped = map_usage(Site::Global, &body).unwrap();
         let weekly = mapped
             .quotas
             .iter()
@@ -262,7 +265,7 @@ mod tests {
             .as_object_mut()
             .unwrap()
             .remove("current_weekly_status");
-        let mapped = map_usage(&body).unwrap();
+        let mapped = map_usage(Site::Global, &body).unwrap();
         assert_eq!(mapped.quotas.len(), 2);
         assert!(mapped
             .quotas
@@ -272,7 +275,7 @@ mod tests {
 
     #[test]
     fn unlimited_windows_are_not_reported_as_unavailable() {
-        let mapped = map_usage(&captured()).unwrap();
+        let mapped = map_usage(Site::Global, &captured()).unwrap();
         assert_eq!(
             mapped
                 .quotas
@@ -305,20 +308,25 @@ mod tests {
 
         assert!(matches!(
             map_usage(
+                Site::Global,
                 &json!({"base_resp":{"status_code":1001,"status_msg":"user has no token plan"}})
             ),
-            Err(MiniMaxError::NoTokenPlan)
+            Err(MiniMaxError::NoTokenPlan(Site::Global))
         ));
         assert!(matches!(
             map_usage(
+                Site::Global,
                 &json!({"base_resp":{"status_code":1001,"status_msg":"subscribe to a plan"}})
             ),
             Err(MiniMaxError::InvalidResponse)
         ));
         assert!(matches!(
-            map_usage(&json!({"base_resp":{"status_code":500,"status_msg":"internal error"}})),
+            map_usage(
+                Site::Global,
+                &json!({"base_resp":{"status_code":500,"status_msg":"internal error"}})
+            ),
             Err(MiniMaxError::InvalidResponse)
         ));
-        assert!(map_usage(&json!({"base_resp":{"status_code":0}})).is_err());
+        assert!(map_usage(Site::Global, &json!({"base_resp":{"status_code":0}})).is_err());
     }
 }

@@ -577,7 +577,7 @@ mod tests {
     #[test]
     fn builtin_provider_catalog_keeps_the_product_defaults() {
         use crate::providers::{
-            antigravity, claude, codex, copilot, cursor, devin, grok, opencode, openrouter, zai,
+            antigravity, claude, codex, copilot, cursor, grok, minimax, opencode, openrouter, zai,
         };
 
         let registry = ProviderRegistry::new(vec![
@@ -586,11 +586,13 @@ mod tests {
             runtime(cursor::definition()),
             runtime(antigravity::definition()),
             runtime(copilot::definition()),
-            runtime(devin::definition()),
             runtime(grok::definition()),
             runtime(opencode::definition()),
             runtime(openrouter::definition()),
-            runtime(zai::definition()),
+            runtime(zai::definition(zai::Site::Global)),
+            runtime(zai::definition(zai::Site::Cn)),
+            runtime(minimax::definition(minimax::Site::Global)),
+            runtime(minimax::definition(minimax::Site::Cn)),
         ])
         .unwrap();
         let catalog = registry.catalog();
@@ -607,11 +609,13 @@ mod tests {
                 "cursor",
                 "antigravity",
                 "copilot",
-                "devin",
                 "grok",
                 "opencode",
                 "openrouter",
                 "zai",
+                "zai-cn",
+                "minimax",
+                "minimax-cn",
             ]
         );
         assert_eq!(
@@ -641,11 +645,13 @@ mod tests {
         for provider_id in [
             "antigravity",
             "copilot",
-            "devin",
             "grok",
             "opencode",
             "openrouter",
             "zai",
+            "zai-cn",
+            "minimax",
+            "minimax-cn",
         ] {
             assert!(!registry.definition(provider_id).unwrap().fallback_enabled);
         }

@@ -432,11 +432,6 @@ pub fn redact_log_message(message: &str) -> String {
             redact_value(&captures[0])
         })
         .into_owned();
-    output = devin_token_regex()
-        .replace_all(&output, |captures: &Captures<'_>| {
-            redact_value(&captures[0])
-        })
-        .into_owned();
     output = bearer_regex()
         .replace_all(&output, |captures: &Captures<'_>| {
             format!("{}{}", &captures[1], redact_value(&captures[2]))
@@ -468,11 +463,6 @@ fn jwt_regex() -> &'static Regex {
 fn api_key_regex() -> &'static Regex {
     static VALUE: OnceLock<Regex> = OnceLock::new();
     VALUE.get_or_init(|| Regex::new(r"(?:sk-|pk-|api_|key_|secret_)[A-Za-z0-9_-]{12,}").unwrap())
-}
-
-fn devin_token_regex() -> &'static Regex {
-    static VALUE: OnceLock<Regex> = OnceLock::new();
-    VALUE.get_or_init(|| Regex::new(r#"devin-session-token\$[^\s"',}\]]+"#).unwrap())
 }
 
 fn bearer_regex() -> &'static Regex {

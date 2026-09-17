@@ -148,14 +148,22 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.codexApiKeyOnly',
   'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/quota01/zai.json.':
     'providerError.addZaiApiKey',
+  'Add a Z.ai CN API key in Customize, set ZAI_CN_API_KEY, or configure ~/.config/quota01/zai-cn.json.':
+    'providerError.addZaiCnApiKey',
   'Add a Kimi API key in Customize or set KIMI_API_KEY.': 'providerError.addKimiApiKey',
   'Add a MiniMax API key in Customize or set MINIMAX_API_KEY.': 'providerError.addMiniMaxApiKey',
+  'Add a MiniMax CN API key in Customize or set MINIMAX_CN_API_KEY.':
+    'providerError.addMiniMaxCnApiKey',
   'Add an OpenRouter API key in Customize to view usage.': 'providerError.addOpenRouterApiKey',
   'The Kimi API key is invalid. Check it in the Kimi Code console.':
     'providerError.apiKeyInvalidInConsole',
   'The MiniMax API key is invalid. Check it at minimax.io.': [
     'providerError.apiKeyInvalid',
     { provider: 'MiniMax', url: 'minimax.io' },
+  ],
+  'The MiniMax CN API key is invalid. Check it at platform.minimaxi.com.': [
+    'providerError.apiKeyInvalid',
+    { provider: 'MiniMax CN', url: 'platform.minimaxi.com' },
   ],
   'The OpenRouter API key is invalid. Check it at openrouter.ai/keys.': [
     'providerError.apiKeyInvalid',
@@ -164,6 +172,10 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'The Z.ai API key is invalid. Check it at z.ai/manage-apikey/apikey-list.': [
     'providerError.apiKeyInvalid',
     { provider: 'Z.ai', url: 'z.ai/manage-apikey/apikey-list' },
+  ],
+  'The Z.ai CN API key is invalid. Check it at open.bigmodel.cn/user-center/apikeys.': [
+    'providerError.apiKeyInvalid',
+    { provider: 'Z.ai CN', url: 'open.bigmodel.cn/user-center/apikeys' },
   ],
   'OpenCode local usage data is temporarily unavailable.':
     'providerError.openCodeLocalUsageUnavailable',
@@ -192,8 +204,12 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'No active Cursor subscription.': 'providerError.noActiveCursorSubscription',
   'No active GLM Coding Plan. Subscribe at z.ai/subscribe to view usage.':
     'providerError.noActiveGlmPlan',
+  'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.':
+    'providerError.noActiveGlmPlanCn',
   'No active MiniMax token plan. Subscribe at minimax.io to view usage.':
     'providerError.noActiveMiniMaxPlan',
+  'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.':
+    'providerError.noActiveMiniMaxPlanCn',
   'OpenCode Go subscription required.': 'providerError.openCodeGoSubscriptionRequired',
   'OpenCode was not detected. Sign in to OpenCode Go or use OpenCode locally first.':
     'providerError.openCodeNotDetected',
@@ -218,11 +234,6 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Grok is not logged in. Run `grok login`.': 'providerError.grokNotLoggedIn',
   'Grok login expired. Run `grok login` again.': 'providerError.grokLoginExpired',
   'Grok login data is invalid. Run `grok login` again.': 'providerError.grokLoginInvalid',
-  'Devin is not logged in. Run `devin auth login` or sign in to the Devin app.':
-    'providerError.devinNotLoggedIn',
-  'Devin login expired. Run `devin auth login` or sign in to the Devin app.':
-    'providerError.devinLoginExpired',
-  'Devin quota data is unavailable for this account.': 'providerError.devinQuotaUnavailable',
   'Sign in to GitHub Copilot in your editor, or run `gh auth login`, and try again.':
     'providerError.copilotSignInRequired',
   'Your GitHub token is invalid or expired. Run `gh auth login` and try again.':
@@ -254,6 +265,10 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.apiKeyUnreadable',
     { provider: 'MiniMax' },
   ],
+  'The MiniMax CN API key could not be read or updated.': [
+    'providerError.apiKeyUnreadable',
+    { provider: 'MiniMax CN' },
+  ],
   'The OpenRouter API key could not be read or updated.': [
     'providerError.apiKeyUnreadable',
     { provider: 'OpenRouter' },
@@ -261,6 +276,10 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'The Z.ai API key could not be read or updated.': [
     'providerError.apiKeyUnreadable',
     { provider: 'Z.ai' },
+  ],
+  'The Z.ai CN API key could not be read or updated.': [
+    'providerError.apiKeyUnreadable',
+    { provider: 'Z.ai CN' },
   ],
   'The DeepSeek session could not be read or updated.': [
     'providerError.sessionUnreadable',

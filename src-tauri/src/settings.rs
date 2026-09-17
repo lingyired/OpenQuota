@@ -710,6 +710,43 @@ pub fn default_settings(registry: &ProviderRegistry, detected: &HashSet<String>)
     settings
 }
 
+/// Carries persisted layout across a provider rename (see `RENAMED_PROVIDER_IDS`). Without
+/// this the old id would no longer resolve in the registry and would be dropped, silently
+/// resetting the user's enable/pin choices, order and per-metric sections.
+fn migrate_renamed_provider_ids(settings: &mut AppSettings) {
+    for provider in &mut settings.providers {
+        let Some(renamed) = crate::providers::migrated_provider_id(&provider.id) else {
+            continue;
+        };
+        let prefix = format!("{}.", provider.id);
+        provider.id = renamed.to_owned();
+        for metric in &mut provider.metrics {
+            let renamed_metric = metric
+                .id
+                .strip_prefix(&prefix)
+                .map(|suffix| format!("{renamed}.{suffix}"));
+            if let Some(next) = renamed_metric {
+                metric.id = next;
+            }
+        }
+    }
+    for provider_id in &mut settings.known_provider_ids {
+        if let Some(renamed) = crate::providers::migrated_provider_id(provider_id) {
+            *provider_id = renamed.to_owned();
+        }
+    }
+    settings.taskband_providers = std::mem::take(&mut settings.taskband_providers)
+        .into_iter()
+        .map(|(provider_id, layout)| {
+            let key = match crate::providers::migrated_provider_id(&provider_id) {
+                Some(renamed) => renamed.to_owned(),
+                None => provider_id,
+            };
+            (key, layout)
+        })
+        .collect();
+}
+
 #[cfg(test)]
 pub fn normalize(
     registry: &ProviderRegistry,
@@ -726,6 +763,7 @@ fn normalize_with_persisted_accounts(
     persisted_accounts: &HashSet<String>,
 ) {
     let catalog = registry.catalog();
+    migrate_renamed_provider_ids(settings);
     let migrating_to_multi_provider = settings.schema_version < 3;
     settings.schema_version = 8;
     settings.dismissed_update_version = settings
@@ -2421,5 +2459,107 @@ mod tests {
         assert!(!openrouter.detected);
         assert!(openrouter.enabled);
         assert_eq!(service.credential_revision.load(Ordering::SeqCst), 1);
+    }
+
+    fn renamed_catalog() -> Arc<ProviderRegistry> {
+        let providers = [
+            claude::definition(),
+            crate::providers::kimi::definition(),
+            crate::providers::workbuddy::definition(),
+        ]
+        .into_iter()
+        .map(|definition| Arc::new(CatalogProvider(definition)) as Arc<dyn UsageProvider>)
+        .collect();
+        Arc::new(ProviderRegistry::new(providers).unwrap())
+    }
+
+    fn persisted_layout(id: &str, metrics: &[(&str, bool)]) -> crate::models::ProviderLayout {
+        crate::models::ProviderLayout {
+            id: id.to_owned(),
+            enabled: true,
+            detected: true,
+            expanded: true,
+            metrics: metrics
+                .iter()
+                .map(|(metric_id, pinned)| crate::models::MetricLayout {
+                    id: (*metric_id).to_owned(),
+                    enabled: true,
+                    section: MetricSection::AlwaysVisible,
+                    pinned: *pinned,
+                })
+                .collect(),
+        }
+    }
+
+    #[test]
+    fn renamed_provider_ids_keep_the_persisted_layout_and_pins() {
+        let registry = renamed_catalog();
+        let mut settings = crate::models::AppSettings {
+            providers: vec![persisted_layout(
+                "kimi",
+                &[("kimi.session", false), ("kimi.weekly", true)],
+            )],
+            known_provider_ids: vec!["kimi".into()],
+            ..Default::default()
+        };
+        settings.taskband_providers.insert(
+            "kimi".into(),
+            crate::models::TaskbandLayout {
+                enabled: false,
+                side: None,
+                top_color: None,
+                bottom_color: None,
+                top_bold: false,
+                bottom_bold: false,
+                top_size: 12.0,
+                bottom_size: 12.0,
+                top_align: 0,
+                bottom_align: 0,
+                padding_left: 0,
+                padding_right: 0,
+            },
+        );
+
+        normalize(&registry, &mut settings, &HashSet::new());
+
+        let provider = settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == "kimi-cn")
+            .expect("the renamed provider keeps its persisted layout");
+        assert!(provider.enabled);
+        assert!(provider.expanded);
+        assert_eq!(
+            provider
+                .metrics
+                .iter()
+                .map(|metric| metric.id.as_str())
+                .collect::<Vec<_>>(),
+            ["kimi-cn.session", "kimi-cn.weekly"]
+        );
+        assert!(provider.metrics[1].pinned);
+        assert!(!settings
+            .providers
+            .iter()
+            .any(|provider| provider.id == "kimi"));
+        assert!(settings.known_provider_ids.contains(&"kimi-cn".to_owned()));
+        assert!(!settings.taskband_providers.contains_key("kimi"));
+        assert!(!settings.taskband_providers["kimi-cn"].enabled);
+    }
+
+    #[test]
+    fn an_unknown_provider_id_is_still_dropped_without_a_rename() {
+        let registry = renamed_catalog();
+        let mut settings = crate::models::AppSettings {
+            providers: vec![persisted_layout("devin", &[("devin.session", true)])],
+            ..Default::default()
+        };
+
+        normalize(&registry, &mut settings, &HashSet::new());
+
+        assert!(!settings
+            .providers
+            .iter()
+            .any(|provider| provider.id == "devin"));
     }
 }

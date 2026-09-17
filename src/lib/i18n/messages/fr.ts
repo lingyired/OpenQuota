@@ -472,6 +472,13 @@ export const fr = {
     noActiveCursorSubscription: 'No active Cursor subscription.',
     noActiveGlmPlan: 'No active GLM Coding Plan. Subscribe at z.ai/subscribe to view usage.',
     noActiveMiniMaxPlan: 'No active MiniMax token plan. Subscribe at minimax.io to view usage.',
+    addZaiCnApiKey:
+      'Add a Z.ai CN API key in Customize, set ZAI_CN_API_KEY, or configure ~/.config/quota01/zai-cn.json.',
+    addMiniMaxCnApiKey: 'Add a MiniMax CN API key in Customize or set MINIMAX_CN_API_KEY.',
+    noActiveGlmPlanCn:
+      'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.',
+    noActiveMiniMaxPlanCn:
+      'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
     openCodeGoSubscriptionRequired: 'OpenCode Go subscription required.',
     notLoggedInCursor: 'Not logged in. Sign in via Cursor app or run `agent login`.',
     sessionExpiredCursor: 'Session expired. Sign in via Cursor app or run `agent login`.',
@@ -480,9 +487,6 @@ export const fr = {
     grokNotLoggedIn: 'Grok is not logged in. Run `grok login`.',
     grokLoginExpired: 'Grok login expired. Run `grok login` again.',
     grokLoginInvalid: 'Grok login data is invalid. Run `grok login` again.',
-    devinNotLoggedIn: 'Devin is not logged in. Run `devin auth login` or sign in to the Devin app.',
-    devinLoginExpired: 'Devin login expired. Run `devin auth login` or sign in to the Devin app.',
-    devinQuotaUnavailable: 'Devin quota data is unavailable for this account.',
     copilotSignInRequired:
       'Sign in to GitHub Copilot in your editor, or run `gh auth login`, and try again.',
     githubTokenInvalid:

@@ -2,6 +2,11 @@
 
 Quota01 tracks quota information for the Z.ai GLM Coding Plan.
 
+Z.ai and BigModel run the same GLM Coding Plan backend under two brands. Quota01 ships both as
+separate providers because the accounts and API keys are not interchangeable: this page covers the
+international site (`api.z.ai`), and **[Z.ai CN](zai-cn.md)** covers mainland China
+(`open.bigmodel.cn`). Add whichever site you subscribed to.
+
 ## What it tracks
 
 | Metric       | Meaning                                      |

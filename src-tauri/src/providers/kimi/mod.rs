@@ -23,9 +23,9 @@ use super::{ProviderError, UsageProvider};
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
-        id: "kimi".into(),
-        display_name: "Kimi".into(),
-        short_name: "K".into(),
+        id: "kimi-cn".into(),
+        display_name: "Kimi CN".into(),
+        short_name: "KC".into(),
         fallback_enabled: false,
         local_usage_source_note: None,
         links: vec![
@@ -34,7 +34,7 @@ pub(crate) fn definition() -> ProviderDefinition {
         ],
         metrics: vec![
             MetricDefinition::quota(
-                "kimi.session",
+                "kimi-cn.session",
                 "Session",
                 "session",
                 false,
@@ -44,7 +44,7 @@ pub(crate) fn definition() -> ProviderDefinition {
                 "S",
             ),
             MetricDefinition::quota(
-                "kimi.weekly",
+                "kimi-cn.weekly",
                 "Weekly",
                 "weekly",
                 false,
@@ -116,7 +116,7 @@ impl KimiProvider {
         let mapped = map_usage(&response.body)?;
         Ok(ProviderSnapshot {
             credit_packages: Vec::new(),
-            provider_id: "kimi".into(),
+            provider_id: "kimi-cn".into(),
             plan: mapped.plan,
             quotas: mapped.quotas,
             value_metrics: Vec::new(),
@@ -227,7 +227,7 @@ mod tests {
 
     fn auth(key: Option<&str>) -> KimiAuthStore {
         KimiAuthStore::with_store(ApiKeyStore::with_backends(
-            "kimi",
+            "kimi-cn",
             "KIMI_API_KEY",
             Arc::new(MemorySecrets::default()),
             Arc::new(Environment(
@@ -251,7 +251,7 @@ mod tests {
         );
 
         let snapshot = provider.refresh().unwrap();
-        assert_eq!(snapshot.provider_id, "kimi");
+        assert_eq!(snapshot.provider_id, "kimi-cn");
         assert_eq!(snapshot.plan.as_deref(), Some("Basic"));
         assert_eq!(
             snapshot
@@ -314,8 +314,8 @@ mod tests {
     #[test]
     fn definition_exposes_expected_identity_and_metrics() {
         let definition = definition();
-        assert_eq!(definition.id, "kimi");
-        assert_eq!(definition.display_name, "Kimi");
+        assert_eq!(definition.id, "kimi-cn");
+        assert_eq!(definition.display_name, "Kimi CN");
         assert_eq!(
             definition
                 .links

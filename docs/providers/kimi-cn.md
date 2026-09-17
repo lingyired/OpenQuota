@@ -1,13 +1,13 @@
-# Kimi
+# Kimi CN
 
 Quota01 tracks the Session (rolling five-hour) and Weekly quotas of a Kimi Code membership.
 
 ## What it tracks
 
-| Metric  | Meaning                                      |
-| ------- | -------------------------------------------- |
+| Metric       | Meaning                                      |
+| ------------ | -------------------------------------------- |
 | Session (5h) | Usage remaining in the rolling 5-hour window |
-| Weekly  | Usage remaining in the rolling 7-day window  |
+| Weekly       | Usage remaining in the rolling 7-day window  |
 
 ## Setup
 
@@ -19,6 +19,10 @@ takes priority.
 
 This provider uses the Kimi Code endpoint, `https://api.kimi.com/coding/v1`. Kimi Code keys are not
 interchangeable with Kimi Open Platform keys.
+
+The `-cn` suffix marks this as the mainland-China variant. It is the only Kimi entry Quota01 ships,
+and an upgrade keeps a key that was saved under the plain `kimi` id, so you are not asked for it
+again.
 
 ## Troubleshooting
 

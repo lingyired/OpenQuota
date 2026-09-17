@@ -2,6 +2,11 @@
 
 Quota01 tracks the Session and Weekly quotas of a MiniMax Token Plan.
 
+MiniMax runs two separate account systems. Quota01 ships both as separate providers because the API
+keys are not interchangeable: this page covers the global site (`www.minimax.io`), and
+**[MiniMax CN](minimax-cn.md)** covers mainland China (`www.minimaxi.com`). Add whichever site you
+subscribed to.
+
 ## What it tracks
 
 | Metric  | Meaning                                      |

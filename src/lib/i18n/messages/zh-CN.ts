@@ -456,6 +456,12 @@ export const zhCn = {
     noActiveCursorSubscription: '没有有效的 Cursor 订阅。',
     noActiveGlmPlan: '没有有效的 GLM 编程套餐。请在 z.ai/subscribe 订阅以查看用量。',
     noActiveMiniMaxPlan: '没有有效的 MiniMax Token 套餐。请在 minimax.io 订阅以查看用量。',
+    addZaiCnApiKey:
+      '在自定义中添加 Z.ai CN API 密钥、设置 ZAI_CN_API_KEY，或配置 ~/.config/quota01/zai-cn.json。',
+    addMiniMaxCnApiKey: '在自定义中添加 MiniMax CN API 密钥，或设置 MINIMAX_CN_API_KEY。',
+    noActiveGlmPlanCn: '没有有效的 GLM 编程套餐。请在 bigmodel.cn/glm-coding 订阅以查看用量。',
+    noActiveMiniMaxPlanCn:
+      '没有有效的 MiniMax Token 套餐。请在 platform.minimaxi.com 订阅以查看用量。',
     openCodeGoSubscriptionRequired: '需要 OpenCode Go 订阅。',
     notLoggedInCursor: '尚未登录。请通过 Cursor 应用登录，或运行 `agent login`。',
     sessionExpiredCursor: '会话已过期。请通过 Cursor 应用登录，或运行 `agent login`。',
@@ -464,9 +470,6 @@ export const zhCn = {
     grokNotLoggedIn: 'Grok 未登录。请运行 `grok login`。',
     grokLoginExpired: 'Grok 登录已过期。请重新运行 `grok login`。',
     grokLoginInvalid: 'Grok 登录数据无效。请重新运行 `grok login`。',
-    devinNotLoggedIn: 'Devin 未登录。请运行 `devin auth login` 或在 Devin 应用中登录。',
-    devinLoginExpired: 'Devin 登录已过期。请运行 `devin auth login` 或在 Devin 应用中登录。',
-    devinQuotaUnavailable: '此账户的 Devin 配额数据不可用。',
     copilotSignInRequired: '请在编辑器中登录 GitHub Copilot，或运行 `gh auth login`，然后重试。',
     githubTokenInvalid: '你的 GitHub 令牌无效或已过期。请运行 `gh auth login` 并重试。',
     copilotUsageUnavailable: '此账户的 Copilot 用量数据不可用。',

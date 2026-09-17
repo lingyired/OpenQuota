@@ -4,7 +4,6 @@ import codebuddyColor from '@lobehub/icons-static-svg/icons/codebuddy-color.svg'
 import codexColor from '@lobehub/icons-static-svg/icons/codex-color.svg';
 import copilotColor from '@lobehub/icons-static-svg/icons/copilot-color.svg';
 import deepseekColor from '@lobehub/icons-static-svg/icons/deepseek-color.svg';
-import devinColor from '@lobehub/icons-static-svg/icons/devin-color.svg';
 import kimiColor from '@lobehub/icons-static-svg/icons/kimi-color.svg';
 import minimaxColor from '@lobehub/icons-static-svg/icons/minimax-color.svg';
 import openrouterColor from '@lobehub/icons-static-svg/icons/openrouter-color.svg';
@@ -14,7 +13,6 @@ import codex from '../assets/provider-icons/codex.svg?raw';
 import copilot from '../assets/provider-icons/copilot.svg?raw';
 import cursor from '../assets/provider-icons/cursor.svg?raw';
 import deepseek from '../assets/provider-icons/deepseek.svg?raw';
-import devin from '../assets/provider-icons/devin.svg?raw';
 import grok from '../assets/provider-icons/grok.svg?raw';
 import kimi from '../assets/provider-icons/kimi.svg?raw';
 import minimax from '../assets/provider-icons/minimax.svg?raw';
@@ -31,7 +29,6 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   copilot: { source: copilot, color: null },
   cursor: { source: cursor, color: null },
   deepseek: { source: deepseek, color: '#4D6BFE' },
-  devin: { source: devin, color: null },
   grok: { source: grok, color: null },
   kimi: { source: kimi, color: '#1783FF' },
   minimax: { source: minimax, color: '#E2167E' },
@@ -49,7 +46,6 @@ const colorAssetSlugs: Record<string, string> = {
   codex: 'codex',
   copilot: 'copilot',
   deepseek: 'deepseek',
-  devin: 'devin',
   kimi: 'kimi',
   minimax: 'minimax',
   openrouter: 'openrouter',
@@ -63,7 +59,6 @@ const colorAssets: Record<string, string> = {
   codebuddy: codebuddyColor,
   copilot: copilotColor,
   deepseek: deepseekColor,
-  devin: devinColor,
   kimi: kimiColor,
   minimax: minimaxColor,
   openrouter: openrouterColor,
@@ -77,9 +72,15 @@ const fallbackColors: Record<string, string> = {
   zai: 'var(--provider-zai)',
 };
 
+/**
+ * Resolves the brand family behind a provider id. Strips the `@account` suffix
+ * used for multi-account setups, and the `-cn` marker used by mainland-China
+ * variants (`trae-cn`, `zai-cn`, `minimax-cn`, `kimi-cn`, `workbuddy-cn`), which
+ * reuse their parent brand's mark and colour.
+ */
 export function providerFamily(providerId: string) {
   const family = providerId.split('@', 1)[0];
-  return family === 'trae-cn' ? 'trae' : family;
+  return family.endsWith('-cn') ? family.slice(0, -'-cn'.length) : family;
 }
 
 export function providerIconPath(providerId: string) {

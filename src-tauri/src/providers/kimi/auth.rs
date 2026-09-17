@@ -7,6 +7,8 @@ use super::KimiError;
 
 const CONFIG_PATHS: &[&str] = &["~/.config/quota01/kimi.json"];
 const ENVIRONMENT_NAMES: &[&str] = &["KIMI_API_KEY"];
+/// The provider id used before the mainland-China marker was added.
+const LEGACY_PROVIDER_IDS: &[&str] = &["kimi"];
 
 #[derive(Clone)]
 pub struct KimiAuthStore {
@@ -16,7 +18,12 @@ pub struct KimiAuthStore {
 impl KimiAuthStore {
     pub fn new() -> Self {
         Self {
-            store: ApiKeyStore::new_with_sources("kimi", ENVIRONMENT_NAMES, CONFIG_PATHS),
+            store: ApiKeyStore::new_with_sources_and_legacy(
+                "kimi-cn",
+                LEGACY_PROVIDER_IDS,
+                ENVIRONMENT_NAMES,
+                CONFIG_PATHS,
+            ),
         }
     }
 

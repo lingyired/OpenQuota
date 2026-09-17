@@ -28,7 +28,6 @@ const CODEX_ICON: &str = include_str!("../../src/assets/provider-icons/codex.svg
 const COPILOT_ICON: &str = include_str!("../../src/assets/provider-icons/copilot.svg");
 const CURSOR_ICON: &str = include_str!("../../src/assets/provider-icons/cursor.svg");
 const DEEPSEEK_ICON: &str = include_str!("../../src/assets/provider-icons/deepseek.svg");
-const DEVIN_ICON: &str = include_str!("../../src/assets/provider-icons/devin.svg");
 const ANTIGRAVITY_ICON: &str = include_str!("../../src/assets/provider-icons/antigravity.svg");
 const GROK_ICON: &str = include_str!("../../src/assets/provider-icons/grok.svg");
 const OPENCODE_ICON: &str = include_str!("../../src/assets/provider-icons/opencode.svg");
@@ -37,6 +36,7 @@ const ZAI_ICON: &str = include_str!("../../src/assets/provider-icons/zai.svg");
 const KIMI_ICON: &str = include_str!("../../src/assets/provider-icons/kimi.svg");
 const MINIMAX_ICON: &str = include_str!("../../src/assets/provider-icons/minimax.svg");
 const TRAE_ICON: &str = include_str!("../../src/assets/provider-icons/trae.svg");
+const WORKBUDDY_ICON: &str = include_str!("../../src/assets/provider-icons/workbuddy.svg");
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TextGroup {
@@ -277,7 +277,6 @@ fn provider_path(provider_id: &str) -> Option<&'static Path> {
     static DEEPSEEK: OnceLock<Path> = OnceLock::new();
     static COPILOT: OnceLock<Path> = OnceLock::new();
     static CURSOR: OnceLock<Path> = OnceLock::new();
-    static DEVIN: OnceLock<Path> = OnceLock::new();
     static ANTIGRAVITY: OnceLock<Path> = OnceLock::new();
     static GROK: OnceLock<Path> = OnceLock::new();
     static OPENCODE: OnceLock<Path> = OnceLock::new();
@@ -286,21 +285,24 @@ fn provider_path(provider_id: &str) -> Option<&'static Path> {
     static KIMI: OnceLock<Path> = OnceLock::new();
     static MINIMAX: OnceLock<Path> = OnceLock::new();
     static TRAE: OnceLock<Path> = OnceLock::new();
+    static WORKBUDDY: OnceLock<Path> = OnceLock::new();
     match crate::providers::provider_family(provider_id) {
         "claude" => Some(parsed(CLAUDE_ICON, &CLAUDE)),
         "codex" => Some(parsed(CODEX_ICON, &CODEX)),
         "deepseek" => Some(parsed(DEEPSEEK_ICON, &DEEPSEEK)),
         "copilot" => Some(parsed(COPILOT_ICON, &COPILOT)),
         "cursor" => Some(parsed(CURSOR_ICON, &CURSOR)),
-        "devin" => Some(parsed(DEVIN_ICON, &DEVIN)),
         "antigravity" => Some(parsed(ANTIGRAVITY_ICON, &ANTIGRAVITY)),
         "grok" => Some(parsed(GROK_ICON, &GROK)),
         "opencode" => Some(parsed(OPENCODE_ICON, &OPENCODE)),
         "openrouter" => Some(parsed(OPENROUTER_ICON, &OPENROUTER)),
-        "zai" => Some(parsed(ZAI_ICON, &ZAI)),
-        "kimi" => Some(parsed(KIMI_ICON, &KIMI)),
-        "minimax" => Some(parsed(MINIMAX_ICON, &MINIMAX)),
+        // `provider_family` only strips the `@account` suffix, so the mainland-China
+        // `-cn` ids need explicit arms; they reuse their parent brand's mark.
+        "zai" | "zai-cn" => Some(parsed(ZAI_ICON, &ZAI)),
+        "kimi" | "kimi-cn" => Some(parsed(KIMI_ICON, &KIMI)),
+        "minimax" | "minimax-cn" => Some(parsed(MINIMAX_ICON, &MINIMAX)),
         "trae-cn" => Some(parsed(TRAE_ICON, &TRAE)),
+        "workbuddy" | "workbuddy-cn" => Some(parsed(WORKBUDDY_ICON, &WORKBUDDY)),
         _ => None,
     }
 }
@@ -640,16 +642,20 @@ mod tests {
             "codex",
             "copilot",
             "cursor",
-            "devin",
             "antigravity",
             "grok",
             "opencode",
             "openrouter",
             "zai",
+            "zai-cn",
             "kimi",
+            "kimi-cn",
             "minimax",
+            "minimax-cn",
             "deepseek",
             "trae-cn",
+            "workbuddy",
+            "workbuddy-cn",
         ] {
             let path = provider_path(provider).expect("known provider mark should exist");
             assert!(path.bounds().width() > 0.0);

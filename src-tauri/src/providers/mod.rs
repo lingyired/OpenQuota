@@ -9,7 +9,6 @@ pub mod cursor;
 mod daily_usage;
 pub mod deepseek;
 mod detection;
-pub mod devin;
 pub mod grok;
 pub mod kimi;
 mod log_usage;
@@ -53,6 +52,21 @@ pub fn provider_family(provider_id: &str) -> &str {
         .split_once('@')
         .map(|(family, _)| family)
         .unwrap_or(provider_id)
+}
+
+/// Provider ids that were renamed when the mainland-China variants were split out. The
+/// `-cn` marker distinguishes a domestic site from its international sibling, so state
+/// persisted under the old id must be carried over instead of being dropped as unknown.
+pub(crate) const RENAMED_PROVIDER_IDS: &[(&str, &str)] =
+    &[("kimi", "kimi-cn"), ("workbuddy", "workbuddy-cn")];
+
+/// Resolves a provider id written by an older build to its current id. `None` means the
+/// id was never renamed and should be used as-is.
+pub(crate) fn migrated_provider_id(provider_id: &str) -> Option<&'static str> {
+    RENAMED_PROVIDER_IDS
+        .iter()
+        .find(|(from, _)| *from == provider_id)
+        .map(|(_, to)| *to)
 }
 
 pub fn is_claude_account_provider_id(provider_id: &str) -> bool {
@@ -211,8 +225,8 @@ pub trait UsageProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{
-        antigravity, claude, codex, copilot, cursor, deepseek, devin, grok, kimi, minimax,
-        opencode, openrouter, remember_default_account, trae, zai, ProviderError,
+        antigravity, claude, codex, copilot, cursor, deepseek, grok, kimi, minimax, opencode,
+        openrouter, remember_default_account, trae, zai, ProviderError,
     };
     use crate::models::ProviderErrorKind;
     use tempfile::tempdir;
@@ -295,13 +309,6 @@ mod tests {
             ]
         );
         assert_eq!(
-            links(devin::definition()),
-            [(
-                "Dashboard".into(),
-                "https://app.devin.ai/settings/plans".into()
-            )]
-        );
-        assert_eq!(
             links(grok::definition()),
             [("Usage".into(), "https://grok.com/?_s=usage".into())]
         );
@@ -320,7 +327,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            links(zai::definition()),
+            links(zai::definition(zai::Site::Global)),
             [
                 (
                     "Dashboard".into(),
@@ -329,6 +336,19 @@ mod tests {
                 (
                     "API Keys".into(),
                     "https://z.ai/manage-apikey/apikey-list".into()
+                ),
+            ]
+        );
+        assert_eq!(
+            links(zai::definition(zai::Site::Cn)),
+            [
+                (
+                    "Dashboard".into(),
+                    "https://open.bigmodel.cn/user-center/usage".into()
+                ),
+                (
+                    "API Keys".into(),
+                    "https://open.bigmodel.cn/user-center/apikeys".into()
                 ),
             ]
         );
@@ -346,7 +366,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            links(minimax::definition()),
+            links(minimax::definition(minimax::Site::Global)),
             [
                 (
                     "Dashboard".into(),
@@ -356,6 +376,16 @@ mod tests {
                     "API Keys".into(),
                     "https://platform.minimax.io/console/access".into()
                 ),
+            ]
+        );
+        assert_eq!(
+            links(minimax::definition(minimax::Site::Cn)),
+            [
+                (
+                    "Dashboard".into(),
+                    "https://platform.minimaxi.com/subscribe/token-plan".into()
+                ),
+                ("API Keys".into(), "https://platform.minimaxi.com/".into()),
             ]
         );
         assert_eq!(

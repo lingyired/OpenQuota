@@ -62,13 +62,19 @@ body:
       label: Affected provider
       options:
         - Not provider-specific
+        - DeepSeek
+        - Kimi CN
+        - MiniMax CN
+        - TraeWork CN
+        - Workbuddy CN
+        - Z.ai CN
+        - Antigravity
         - Claude Code
         - Codex
-        - Cursor
-        - Antigravity
         - Copilot
-        - Devin
+        - Cursor
         - Grok
+        - MiniMax
         - OpenCode
         - OpenRouter
         - Z.ai

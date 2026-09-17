@@ -3,30 +3,35 @@ use crate::{
     providers::api_key::{ApiKeyStore, SecretString},
 };
 
-use super::ZaiError;
+use super::{Site, ZaiError};
 
-const CONFIG_PATHS: &[&str] = &["~/.config/quota01/zai.json", "~/.config/zai/key.json"];
-const ENVIRONMENT_NAMES: &[&str] = &["ZAI_API_KEY", "GLM_API_KEY"];
+#[cfg(test)]
+const CONFIG_PATHS: &[&str] = Site::Global.config_paths();
+#[cfg(test)]
+const ENVIRONMENT_NAMES: &[&str] = Site::Global.environment_names();
 
 #[derive(Clone)]
 pub struct ZaiAuthStore {
+    site: Site,
     store: ApiKeyStore,
 }
 
 impl ZaiAuthStore {
-    pub fn new() -> Self {
-        Self {
-            store: ApiKeyStore::new_with_sources("zai", ENVIRONMENT_NAMES, CONFIG_PATHS),
-        }
+    pub fn new(site: Site) -> Self {
+        Self::with_store(
+            site,
+            ApiKeyStore::new_with_sources(site.id(), site.environment_names(), site.config_paths()),
+        )
     }
 
-    #[cfg(test)]
-    pub(super) fn with_store(store: ApiKeyStore) -> Self {
-        Self { store }
+    pub(super) fn with_store(site: Site, store: ApiKeyStore) -> Self {
+        Self { site, store }
     }
 
     pub fn load(&self) -> Result<Option<SecretString>, ZaiError> {
-        self.store.load().map_err(|_| ZaiError::CredentialStorage)
+        self.store
+            .load()
+            .map_err(|_| ZaiError::CredentialStorage(self.site))
     }
 
     pub fn has_local_credentials(&self) -> bool {
@@ -34,16 +39,18 @@ impl ZaiAuthStore {
     }
 
     pub fn status(&self) -> Result<ApiKeyStatus, ZaiError> {
-        self.store.status().map_err(|_| ZaiError::CredentialStorage)
+        self.store
+            .status()
+            .map_err(|_| ZaiError::CredentialStorage(self.site))
     }
 
     pub fn save(&self, value: &str) -> Result<(), ZaiError> {
         self.store.save(value).map_err(|_| {
             if value.trim().is_empty() {
-                ZaiError::MissingKey
+                ZaiError::MissingKey(self.site)
             } else {
                 crate::app_warn!("auth:zai", "system credential store write failed");
-                ZaiError::CredentialStorage
+                ZaiError::CredentialStorage(self.site)
             }
         })
     }
@@ -51,14 +58,14 @@ impl ZaiAuthStore {
     pub fn delete(&self) -> Result<(), ZaiError> {
         self.store.delete().map_err(|_| {
             crate::app_warn!("auth:zai", "system credential store delete failed");
-            ZaiError::CredentialStorage
+            ZaiError::CredentialStorage(self.site)
         })
     }
 }
 
 impl Default for ZaiAuthStore {
     fn default() -> Self {
-        Self::new()
+        Self::new(Site::Global)
     }
 }
 
@@ -76,7 +83,7 @@ mod tests {
         },
     };
 
-    use super::{ZaiAuthStore, CONFIG_PATHS, ENVIRONMENT_NAMES};
+    use super::{Site, ZaiAuthStore, CONFIG_PATHS, ENVIRONMENT_NAMES};
 
     #[derive(Default)]
     struct MemorySecrets(Mutex<HashMap<String, Vec<u8>>>);
@@ -143,24 +150,27 @@ mod tests {
         environment: &[(&str, &str)],
         configs: &[(&str, &[u8])],
     ) -> ZaiAuthStore {
-        ZaiAuthStore::with_store(ApiKeyStore::with_source_backends(
-            "zai",
-            ENVIRONMENT_NAMES,
-            CONFIG_PATHS,
-            secrets,
-            Arc::new(MemoryEnvironment(
-                environment
-                    .iter()
-                    .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
-                    .collect(),
-            )),
-            Arc::new(MemoryConfigs(
-                configs
-                    .iter()
-                    .map(|(path, value)| ((*path).to_owned(), value.to_vec()))
-                    .collect(),
-            )),
-        ))
+        ZaiAuthStore::with_store(
+            Site::Global,
+            ApiKeyStore::with_source_backends(
+                "zai",
+                ENVIRONMENT_NAMES,
+                CONFIG_PATHS,
+                secrets,
+                Arc::new(MemoryEnvironment(
+                    environment
+                        .iter()
+                        .map(|(name, value)| ((*name).to_owned(), (*value).to_owned()))
+                        .collect(),
+                )),
+                Arc::new(MemoryConfigs(
+                    configs
+                        .iter()
+                        .map(|(path, value)| ((*path).to_owned(), value.to_vec()))
+                        .collect(),
+                )),
+            ),
+        )
     }
 
     #[test]
