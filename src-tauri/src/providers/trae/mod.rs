@@ -21,7 +21,7 @@ use self::{
     mapper::{map_entitlement, map_token},
 };
 
-use super::{ProviderError, UsageProvider, WebviewAuth};
+use super::{ProviderError, UsageProvider, WebviewAuth, WebviewCredentialSource};
 
 const LOGIN_URL: &str = "https://www.trae.cn/account-setting#usage";
 const SESSION_COOKIE: &str = "X-Cloudide-Session";
@@ -262,7 +262,9 @@ impl UsageProvider for TraeProvider {
     fn webview_auth(&self) -> Option<WebviewAuth> {
         Some(WebviewAuth {
             login_url: LOGIN_URL.into(),
-            cookie_name: SESSION_COOKIE.into(),
+            credential: WebviewCredentialSource::Cookie {
+                name: SESSION_COOKIE.into(),
+            },
             window_label: LOGIN_WINDOW.into(),
         })
     }

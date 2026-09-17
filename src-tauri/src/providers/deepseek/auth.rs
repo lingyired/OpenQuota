@@ -6,7 +6,7 @@ use crate::{
 use super::DeepSeekError;
 
 const CONFIG_PATHS: &[&str] = &["~/.config/quota01/deepseek.json"];
-const ENVIRONMENT_NAMES: &[&str] = &["DEEPSEEK_API_KEY"];
+const ENVIRONMENT_NAMES: &[&str] = &["DEEPSEEK_USER_TOKEN"];
 
 #[derive(Clone)]
 pub struct DeepSeekAuthStore {
@@ -44,7 +44,7 @@ impl DeepSeekAuthStore {
     pub fn save(&self, value: &str) -> Result<(), DeepSeekError> {
         self.store.save(value).map_err(|_| {
             if value.trim().is_empty() {
-                DeepSeekError::MissingKey
+                DeepSeekError::MissingToken
             } else {
                 DeepSeekError::CredentialStorage
             }

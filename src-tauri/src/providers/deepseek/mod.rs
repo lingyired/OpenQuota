@@ -4,18 +4,26 @@ mod mapper;
 
 use std::sync::Arc;
 
-use chrono::Utc;
+use chrono::{Local, Utc};
 use reqwest::StatusCode;
 use thiserror::Error;
 
 use crate::models::{
     ApiKeyStatus, MetricDefinition, MetricSection, ProviderDefinition, ProviderErrorKind,
-    ProviderLink, ProviderSnapshot, UsageHistory,
+    ProviderLink, ProviderSnapshot, UsageHistory, ValueMetric,
 };
 
-use self::{auth::DeepSeekAuthStore, client::DeepSeekClient, mapper::map_balance};
+use self::{
+    auth::DeepSeekAuthStore,
+    client::DeepSeekClient,
+    mapper::{map_summary, map_today_cost, DeepSeekMapError},
+};
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, UsageProvider, WebviewAuth, WebviewCredentialSource};
+
+const LOGIN_URL: &str = "https://platform.deepseek.com/sign_in";
+const USER_TOKEN_STORAGE_KEY: &str = "userToken";
+const LOGIN_WINDOW: &str = "deepseek-login";
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -24,43 +32,67 @@ pub(crate) fn definition() -> ProviderDefinition {
         short_name: "DS".into(),
         fallback_enabled: false,
         local_usage_source_note: None,
-        links: vec![
-            ProviderLink::new("Dashboard", "https://platform.deepseek.com/usage"),
-            ProviderLink::new("API Keys", "https://platform.deepseek.com/api_keys"),
-        ],
-        metrics: vec![MetricDefinition::value(
-            "deepseek.balance",
-            "Balance",
-            "balance",
-            true,
-            MetricSection::AlwaysVisible,
-            true,
-            "B",
-            None,
+        links: vec![ProviderLink::new(
+            "Dashboard",
+            "https://platform.deepseek.com/usage",
         )],
+        // The registry stars the first two pinnable metrics, so the default menu bar pair is
+        // Balance and Today Spend; Total Spend stays one click away in Customize.
+        metrics: vec![
+            MetricDefinition::value(
+                "deepseek.balance",
+                "Balance",
+                "balance",
+                true,
+                MetricSection::AlwaysVisible,
+                true,
+                "B",
+                None,
+            ),
+            MetricDefinition::value(
+                "deepseek.todaySpend",
+                "Today Spend",
+                "todaySpend",
+                true,
+                MetricSection::AlwaysVisible,
+                true,
+                "D",
+                None,
+            ),
+            MetricDefinition::value(
+                "deepseek.totalSpend",
+                "Total Spend",
+                "totalSpend",
+                true,
+                MetricSection::AlwaysVisible,
+                false,
+                "T",
+                None,
+            ),
+        ],
     }
 }
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(super) enum DeepSeekError {
-    #[error("Add a DeepSeek API key in Customize or set DEEPSEEK_API_KEY.")]
-    MissingKey,
-    #[error("The DeepSeek API key is invalid. Check it at platform.deepseek.com.")]
-    InvalidKey,
+    #[error("Sign in to DeepSeek to view usage.")]
+    MissingToken,
+    #[error("Your DeepSeek session expired. Sign in again.")]
+    InvalidToken,
     #[error("Could not reach DeepSeek. Check your internet connection.")]
     ConnectionFailed,
     #[error("DeepSeek usage data is temporarily unavailable.")]
     InvalidResponse,
     #[error("DeepSeek request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The DeepSeek API key could not be read or updated.")]
+    #[error("The DeepSeek session could not be read or updated.")]
     CredentialStorage,
 }
 
 impl From<DeepSeekError> for ProviderError {
     fn from(error: DeepSeekError) -> Self {
         let kind = match error {
-            DeepSeekError::MissingKey | DeepSeekError::InvalidKey => {
+            DeepSeekError::MissingToken | DeepSeekError::InvalidToken => {
                 ProviderErrorKind::Authentication
             }
             DeepSeekError::ConnectionFailed => ProviderErrorKind::Network,
@@ -99,18 +131,48 @@ impl DeepSeekProvider {
         }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let response = self.client.fetch_balance(api_key)?;
+    fn refresh_snapshot(&self, user_token: &str) -> Result<ProviderSnapshot, ProviderError> {
+        let response = self.client.fetch_summary(user_token)?;
         if matches!(
             response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
         ) {
-            return Err(DeepSeekError::InvalidKey.into());
+            return Err(DeepSeekError::InvalidToken.into());
         }
         if !response.status.is_success() {
             return Err(DeepSeekError::RequestFailed(response.status.as_u16()).into());
         }
-        let mapped = map_balance(&response.body).ok_or(DeepSeekError::InvalidResponse)?;
+        let mut mapped = map_summary(&response.body).map_err(map_error)?;
+
+        let now = Local::now();
+        let timezone = now.offset().local_minus_utc();
+        let start = now
+            .date_naive()
+            .and_hms_opt(0, 0, 0)
+            .ok_or(DeepSeekError::InvalidResponse)?
+            .and_utc()
+            .timestamp()
+            - i64::from(timezone);
+        let cost_response =
+            self.client
+                .fetch_today_cost(user_token, start, start + 86_400, timezone)?;
+        if matches!(
+            cost_response.status,
+            StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
+        ) {
+            return Err(DeepSeekError::InvalidToken.into());
+        }
+        if !cost_response.status.is_success() {
+            return Err(DeepSeekError::RequestFailed(cost_response.status.as_u16()).into());
+        }
+        let today_spend =
+            map_today_cost(&cost_response.body, &mapped.currencies).map_err(map_error)?;
+        mapped.values.push(ValueMetric {
+            id: "todaySpend".into(),
+            label: "Today Spend".into(),
+            values: today_spend,
+            expiries_at: Vec::new(),
+        });
         Ok(ProviderSnapshot {
             provider_id: "deepseek".into(),
             plan: mapped.plan,
@@ -136,28 +198,41 @@ impl UsageProvider for DeepSeekProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
-        let api_key = self
+        let user_token = self
             .auth
             .load()
             .map_err(ProviderError::from)?
-            .ok_or_else(|| ProviderError::from(DeepSeekError::MissingKey))?;
-        self.refresh_snapshot(api_key.as_str())
+            .ok_or_else(|| ProviderError::from(DeepSeekError::MissingToken))?;
+        self.refresh_snapshot(user_token.as_str())
     }
 
-    fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
+    fn webview_auth(&self) -> Option<WebviewAuth> {
+        Some(WebviewAuth {
+            login_url: LOGIN_URL.into(),
+            credential: WebviewCredentialSource::LocalStorage {
+                key: USER_TOKEN_STORAGE_KEY.into(),
+            },
+            window_label: LOGIN_WINDOW.into(),
+        })
+    }
+
+    fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
         Some(self.auth.status().map_err(ProviderError::from))
     }
 
-    fn supports_api_key_configuration(&self) -> bool {
-        true
-    }
-
-    fn save_api_key(&self, value: &str) -> Result<(), ProviderError> {
+    fn save_session(&self, value: &str) -> Result<(), ProviderError> {
         self.auth.save(value).map_err(ProviderError::from)
     }
 
-    fn delete_api_key(&self) -> Result<(), ProviderError> {
+    fn delete_session(&self) -> Result<(), ProviderError> {
         self.auth.delete().map_err(ProviderError::from)
+    }
+}
+
+fn map_error(error: DeepSeekMapError) -> ProviderError {
+    match error {
+        DeepSeekMapError::Authentication => DeepSeekError::InvalidToken.into(),
+        DeepSeekMapError::InvalidResponse => DeepSeekError::InvalidResponse.into(),
     }
 }
 

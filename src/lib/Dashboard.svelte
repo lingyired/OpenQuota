@@ -957,11 +957,14 @@
       background: var(--card);
     }
 
+    /* Wraps instead of collapsing: the action cluster (compact sign-in actions
+       plus retry) can outgrow the remaining width, and a grid `auto` column
+       would then squeeze the message down to a single character per line. */
     .provider-error-row {
-      display: grid;
-      grid-template-columns: 14px minmax(0, 1fr) auto;
+      display: flex;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 7px;
+      gap: 4px 7px;
       padding: 7px 0;
       border-bottom: 1px solid var(--separator);
       color: var(--text);
@@ -971,17 +974,23 @@
 
     .provider-error-row__icon {
       display: grid;
+      flex: 0 0 14px;
       color: var(--warning);
       place-items: center;
     }
 
     .provider-error-row__message {
+      flex: 1 1 7em;
       min-width: 0;
       overflow-wrap: anywhere;
     }
 
+    /* Left-aligned so the actions line up with the message whether they share
+       its row or wrap onto their own. */
     .provider-error-row__actions {
       display: flex;
+      flex: 0 1 auto;
+      flex-wrap: wrap;
       gap: 4px;
     }
 
@@ -993,6 +1002,7 @@
       background: transparent;
       font: inherit;
       font-weight: 600;
+      white-space: nowrap;
       cursor: pointer;
     }
 

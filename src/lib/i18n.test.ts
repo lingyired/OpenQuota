@@ -89,6 +89,13 @@ describe('translation helpers', () => {
     expect(tBackend('Your TraeWork CN session expired. Sign in again.')).toBe(
       '你的 TraeWork CN 会话已过期。请重新登录。',
     );
+    expect(tBackend('Sign in to DeepSeek to view usage.')).toBe('请先登录 DeepSeek，以查看用量。');
+    expect(tBackend('Your DeepSeek session expired. Sign in again.')).toBe(
+      '你的 DeepSeek 会话已过期。请重新登录。',
+    );
+    expect(tBackend('The DeepSeek session could not be read or updated.')).toBe(
+      'DeepSeek 会话无法读取或更新。',
+    );
     expect(tBackend('Could not reach Kimi. Check your internet connection.')).toBe(
       '无法访问 Kimi。请检查你的网络连接。',
     );

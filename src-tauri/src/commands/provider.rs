@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WindowEvent};
@@ -12,7 +13,7 @@ use crate::{
     models::{ApiKeyMutationOutcome, ApiKeyStatus, ProviderApiKeyState, ProviderLink},
     notifications::finish_refresh,
     pacing::NotificationEvaluator,
-    providers::{ProviderRegistry, UsageProvider},
+    providers::{ProviderRegistry, UsageProvider, WebviewAuth, WebviewCredentialSource},
     service::ProviderService,
     settings::SettingsService,
     tray_presentation,
@@ -48,6 +49,115 @@ impl ProviderSessionCloseGuard {
             .map(|mut labels| labels.remove(window_label))
             .unwrap_or(false)
     }
+
+    fn is_marked(&self, window_label: &str) -> bool {
+        self.0
+            .lock()
+            .map(|labels| labels.contains(window_label))
+            .unwrap_or(false)
+    }
+}
+
+fn read_cookie_session(
+    window: &tauri::WebviewWindow,
+    cookie_name: &str,
+) -> Result<Zeroizing<String>, String> {
+    // `cookies_for_url` compares the cookie domain exactly on macOS, which misses
+    // valid parent-domain cookies such as `.trae.cn`; this window is dedicated to
+    // one provider, so enumerate its cookies and match the declared name.
+    window
+        .cookies()
+        .map_err(|_| "The provider sign-in could not be read.".to_owned())?
+        .into_iter()
+        .find(|cookie| cookie.name() == cookie_name)
+        .map(|cookie| Zeroizing::new(cookie.value().to_owned()))
+        .ok_or_else(|| "Sign in to the provider first, then try again.".to_owned())
+}
+
+/// Reads the credential out of the JSON-encoded `localStorage` value.
+///
+/// Evaluated scripts come back through `NSJSONSerialization`, so the payload
+/// arrives as JSON text and a stored token reads back quoted, as `"token"`.
+/// DeepSeek does not store a bare token: `userToken` holds an app-storage
+/// envelope, `{"value":"<token>","__version":"0"}`, and therefore arrives as a
+/// JSON string *containing* that envelope document. Only the outer layer is
+/// plain JSON decoration, so the envelope has to be peeled as well - handing it
+/// to the API verbatim is rejected as an invalid token, which surfaced as an
+/// "expired session" immediately after a successful sign-in.
+fn parse_local_storage_session(serialized: &str) -> Option<Zeroizing<String>> {
+    let value = unwrap_session_payload(serialized)?;
+    let value = value.trim();
+    (!value.is_empty()).then(|| Zeroizing::new(value.to_owned()))
+}
+
+fn unwrap_session_payload(serialized: &str) -> Option<String> {
+    let payload = match serde_json::from_str::<serde_json::Value>(serialized).ok()? {
+        serde_json::Value::String(text) => text,
+        envelope => return envelope_value(&envelope),
+    };
+    // Only an envelope document is peeled further. A token that merely looks
+    // like JSON, such as `1234`, is returned verbatim rather than decoded away.
+    match serde_json::from_str::<serde_json::Value>(&payload).ok() {
+        Some(envelope @ serde_json::Value::Object(_)) => envelope_value(&envelope),
+        _ => Some(payload),
+    }
+}
+
+/// Reads the credential out of the app-storage envelope providers such as
+/// DeepSeek wrap it in, e.g. `{"value":"<token>","__version":"0"}`.
+fn envelope_value(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Object(object) => object.get("value")?.as_str().map(str::to_owned),
+        _ => None,
+    }
+}
+
+async fn read_local_storage_session(
+    window: &tauri::WebviewWindow,
+    storage_key: &str,
+) -> Result<Zeroizing<String>, String> {
+    let key = serde_json::to_string(storage_key)
+        .map_err(|_| "The provider sign-in could not be read.".to_owned())?;
+    let script = format!(
+        "(() => {{ try {{ return window.localStorage.getItem({key}); }} catch (_) {{ return null; }} }})()"
+    );
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    window
+        .eval_with_callback(script, move |value| {
+            let _ = sender.send(value);
+        })
+        .map_err(|_| "The provider sign-in could not be read.".to_owned())?;
+    let value = tokio::time::timeout(Duration::from_secs(3), receiver.recv())
+        .await
+        .map_err(|_| "The provider sign-in could not be read.".to_owned())?
+        .ok_or_else(|| "The provider sign-in could not be read.".to_owned())?;
+    parse_local_storage_session(&value)
+        .ok_or_else(|| "Sign in to the provider first, then try again.".to_owned())
+}
+
+async fn read_provider_session(
+    window: &tauri::WebviewWindow,
+    auth: &WebviewAuth,
+) -> Result<Zeroizing<String>, String> {
+    match &auth.credential {
+        WebviewCredentialSource::Cookie { name } => read_cookie_session(window, name),
+        WebviewCredentialSource::LocalStorage { key } => {
+            read_local_storage_session(window, key).await
+        }
+    }
+}
+
+fn remove_local_storage_session(
+    window: &tauri::WebviewWindow,
+    storage_key: &str,
+) -> Result<(), String> {
+    let key = serde_json::to_string(storage_key)
+        .map_err(|_| "The provider WebView session could not be removed.".to_owned())?;
+    window
+        .eval(format!(
+            "try {{ window.localStorage.removeItem({key}); }} catch (_) {{}}"
+        ))
+        .map_err(|_| "The provider WebView session could not be removed.".to_owned())
 }
 
 fn resolve_provider_link<'a>(
@@ -246,22 +356,43 @@ pub fn open_provider_webview_login(
     let event_app = app.clone();
     let event_provider_id = provider_id.clone();
     let event_window_label = auth.window_label.clone();
-    window.on_window_event(move |event| {
-        if !matches!(event, WindowEvent::Destroyed) {
-            return;
-        }
-        if event_app
-            .try_state::<ProviderSessionCloseGuard>()
-            .is_some_and(|guard| guard.consume(&event_window_label))
+    let event_credential = auth.credential.clone();
+    window.on_window_event(move |event| match event {
+        WindowEvent::CloseRequested { api, .. }
+            if matches!(
+                &event_credential,
+                WebviewCredentialSource::LocalStorage { .. }
+            ) =>
         {
-            return;
+            let Some(close_guard) = event_app.try_state::<ProviderSessionCloseGuard>() else {
+                return;
+            };
+            if close_guard.is_marked(&event_window_label) {
+                return;
+            }
+            api.prevent_close();
+            let _ = event_app.emit(
+                PROVIDER_SESSION_WINDOW_CLOSED_EVENT,
+                ProviderSessionWindowClosedEvent {
+                    provider_id: event_provider_id.clone(),
+                },
+            );
         }
-        let _ = event_app.emit(
-            PROVIDER_SESSION_WINDOW_CLOSED_EVENT,
-            ProviderSessionWindowClosedEvent {
-                provider_id: event_provider_id.clone(),
-            },
-        );
+        WindowEvent::Destroyed => {
+            if event_app
+                .try_state::<ProviderSessionCloseGuard>()
+                .is_some_and(|guard| guard.consume(&event_window_label))
+            {
+                return;
+            }
+            let _ = event_app.emit(
+                PROVIDER_SESSION_WINDOW_CLOSED_EVENT,
+                ProviderSessionWindowClosedEvent {
+                    provider_id: event_provider_id.clone(),
+                },
+            );
+        }
+        _ => {}
     });
     Ok(())
 }
@@ -281,22 +412,36 @@ pub async fn capture_provider_session(
     let auth = runtime
         .webview_auth()
         .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
+    capture_provider_session_inner(
+        app.clone(),
+        runtime,
+        auth.clone(),
+        service.inner().clone(),
+        settings.inner().clone(),
+        notifications.inner().clone(),
+        provider_id,
+    )
+    .await
+}
+
+async fn capture_provider_session_inner(
+    app: AppHandle,
+    runtime: Arc<dyn UsageProvider>,
+    auth: WebviewAuth,
+    service: Arc<ProviderService>,
+    settings: Arc<SettingsService>,
+    notifications: Arc<NotificationEvaluator>,
+    provider_id: String,
+) -> Result<ProviderApiKeyState, String> {
     let login_window = app.get_webview_window(&auth.window_label);
-    let cookie_window = login_window
-        .clone()
-        .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW))
-        .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
-    // `cookies_for_url` compares the cookie domain exactly on macOS, which misses
-    // valid parent-domain cookies such as `.trae.cn`; this window is dedicated to
-    // one provider, so enumerate its cookies and match the declared name. If the
-    // user closed the login window, the main window still shares the cookie store.
-    let session = cookie_window
-        .cookies()
-        .map_err(|_| "The provider sign-in could not be read.".to_owned())?
-        .into_iter()
-        .find(|cookie| cookie.name() == auth.cookie_name)
-        .map(|cookie| Zeroizing::new(cookie.value().to_owned()))
-        .ok_or_else(|| "Sign in to the provider first, then try again.".to_owned())?;
+    let session_window = match &auth.credential {
+        WebviewCredentialSource::Cookie { .. } => login_window
+            .clone()
+            .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW)),
+        WebviewCredentialSource::LocalStorage { .. } => login_window.clone(),
+    }
+    .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
+    let session = read_provider_session(&session_window, &auth).await?;
 
     let credential_guard = settings.lock_credential_mutation().await;
     settings.record_provider_credential_mutation();
@@ -363,24 +508,42 @@ pub async fn delete_provider_session(
         .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
 
     let login_window = app.get_webview_window(&auth.window_label);
-    let cookie_window = login_window
-        .clone()
-        .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW))
-        .ok_or_else(|| "The provider WebView is unavailable.".to_owned())?;
-    // Read from the same dedicated cookie store used during capture; the main
-    // window is the fallback when the sign-in window has already been closed.
-    if let Some(cookie) = cookie_window
-        .cookies()
-        .map_err(|_| "The provider WebView could not be read.".to_owned())?
-        .into_iter()
-        .find(|cookie| cookie.name() == auth.cookie_name)
-    {
-        cookie_window
-            .delete_cookie(cookie)
-            .map_err(|_| "The provider WebView session could not be removed.".to_owned())?;
+    match &auth.credential {
+        WebviewCredentialSource::Cookie { name } => {
+            // Read from the same dedicated cookie store used during capture; the
+            // main window is the fallback when the sign-in window has closed.
+            if let Some(cookie_window) = login_window
+                .clone()
+                .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW))
+            {
+                if let Some(cookie) = cookie_window
+                    .cookies()
+                    .map_err(|_| "The provider WebView could not be read.".to_owned())?
+                    .into_iter()
+                    .find(|cookie| cookie.name() == name)
+                {
+                    cookie_window.delete_cookie(cookie).map_err(|_| {
+                        "The provider WebView session could not be removed.".to_owned()
+                    })?;
+                }
+            }
+        }
+        WebviewCredentialSource::LocalStorage { key } => {
+            if let Some(window) = login_window.as_ref() {
+                remove_local_storage_session(window, key)?;
+            }
+        }
     }
     if let Some(window) = login_window {
-        let _ = window.close();
+        let close_guard = app.try_state::<ProviderSessionCloseGuard>();
+        if let Some(close_guard) = close_guard.as_ref() {
+            close_guard.mark(&auth.window_label);
+        }
+        if window.close().is_err() {
+            if let Some(close_guard) = close_guard.as_ref() {
+                close_guard.unmark(&auth.window_label);
+            }
+        }
     }
 
     let credential_guard = settings.lock_credential_mutation().await;
@@ -587,7 +750,60 @@ mod tests {
         providers::{ProviderError, ProviderRegistry, UsageProvider},
     };
 
-    use super::{mutate_api_key, resolve_provider_link, ApiKeyMutation};
+    use super::{
+        mutate_api_key, parse_local_storage_session, resolve_provider_link, ApiKeyMutation,
+    };
+
+    #[test]
+    fn parses_and_trims_json_encoded_local_storage_session() {
+        let parsed = parse_local_storage_session(r#""  user-token  ""#).unwrap();
+
+        assert_eq!(parsed.as_str(), "user-token");
+    }
+
+    #[test]
+    fn unwraps_enveloped_local_storage_sessions() {
+        // Shapes `NSJSONSerialization` produces for DeepSeek's `userToken`: the
+        // envelope document arrives as the payload of a JSON string.
+        let quoted =
+            parse_local_storage_session(r#""{\"value\":\"user-token\",\"__version\":\"0\"}""#)
+                .unwrap();
+        let bare =
+            parse_local_storage_session(r#"{"value":"user-token","__version":"0"}"#).unwrap();
+
+        assert_eq!(quoted.as_str(), "user-token");
+        assert_eq!(bare.as_str(), "user-token");
+    }
+
+    #[test]
+    fn keeps_tokens_that_look_like_json_verbatim() {
+        assert_eq!(
+            parse_local_storage_session(r#""1234""#).unwrap().as_str(),
+            "1234"
+        );
+        assert_eq!(
+            parse_local_storage_session(r#""true""#).unwrap().as_str(),
+            "true"
+        );
+    }
+
+    #[test]
+    fn rejects_empty_or_invalid_local_storage_sessions() {
+        assert!(parse_local_storage_session(r#""""#).is_none());
+        assert!(parse_local_storage_session(r#""   ""#).is_none());
+        assert!(parse_local_storage_session("null").is_none());
+        assert!(parse_local_storage_session("42").is_none());
+        assert!(parse_local_storage_session(r#"{"token":"value"}"#).is_none());
+        assert!(parse_local_storage_session("not json").is_none());
+    }
+
+    #[test]
+    fn rejects_envelopes_without_a_usable_value() {
+        assert!(parse_local_storage_session(r#""{\"value\":\"   \"}""#).is_none());
+        assert!(parse_local_storage_session(r#""{\"value\":42}""#).is_none());
+        assert!(parse_local_storage_session(r#""{\"value\":null}""#).is_none());
+        assert!(parse_local_storage_session(r#""{\"__version\":\"0\"}""#).is_none());
+    }
 
     struct MutatingProvider {
         statuses: Mutex<VecDeque<Result<ApiKeyStatus, ProviderError>>>,

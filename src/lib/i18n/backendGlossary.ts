@@ -42,6 +42,8 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'This Week': 'metric.thisWeek',
   'This Month': 'metric.thisMonth',
   Balance: 'metric.balance',
+  'Total Spend': 'metric.totalSpend',
+  'Today Spend': 'metric.todaySpend',
   'Extra Balance': 'metric.extraBalance',
   'Org Credits': 'metric.orgCredits',
   'Org Spend': 'metric.orgSpend',
@@ -92,8 +94,22 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   // Provider integration states
   Available: 'providerIntegration.available',
   Unavailable: 'providerIntegration.unavailable',
-  'Sign in to TraeWork CN to view usage.': 'providerIntegration.traeSignInRequired',
-  'Your TraeWork CN session expired. Sign in again.': 'providerIntegration.traeSessionExpired',
+  'Sign in to TraeWork CN to view usage.': [
+    'providerIntegration.signInRequired',
+    { provider: 'TraeWork CN' },
+  ],
+  'Your TraeWork CN session expired. Sign in again.': [
+    'providerIntegration.sessionExpired',
+    { provider: 'TraeWork CN' },
+  ],
+  'Sign in to DeepSeek to view usage.': [
+    'providerIntegration.signInRequired',
+    { provider: 'DeepSeek' },
+  ],
+  'Your DeepSeek session expired. Sign in again.': [
+    'providerIntegration.sessionExpired',
+    { provider: 'DeepSeek' },
+  ],
   // Warnings
   'Some OpenCode databases could not be read; available local usage is shown.':
     'metric.warnOpenCodeDbUnreadable',
@@ -245,6 +261,14 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'The Z.ai API key could not be read or updated.': [
     'providerError.apiKeyUnreadable',
     { provider: 'Z.ai' },
+  ],
+  'The DeepSeek session could not be read or updated.': [
+    'providerError.sessionUnreadable',
+    { provider: 'DeepSeek' },
+  ],
+  'The TraeWork CN session could not be read or updated.': [
+    'providerError.sessionUnreadable',
+    { provider: 'TraeWork CN' },
   ],
   // Settings command errors surfaced through settingsController
   'Notification permission could not be requested.': 'app.errors.notificationPermission',

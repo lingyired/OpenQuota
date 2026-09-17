@@ -380,6 +380,8 @@ export const zhTw = {
     weekly: 'Weekly',
     monthly: 'Monthly',
     balance: 'Balance',
+    totalSpend: 'Total Spend',
+    todaySpend: 'Today Spend',
     extraBalance: 'Extra Balance',
     orgCredits: 'Org Credits',
     orgSpend: 'Org Spend',
@@ -456,6 +458,7 @@ export const zhTw = {
     apiKeyInvalid: 'The {provider} API key is invalid. Check it at {url}.',
     apiKeyInvalidInConsole: 'The Kimi API key is invalid. Check it in the Kimi Code console.',
     apiKeyUnreadable: 'The {provider} API key could not be read or updated.',
+    sessionUnreadable: '{provider} 工作階段無法讀取或更新。',
     notLoggedInRunCmd: 'Not logged in. Run `{cmd}` to authenticate.',
     addZaiApiKey:
       'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/quota01/zai.json.',
@@ -667,7 +670,7 @@ export const zhTw = {
   providerIntegration: {
     available: '可用',
     unavailable: '無法使用',
-    traeSignInRequired: '請先登入 TraeWork CN，以查看用量。',
-    traeSessionExpired: '你的 TraeWork CN 工作階段已過期。請重新登入。',
+    signInRequired: '請先登入 {provider}，以查看用量。',
+    sessionExpired: '你的 {provider} 工作階段已過期。請重新登入。',
   },
 } satisfies Messages;

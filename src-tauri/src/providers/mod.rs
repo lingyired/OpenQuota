@@ -36,9 +36,15 @@ pub use registry::ProviderRegistry;
 use crate::models::{ApiKeyStatus, ProviderDefinition, ProviderErrorKind, ProviderSnapshot};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WebviewCredentialSource {
+    Cookie { name: String },
+    LocalStorage { key: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WebviewAuth {
     pub login_url: String,
-    pub cookie_name: String,
+    pub credential: WebviewCredentialSource,
     pub window_label: String,
 }
 
@@ -354,16 +360,10 @@ mod tests {
         );
         assert_eq!(
             links(deepseek::definition()),
-            [
-                (
-                    "Dashboard".into(),
-                    "https://platform.deepseek.com/usage".into()
-                ),
-                (
-                    "API Keys".into(),
-                    "https://platform.deepseek.com/api_keys".into()
-                ),
-            ]
+            [(
+                "Dashboard".into(),
+                "https://platform.deepseek.com/usage".into()
+            )]
         );
         assert_eq!(
             links(trae::definition()),

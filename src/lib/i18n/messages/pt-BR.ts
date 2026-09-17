@@ -380,6 +380,8 @@ export const ptBr = {
     weekly: 'Weekly',
     monthly: 'Monthly',
     balance: 'Balance',
+    totalSpend: 'Total Spend',
+    todaySpend: 'Today Spend',
     extraBalance: 'Extra Balance',
     orgCredits: 'Org Credits',
     orgSpend: 'Org Spend',
@@ -456,6 +458,7 @@ export const ptBr = {
     apiKeyInvalid: 'The {provider} API key is invalid. Check it at {url}.',
     apiKeyInvalidInConsole: 'The Kimi API key is invalid. Check it in the Kimi Code console.',
     apiKeyUnreadable: 'The {provider} API key could not be read or updated.',
+    sessionUnreadable: 'The {provider} session could not be read or updated.',
     notLoggedInRunCmd: 'Not logged in. Run `{cmd}` to authenticate.',
     addZaiApiKey:
       'Add a Z.ai API key in Customize, set ZAI_API_KEY, or configure ~/.config/quota01/zai.json.',
@@ -667,7 +670,7 @@ export const ptBr = {
   providerIntegration: {
     available: 'Available',
     unavailable: 'Unavailable',
-    traeSignInRequired: 'Sign in to TraeWork CN to view usage.',
-    traeSessionExpired: 'Your TraeWork CN session expired. Sign in again.',
+    signInRequired: 'Sign in to {provider} to view usage.',
+    sessionExpired: 'Your {provider} session expired. Sign in again.',
   },
 } satisfies Messages;

@@ -31,6 +31,26 @@
   const editable = $derived(status === 'notSet' || overrideExternal);
   const canClear = $derived(status === 'saved' || status === 'overrideActive');
   const currentLocale = $derived(locale);
+  const credentialTitle = $derived.by(() => {
+    void currentLocale;
+    return t('provider.apiKey');
+  });
+  const inputPlaceholder = $derived.by(() => {
+    void currentLocale;
+    return t('provider.pasteApiKey');
+  });
+  const inputAriaLabel = $derived.by(() => {
+    void currentLocale;
+    return t('metric.apiKeyInput', { provider: providerName });
+  });
+  const sourceAriaLabel = $derived.by(() => {
+    void currentLocale;
+    return t('metric.apiKeySource', { provider: providerName });
+  });
+  const sectionAriaLabel = $derived.by(() => {
+    void currentLocale;
+    return t('metric.apiKey', { provider: providerName });
+  });
   const sourceLabel = $derived.by(() => {
     void currentLocale;
     return status === 'fromEnvironment'
@@ -150,11 +170,8 @@
 </script>
 
 {#if supported}
-  <section
-    class="api-key-section"
-    aria-label={$tStore('metric.apiKey', { provider: providerName })}
-  >
-    <h2>{$tStore('provider.apiKey')}</h2>
+  <section class="api-key-section" aria-label={sectionAriaLabel}>
+    <h2>{credentialTitle}</h2>
     <div class="api-key-card">
       <div class="api-key-summary">
         <ProviderIcon {providerId} size={18} />
@@ -181,8 +198,8 @@
                   bind:value={apiKey}
                   autocomplete="off"
                   spellcheck="false"
-                  placeholder={$tStore('provider.pasteApiKey')}
-                  aria-label={$tStore('metric.apiKeyInput', { provider: providerName })}
+                  placeholder={inputPlaceholder}
+                  aria-label={inputAriaLabel}
                   disabled={saving}
                 />
                 <button
@@ -229,7 +246,7 @@
                   class="api-key-source-field"
                   type="text"
                   use:displayValue={sourceLabel}
-                  aria-label={$tStore('metric.apiKeySource', { provider: providerName })}
+                  aria-label={sourceAriaLabel}
                   disabled
                 />
               </div>

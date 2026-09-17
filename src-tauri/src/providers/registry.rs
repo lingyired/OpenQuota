@@ -337,7 +337,9 @@ mod tests {
         fn webview_auth(&self) -> Option<crate::providers::WebviewAuth> {
             Some(crate::providers::WebviewAuth {
                 login_url: "https://example.com/login".into(),
-                cookie_name: "session".into(),
+                credential: crate::providers::WebviewCredentialSource::Cookie {
+                    name: "session".into(),
+                },
                 window_label: "test-login".into(),
             })
         }

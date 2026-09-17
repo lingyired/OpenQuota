@@ -9,7 +9,7 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 
 const catalogData: ProviderCatalog = {
-  webviewAuthProviderIds: ['trae-cn'],
+  webviewAuthProviderIds: ['trae-cn', 'deepseek'],
   providers: [
     {
       id: 'trae-cn',
@@ -41,6 +41,26 @@ const catalogData: ProviderCatalog = {
         },
       ],
     },
+    {
+      id: 'deepseek',
+      displayName: 'DeepSeek',
+      shortName: 'DS',
+      fallbackEnabled: false,
+      localUsageSourceNote: null,
+      links: [{ label: 'Dashboard', url: 'https://platform.deepseek.com/usage' }],
+      metrics: [
+        {
+          id: 'deepseek.balance',
+          label: 'Balance',
+          source: { kind: 'value', sourceId: 'balance' },
+          pinnable: true,
+          defaultEnabled: true,
+          defaultSection: 'alwaysVisible',
+          defaultPinned: true,
+          tray: { shortLabel: 'B', suffix: null },
+        },
+      ],
+    },
   ],
 };
 
@@ -57,8 +77,22 @@ const settings: AppSettings = {
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
       ],
     },
+    {
+      id: 'deepseek',
+      enabled: false,
+      detected: false,
+      expanded: false,
+      metrics: [
+        {
+          id: 'deepseek.balance',
+          enabled: true,
+          section: 'alwaysVisible',
+          pinned: true,
+        },
+      ],
+    },
   ],
-  knownProviderIds: ['trae-cn'],
+  knownProviderIds: ['trae-cn', 'deepseek'],
   providerNames: {},
   language: 'en',
   showTotalSpend: true,
@@ -94,12 +128,14 @@ const settings: AppSettings = {
 describe('CustomizeProviderDetail session authentication', () => {
   beforeEach(() => {
     mocks.listen.mockReset().mockResolvedValue(vi.fn());
-    mocks.invoke.mockReset().mockImplementation((command: string) => {
-      if (command === 'get_provider_session_state') {
-        return Promise.resolve({ providerId: 'trae-cn', status: 'notSet' });
-      }
-      return Promise.reject(new Error(`unexpected command ${command}`));
-    });
+    mocks.invoke
+      .mockReset()
+      .mockImplementation((command: string, args?: { providerId: string }) => {
+        if (command === 'get_provider_session_state') {
+          return Promise.resolve({ providerId: args?.providerId, status: 'notSet' });
+        }
+        return Promise.reject(new Error(`unexpected command ${command}`));
+      });
   });
 
   afterEach(cleanup);
@@ -125,6 +161,28 @@ describe('CustomizeProviderDetail session authentication', () => {
     });
     expect(mocks.invoke).not.toHaveBeenCalledWith('get_provider_api_key_state', {
       providerId: 'trae-cn',
+    });
+  });
+
+  it('renders WebView session controls for DeepSeek instead of API-key controls', async () => {
+    render(CustomizeProviderDetail, {
+      settings,
+      providerId: 'deepseek',
+      catalog: new ProviderCatalogIndex(catalogData),
+      renamableProviderIds: [],
+      onChange: () => {},
+      onNameChange: () => {},
+      onReorderStart: () => {},
+      onReorderEnd: () => {},
+      reducedMotion: true,
+    });
+
+    expect(await screen.findByRole('region', { name: 'DeepSeek Connection' })).toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledWith('get_provider_session_state', {
+      providerId: 'deepseek',
+    });
+    expect(mocks.invoke).not.toHaveBeenCalledWith('get_provider_api_key_state', {
+      providerId: 'deepseek',
     });
   });
 });

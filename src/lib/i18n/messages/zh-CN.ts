@@ -372,6 +372,8 @@ export const zhCn = {
     weekly: '每周',
     monthly: '每月',
     balance: '余额',
+    totalSpend: '累计消费',
+    todaySpend: '今日消费',
     extraBalance: '额外余额',
     orgCredits: '组织积分',
     orgSpend: '组织消费',
@@ -441,6 +443,7 @@ export const zhCn = {
     apiKeyInvalid: '{provider} API 密钥无效。请在 {url} 查看。',
     apiKeyInvalidInConsole: 'Kimi API 密钥无效。请在 Kimi Code 控制台查看。',
     apiKeyUnreadable: '{provider} API 密钥无法读取或更新。',
+    sessionUnreadable: '{provider} 会话无法读取或更新。',
     notLoggedInRunCmd: '尚未登录。请运行 `{cmd}` 进行身份验证。',
     addZaiApiKey:
       '在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/quota01/zai.json。',
@@ -637,8 +640,8 @@ export const zhCn = {
   providerIntegration: {
     available: '可用',
     unavailable: '不可用',
-    traeSignInRequired: '请先登录 TraeWork CN，以查看用量。',
-    traeSessionExpired: '你的 TraeWork CN 会话已过期。请重新登录。',
+    signInRequired: '请先登录 {provider}，以查看用量。',
+    sessionExpired: '你的 {provider} 会话已过期。请重新登录。',
   },
 } as const;
 
