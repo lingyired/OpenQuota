@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatAmount } from './metricFormat';
   import type { CreditPackage } from './types';
 
   interface Props {
@@ -14,9 +15,6 @@
       .slice(0, expanded ? undefined : 3),
   );
 
-  const numberFormatter = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
-  const formatCredits = (value: number) =>
-    Number.isFinite(value) ? numberFormatter.format(value) : '—';
   const fillPercent = (item: CreditPackage) =>
     item.total > 0 ? Math.min(100, Math.max(0, (item.remaining / item.total) * 100)) : 0;
   const formatExpiry = (value: string | null) => {
@@ -45,9 +43,7 @@
               <span>无限</span>
             {:else}
               <span
-                >{formatCredits(creditPackage.remaining)} / {formatCredits(
-                  creditPackage.total,
-                )}</span
+                >{formatAmount(creditPackage.remaining)} / {formatAmount(creditPackage.total)}</span
               >
             {/if}
           </div>

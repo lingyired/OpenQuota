@@ -195,7 +195,7 @@ describe('Quota01 dashboard', () => {
     expect(screen.getByRole('region', { name: 'Usage Trend' })).toBeInTheDocument();
     expect(container.querySelector('.spend-ring__label')).toHaveAttribute(
       'data-tooltip',
-      '$3.84 · Estimated locally, so it may be off',
+      '$3.8 · Estimated locally, so it may be off',
     );
     expect(screen.getByText(`Quota01 ${import.meta.env.APP_VERSION}`)).toBeInTheDocument();
     expect(container.querySelector('.floating-chrome')).not.toBeInTheDocument();
@@ -409,7 +409,7 @@ describe('Quota01 dashboard', () => {
     render(App);
     expect(await screen.findByRole('heading', { name: 'Claude' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Antigravity' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '$37.50 left' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '$37.5 left' })).toBeInTheDocument();
     expect(screen.getAllByRole('progressbar')).toHaveLength(6);
     expect(
       within(screen.getByRole('region', { name: 'Total Spend' })).getByRole('img', {
@@ -647,9 +647,9 @@ describe('Quota01 dashboard', () => {
   it('reveals On Demand metrics without losing their saved order', async () => {
     render(App);
     await screen.findByText('Plus');
-    expect(screen.queryByText('$3.84 · 2.1M tokens')).not.toBeInTheDocument();
+    expect(screen.queryByText('$3.8 · 2.1M tokens')).not.toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
-    expect(screen.getByText('$3.84 · 2.1M tokens')).toBeInTheDocument();
+    expect(screen.getByText('$3.8 · 2.1M tokens')).toBeInTheDocument();
     await waitFor(() =>
       expect(mocks.invoke).toHaveBeenCalledWith('save_app_settings', expect.any(Object)),
     );

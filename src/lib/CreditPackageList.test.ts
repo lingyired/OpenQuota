@@ -44,7 +44,7 @@ describe('CreditPackageList', () => {
     });
 
     expect(screen.getByText('第一个积分包')).toBeInTheDocument();
-    expect(screen.getByText('71.38 / 100')).toBeInTheDocument();
+    expect(screen.getByText('71.4 / 100')).toBeInTheDocument();
     expect(screen.getByText('到期 2026/10/08')).toBeInTheDocument();
     expect(screen.getByText('第二个积分包')).toBeInTheDocument();
     expect(screen.getByText('第三个积分包')).toBeInTheDocument();

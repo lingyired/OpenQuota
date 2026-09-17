@@ -56,6 +56,7 @@ pub struct QuotaWindow {
 pub enum MetricValueKind {
     Count,
     Dollars,
+    Currency,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -987,8 +988,8 @@ pub struct SettingsViewState {
 mod tests {
     use super::{
         ApiKeyMutationOutcome, ApiKeyStatus, AppSettings, LanguagePreference, LogLevel,
-        ProviderApiKeyState, ProviderErrorKind, ProviderLink, ProviderSnapshot, ProviderViewState,
-        UsageCompleteness, UsagePeriod, WindowMode,
+        MetricValueKind, ProviderApiKeyState, ProviderErrorKind, ProviderLink, ProviderSnapshot,
+        ProviderViewState, UsageCompleteness, UsagePeriod, WindowMode,
     };
 
     #[test]
@@ -1029,6 +1030,14 @@ mod tests {
                 preference
             );
         }
+    }
+
+    #[test]
+    fn currency_metric_kind_uses_the_frontend_contract_name() {
+        assert_eq!(
+            serde_json::to_value(MetricValueKind::Currency).unwrap(),
+            serde_json::json!("currency")
+        );
     }
 
     #[test]

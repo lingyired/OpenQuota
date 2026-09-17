@@ -1,27 +1,20 @@
 import { t } from './i18n';
 import type { AppSettings } from './types';
 
-export type MetricNumberKind = 'percent' | 'dollars' | 'count';
+export type MetricNumberKind = 'percent' | 'dollars' | 'count' | 'currency';
 export type MetricNumberStyle = 'tray' | 'row' | 'full';
 
 const compactFormatter = new Intl.NumberFormat('en-US', {
   notation: 'compact',
   maximumFractionDigits: 1,
 });
-const rowNumberFormatter = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 1,
-});
-const fullNumberFormatter = new Intl.NumberFormat('en-US', {
-  minimumFractionDigits: 0,
-  maximumFractionDigits: 1,
-});
-const currencyFormatter = new Intl.NumberFormat('en-US', {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-});
+/**
+ * Amounts, credit balances, and plain counts all read out at one decimal place.
+ * Trailing zeros are dropped, so whole values stay whole, and a non-zero value
+ * below half a tenth keeps enough digits to avoid printing a real balance as
+ * `0`.
+ */
+const amountFormatters = new Map<string, Intl.NumberFormat>();
 const wholeDollarFormatter = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
@@ -54,6 +47,39 @@ function currencySymbol(code: string) {
     : null;
 }
 
+function fractionDigits(value: number) {
+  const magnitude = Math.abs(value);
+  if (magnitude === 0 || magnitude >= 0.05) return 1;
+  const leadingZeros = Math.max(0, Math.ceil(-Math.log10(magnitude)));
+  return Math.min(20, Math.max(1, leadingZeros + 2));
+}
+
+function amountFormatter(value: number, usd: boolean) {
+  const digits = fractionDigits(value);
+  const key = `${usd ? 'usd' : 'plain'}:${digits}`;
+  const cached = amountFormatters.get(key);
+  if (cached) return cached;
+  const formatter = new Intl.NumberFormat(
+    'en-US',
+    usd
+      ? {
+          style: 'currency',
+          currency: 'USD',
+          minimumFractionDigits: 0,
+          maximumFractionDigits: digits,
+        }
+      : { minimumFractionDigits: 0, maximumFractionDigits: digits },
+  );
+  amountFormatters.set(key, formatter);
+  return formatter;
+}
+
+/** Shared reading for the amounts and credit balances the dashboard shows. */
+export function formatAmount(value: number) {
+  if (!Number.isFinite(value)) return '—';
+  return amountFormatter(value, false).format(value);
+}
+
 export function formatMetricNumber(
   value: number,
   kind: MetricNumberKind,
@@ -65,10 +91,18 @@ export function formatMetricNumber(
     if (Math.abs(value) >= 1000 && style !== 'full') {
       return `$${compactFormatter.format(value)}`;
     }
-    return style === 'tray' ? wholeDollarFormatter.format(value) : currencyFormatter.format(value);
+    return style === 'tray'
+      ? wholeDollarFormatter.format(value)
+      : amountFormatter(value, true).format(value);
+  }
+  if (kind === 'currency') {
+    if (Math.abs(value) >= 1000 && style !== 'full') {
+      return compactFormatter.format(value);
+    }
+    return amountFormatter(value, false).format(value);
   }
   if (style !== 'full' && Math.abs(value) >= 1000) return compactFormatter.format(value);
-  return (style === 'full' ? fullNumberFormatter : rowNumberFormatter).format(value);
+  return amountFormatter(value, false).format(value);
 }
 
 export function formatMetricValue(
@@ -94,6 +128,10 @@ export function formatMetricRailValue(
   label?: string | null,
 ) {
   const formatted = formatMetricNumber(value, kind, 'row');
+  if (kind === 'currency' && label) {
+    const symbol = currencySymbol(label.toUpperCase());
+    return symbol ? `${symbol}${formatted}` : `${formatted} ${label}`;
+  }
   if (kind !== 'count' || !label || !/^[A-Za-z]{3}$/.test(label)) return formatted;
   const symbol = currencySymbol(label.toUpperCase());
   return symbol ? `${symbol}${formatted}` : formatted;
@@ -181,13 +219,18 @@ export function totalSpendRingCenter(value: number, metric: AppSettings['totalSp
   }
   const magnitude = Math.abs(value);
   if (magnitude >= 1_000_000_000) {
-    return { primary: rowNumberFormatter.format(value / 1_000_000_000), unit: t('units.billion') };
+    return { primary: scaledReading(value, 1_000_000_000), unit: t('units.billion') };
   }
   if (magnitude >= 1_000_000) {
-    return { primary: rowNumberFormatter.format(value / 1_000_000), unit: t('units.million') };
+    return { primary: scaledReading(value, 1_000_000), unit: t('units.million') };
   }
   if (magnitude >= 1_000) {
-    return { primary: rowNumberFormatter.format(value / 1_000), unit: t('units.thousand') };
+    return { primary: scaledReading(value, 1_000), unit: t('units.thousand') };
   }
-  return { primary: rowNumberFormatter.format(value), unit: t('units.tokens') };
+  return { primary: formatAmount(value), unit: t('units.tokens') };
+}
+
+function scaledReading(value: number, divisor: number) {
+  const scaled = value / divisor;
+  return amountFormatter(scaled, false).format(scaled);
 }

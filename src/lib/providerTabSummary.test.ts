@@ -48,7 +48,7 @@ function deepseekBalances(wallets: [number, string][]): ProviderSnapshot {
         label: 'Balance',
         values: wallets.map(([number, label]) => ({
           number,
-          kind: 'count' as const,
+          kind: 'currency' as const,
           label,
           estimated: false,
         })),
@@ -108,7 +108,7 @@ describe('provider tab summaries', () => {
       usedSettings,
       providerCatalogIndex,
     );
-    expect(readings[0]).toMatchObject({ reading: '$12.50', available: true });
+    expect(readings[0]).toMatchObject({ reading: '$12.5', available: true });
 
     expect(providerTabReadings(extra, null, usedSettings, providerCatalogIndex)).toEqual([
       { id: 'claude.extra', label: 'Extra Usage', reading: '--', lines: ['--'], available: false },
@@ -122,7 +122,7 @@ describe('provider tab summaries', () => {
 
     expect(
       providerTabReadings(today, codexState.snapshot, usedSettings, providerCatalogIndex),
-    ).toMatchObject([{ reading: '$3.84 · 2.1M tokens', lines: ['$3.84', '2.1M'] }]);
+    ).toMatchObject([{ reading: '$3.8 · 2.1M tokens', lines: ['$3.8', '2.1M'] }]);
   });
 
   it('uses currency symbols and one line per wallet for balance readings', () => {
@@ -175,7 +175,7 @@ describe('provider tab summaries', () => {
     ).toMatchObject([{ reading: '32%', lines: ['32%'] }]);
     expect(
       providerTabReadings(extra, claudeState.snapshot, usedSettings, providerCatalogIndex),
-    ).toMatchObject([{ reading: '$12.50', lines: ['$12.50'] }]);
+    ).toMatchObject([{ reading: '$12.5', lines: ['$12.5'] }]);
   });
 
   it('formats a pinned usage metric with the same cost and token summary as the dashboard', () => {
@@ -184,7 +184,7 @@ describe('provider tab summaries', () => {
     ]);
     expect(
       providerTabReadings(today, codexState.snapshot, usedSettings, providerCatalogIndex),
-    ).toMatchObject([{ reading: '$3.84 · 2.1M tokens', available: true }]);
+    ).toMatchObject([{ reading: '$3.8 · 2.1M tokens', available: true }]);
   });
 
   it('ignores pinned metrics that are not part of the provider catalog', () => {

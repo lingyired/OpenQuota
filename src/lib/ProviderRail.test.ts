@@ -117,11 +117,11 @@ describe('ProviderRail', () => {
       onSelect: vi.fn(),
     });
 
-    const codex = screen.getByRole('tab', { name: /Codex.*Today.*\$3\.84 · 2\.1M tokens/ });
+    const codex = screen.getByRole('tab', { name: /Codex.*Today.*\$3\.8 · 2\.1M tokens/ });
     const lines = Array.from(codex.querySelectorAll('.provider-rail__reading')).map(
       (line) => line.textContent,
     );
-    expect(lines).toEqual(['$3.84', '2.1M']);
+    expect(lines).toEqual(['$3.8', '2.1M']);
   });
 
   it('shrinks long readings instead of clipping them', () => {

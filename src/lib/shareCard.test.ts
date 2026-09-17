@@ -443,7 +443,7 @@ describe('share card layout', () => {
     ]);
     expect(collapsed[0]).toMatchObject({
       kind: 'quota',
-      reading: '71.38 / 100',
+      reading: '71.4 / 100',
       fillPercent: 71.38,
     });
 

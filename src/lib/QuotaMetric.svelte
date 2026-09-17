@@ -2,6 +2,7 @@
   import { locale } from 'svelte-i18n';
   import { t, tBackend, tBackendStore, tStore } from './i18n';
   import Icon from './Icon.svelte';
+  import { formatAmount } from './metricFormat';
   import {
     formatLimit,
     formatReset,
@@ -67,9 +68,9 @@
     }
     if (quota.format === 'dollars' && quota.usedValue !== null) {
       if (usageDisplay === 'left' && quota.limitValue !== null) {
-        return `$${Math.max(0, quota.limitValue - quota.usedValue).toFixed(2)} ${t('time.left')}`;
+        return `$${formatAmount(Math.max(0, quota.limitValue - quota.usedValue))} ${t('time.left')}`;
       }
-      return `$${quota.usedValue.toFixed(2)} ${t('time.spent')}`;
+      return `$${formatAmount(quota.usedValue)} ${t('time.spent')}`;
     }
     if (flooredSubOnePercent) {
       return `${usageDisplay === 'used' ? '<1%' : '>99%'} ${usageDisplay === 'used' ? t('time.used') : t('time.left')}`;
@@ -84,9 +85,9 @@
       return `${opposite.toFixed(0)} ${countUnit} ${usageDisplay === 'left' ? t('time.used') : t('time.left')}`;
     }
     if (quota.format === 'dollars' && quota.usedValue !== null) {
-      if (usageDisplay === 'left') return `$${quota.usedValue.toFixed(2)} ${t('time.spent')}`;
+      if (usageDisplay === 'left') return `$${formatAmount(quota.usedValue)} ${t('time.spent')}`;
       if (quota.limitValue !== null)
-        return `$${Math.max(0, quota.limitValue - quota.usedValue).toFixed(2)} ${t('time.left')}`;
+        return `$${formatAmount(Math.max(0, quota.limitValue - quota.usedValue))} ${t('time.left')}`;
       return null;
     }
     if (flooredSubOnePercent) {

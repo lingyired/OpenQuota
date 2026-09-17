@@ -78,7 +78,7 @@ describe('MetricRenderer nearest credit package', () => {
     });
 
     expect(screen.getByRole('heading', { name: '近期到期的积分包' })).toBeInTheDocument();
-    expect(screen.getByText('447.78 / 500')).toBeInTheDocument();
+    expect(screen.getByText('447.8 / 500')).toBeInTheDocument();
     expect(screen.getByRole('progressbar')).toHaveAttribute('aria-valuenow', '89.556');
     expect(screen.getByText(/到期 /)).toBeInTheDocument();
   });

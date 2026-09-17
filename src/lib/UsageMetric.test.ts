@@ -82,7 +82,7 @@ describe('UsageMetric model detail', () => {
     expect(screen.getByLabelText('This period used a model with unknown pricing')).toBeVisible();
   });
 
-  it('compacts large row values while keeping exact tooltip figures', () => {
+  it('compacts large row values while keeping the tooltip unabbreviated', () => {
     render(UsageMetric, {
       label: 'Last 30 Days',
       period: {
@@ -97,7 +97,7 @@ describe('UsageMetric model detail', () => {
 
     expect(screen.getByRole('button', { name: '$2.1K · 1.5B tokens' })).toHaveAttribute(
       'data-tooltip',
-      '$2,059.07\n1,506,025,363 tokens\nEstimated locally, so it may be off',
+      '$2,059.1\n1,506,025,363 tokens\nEstimated locally, so it may be off',
     );
   });
 

@@ -14,7 +14,7 @@ export interface QuotaWindow {
 
 export interface MetricValue {
   number: number;
-  kind: 'count' | 'dollars';
+  kind: 'count' | 'dollars' | 'currency';
   label?: string | null;
   estimated: boolean;
 }

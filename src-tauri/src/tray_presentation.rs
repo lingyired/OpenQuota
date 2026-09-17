@@ -360,31 +360,100 @@ fn format_tray_value(value: &MetricValue) -> String {
     let number = match value.kind {
         MetricValueKind::Dollars => format!("${:.0}", value.number),
         MetricValueKind::Count => format_tokens(value.number.max(0.0) as u64),
+        MetricValueKind::Currency => format_currency(value.number, value.label.as_deref(), true),
     };
-    value
-        .label
-        .as_deref()
-        .map(|label| format!("{number} {label}"))
-        .unwrap_or(number)
+    if value.kind == MetricValueKind::Currency {
+        number
+    } else {
+        value
+            .label
+            .as_deref()
+            .map(|label| format!("{number} {label}"))
+            .unwrap_or(number)
+    }
 }
 
 fn format_detail_value(value: &MetricValue) -> String {
     let number = match value.kind {
-        MetricValueKind::Dollars => format!("${:.2}", value.number),
+        MetricValueKind::Dollars => format!(
+            "${}",
+            trim_decimal(value.number, amount_fraction_digits(value.number))
+        ),
         MetricValueKind::Count => format!("{:.0}", value.number),
+        MetricValueKind::Currency => format_currency(value.number, value.label.as_deref(), false),
     };
-    value
-        .label
-        .as_deref()
-        .map(|label| format!("{number} {label}"))
-        .unwrap_or(number)
+    if value.kind == MetricValueKind::Currency {
+        number
+    } else {
+        value
+            .label
+            .as_deref()
+            .map(|label| format!("{number} {label}"))
+            .unwrap_or(number)
+    }
+}
+
+fn format_currency(number: f64, currency: Option<&str>, compact: bool) -> String {
+    let number = format_currency_number(number, compact);
+    let currency = currency.map(str::to_ascii_uppercase);
+    match currency.as_deref() {
+        Some("CNY" | "JPY") if compact => format!("¥{number}"),
+        Some("USD") if compact => format!("${number}"),
+        Some("EUR") if compact => format!("€{number}"),
+        Some("GBP") if compact => format!("£{number}"),
+        Some(currency) => format!("{number} {currency}"),
+        None => number,
+    }
+}
+
+/// Mirrors `fractionDigits()` in `src/lib/metricFormat.ts` so the menubar reads
+/// the same as the dashboard: amounts keep one decimal place, and only a
+/// non-zero value below half a tenth keeps extra digits, which stops a real
+/// balance from being printed as `0`.
+fn amount_fraction_digits(number: f64) -> usize {
+    let magnitude = number.abs();
+    if magnitude == 0.0 || magnitude >= 0.05 {
+        return 1;
+    }
+    let leading_zeros = (-magnitude.log10()).ceil().max(0.0) as usize;
+    (leading_zeros + 2).clamp(1, 20)
+}
+
+fn format_currency_number(number: f64, compact: bool) -> String {
+    if !number.is_finite() {
+        return "NA".to_owned();
+    }
+    let magnitude = number.abs();
+    if compact && magnitude >= 1_000_000_000.0 {
+        return trim_decimal(number / 1_000_000_000.0, 1) + "B";
+    }
+    if compact && magnitude >= 1_000_000.0 {
+        return trim_decimal(number / 1_000_000.0, 1) + "M";
+    }
+    if compact && magnitude >= 1_000.0 {
+        return trim_decimal(number / 1_000.0, 1) + "K";
+    }
+    trim_decimal(number, amount_fraction_digits(number))
+}
+
+fn trim_decimal(number: f64, precision: usize) -> String {
+    let formatted = format!("{number:.precision$}");
+    if formatted == "-0" {
+        return "0".to_owned();
+    }
+    let trimmed = formatted.trim_end_matches('0').trim_end_matches('.');
+    if trimmed.is_empty() || trimmed == "-" {
+        "0".to_owned()
+    } else {
+        trimmed.to_owned()
+    }
 }
 
 fn usage_metric(label: &str, period: Option<&UsagePeriod>) -> Option<TrayMetric> {
     let period = period?;
     let value = period
         .estimated_cost_usd
-        .map(|value| format!("${value:.2}"))
+        .map(|cost| format!("${}", trim_decimal(cost, amount_fraction_digits(cost))))
         .unwrap_or_else(|| format_tokens(period.tokens));
     let detail = format!("{label} {value}");
     Some(TrayMetric {
@@ -771,7 +840,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(metric.value, "$33 · 821 credits");
-        assert_eq!(metric.detail, "Extra Usage $32.84 · 821 credits");
+        assert_eq!(metric.detail, "Extra Usage $32.8 · 821 credits");
         assert_eq!(metric.gauge, None);
     }
 
@@ -903,5 +972,61 @@ mod tests {
             metrics: vec![metric],
         }])
         .is_none());
+    }
+
+    #[test]
+    fn currency_values_keep_codes_in_details_and_symbols_on_the_tray() {
+        let cny_balance = MetricValue {
+            number: 110.0,
+            kind: MetricValueKind::Currency,
+            label: Some("CNY".into()),
+            estimated: false,
+        };
+        let small_usd_spend = MetricValue {
+            number: 0.0004,
+            kind: MetricValueKind::Currency,
+            label: Some("USD".into()),
+            estimated: false,
+        };
+        let deepseek_balance = MetricValue {
+            number: 9.7134,
+            kind: MetricValueKind::Currency,
+            label: Some("CNY".into()),
+            estimated: false,
+        };
+
+        assert_eq!(super::format_currency(110.0, Some("CNY"), true), "¥110");
+        assert_eq!(super::format_currency(0.0004, Some("USD"), true), "$0.0004");
+        assert_eq!(super::format_tray_value(&cny_balance), "¥110");
+        assert_eq!(super::format_detail_value(&cny_balance), "110 CNY");
+        assert_eq!(super::format_detail_value(&small_usd_spend), "0.0004 USD");
+        assert_eq!(super::format_tray_value(&deepseek_balance), "¥9.7");
+        assert_eq!(super::format_detail_value(&deepseek_balance), "9.7 CNY");
+    }
+
+    #[test]
+    fn amounts_keep_one_decimal_unless_rounding_would_erase_them() {
+        assert_eq!(super::amount_fraction_digits(0.0), 1);
+        assert_eq!(super::amount_fraction_digits(0.05), 1);
+        assert_eq!(super::amount_fraction_digits(9.7134), 1);
+        assert_eq!(super::amount_fraction_digits(0.0004), 6);
+
+        assert_eq!(
+            super::format_currency(50.54, Some("CNY"), false),
+            "50.5 CNY"
+        );
+        assert_eq!(super::format_currency(9.7134, Some("CNY"), true), "¥9.7");
+        assert_eq!(
+            super::format_currency(0.0004, Some("USD"), false),
+            "0.0004 USD"
+        );
+
+        let usd_spend = MetricValue {
+            number: 2059.07,
+            kind: MetricValueKind::Dollars,
+            label: None,
+            estimated: false,
+        };
+        assert_eq!(super::format_detail_value(&usd_spend), "$2059.1");
     }
 }

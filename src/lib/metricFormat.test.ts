@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  formatAmount,
   formatMetricNumber,
+  formatMetricRailValue,
   formatMetricValue,
   formatSpendValue,
   railLineFontSize,
@@ -9,9 +11,9 @@ import {
 } from './metricFormat';
 
 describe('shared metric formatting', () => {
-  it('keeps row values compact and tooltip values exact', () => {
+  it('keeps row values compact and tooltip values at one decimal place', () => {
     expect(formatMetricNumber(2059.07, 'dollars', 'row')).toBe('$2.1K');
-    expect(formatMetricNumber(2059.07, 'dollars', 'full')).toBe('$2,059.07');
+    expect(formatMetricNumber(2059.07, 'dollars', 'full')).toBe('$2,059.1');
     expect(formatMetricValue(1_506_025_363, 'count', 'row', 'tokens')).toBe('1.5B tokens');
     expect(formatMetricValue(1_506_025_363, 'count', 'full', 'tokens')).toBe(
       '1,506,025,363 tokens',
@@ -20,7 +22,7 @@ describe('shared metric formatting', () => {
 
   it('formats total spend consistently across its surfaces', () => {
     expect(formatSpendValue(2059.07, 'cost')).toBe('$2.1K');
-    expect(formatSpendValue(2059.07, 'cost', 'full')).toBe('$2,059.07');
+    expect(formatSpendValue(2059.07, 'cost', 'full')).toBe('$2,059.1');
     expect(totalSpendRingCenter(2059.07, 'cost')).toEqual({
       primary: '$2.1K',
       unit: 'dollars',
@@ -29,6 +31,30 @@ describe('shared metric formatting', () => {
       primary: '461.8',
       unit: 'million',
     });
+  });
+
+  it('reads amounts and credits at one decimal place and drops trailing zeros', () => {
+    expect(formatMetricNumber(3.25, 'dollars', 'full')).toBe('$3.3');
+    expect(formatMetricNumber(12, 'dollars', 'full')).toBe('$12');
+    expect(formatMetricValue(71.38, 'count', 'row', 'credits')).toBe('71.4 credits');
+    expect(formatAmount(71.38)).toBe('71.4');
+    expect(formatAmount(2.0)).toBe('2');
+  });
+
+  it('keeps currency codes in rows and narrow symbols in rails', () => {
+    expect(formatMetricValue(110, 'currency', 'row', 'CNY')).toBe('110 CNY');
+    expect(formatMetricValue(3.25, 'currency', 'row', 'USD')).toBe('3.3 USD');
+    expect(formatMetricRailValue(110, 'currency', 'CNY')).toBe('¥110');
+    expect(formatMetricRailValue(3.25, 'currency', 'USD')).toBe('$3.3');
+    expect(formatMetricValue(2059.07, 'currency', 'row', 'CNY')).toBe('2.1K CNY');
+  });
+
+  it('never rounds a real balance away to zero', () => {
+    expect(formatMetricValue(0.3003, 'currency', 'row', 'CNY')).toBe('0.3 CNY');
+    expect(formatMetricValue(0.04, 'currency', 'row', 'CNY')).toBe('0.04 CNY');
+    expect(formatMetricValue(0.0004, 'currency', 'row', 'USD')).toBe('0.0004 USD');
+    expect(formatMetricRailValue(0.0004, 'currency', 'USD')).toBe('$0.0004');
+    expect(formatAmount(0)).toBe('0');
   });
 });
 

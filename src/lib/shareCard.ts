@@ -1,6 +1,7 @@
 import { t, tBackend } from './i18n';
 import type { ProviderCatalogIndex } from './metrics';
 import {
+  formatAmount,
   formatMetricNumber,
   formatMetricValue,
   formatSpendValue,
@@ -35,8 +36,6 @@ const CARD_GUTTER = 5;
 const CARD_RADIUS = 12;
 const ROW_HORIZONTAL_PADDING = 14;
 const HEADER_HEIGHT = 22;
-
-const creditNumberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 });
 
 export const TOTAL_SPEND_PERIOD_LABELS = [
   t('share.today'),
@@ -357,7 +356,7 @@ function creditPackageShareRow(item: CreditPackage): ShareRow {
 }
 
 function formatCreditNumber(value: number) {
-  return creditNumberFormatter.format(value);
+  return formatAmount(value);
 }
 
 function formatCreditExpiry(value: string | null) {
@@ -398,7 +397,7 @@ function quotaShareRow(
       settings.usageDisplay === 'left' && quota.limitValue !== null
         ? Math.max(0, quota.limitValue - quota.usedValue)
         : quota.usedValue;
-    reading = `$${displayed.toFixed(2)} ${settings.usageDisplay === 'left' ? t('time.left') : t('time.spent')}`;
+    reading = `$${formatAmount(displayed)} ${settings.usageDisplay === 'left' ? t('time.left') : t('time.spent')}`;
     if (quota.limitValue !== null && quota.limitValue > 0) {
       fillPercent = (displayed / quota.limitValue) * 100;
     }

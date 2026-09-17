@@ -29,7 +29,7 @@ describe('ValueMetric', () => {
 
     expect(screen.getByText('$1.2K · 30K credits')).toHaveAttribute(
       'data-tooltip',
-      '$1,200.00 · 30,000 credits',
+      '$1,200 · 30,000 credits',
     );
   });
 
@@ -54,6 +54,23 @@ describe('ValueMetric', () => {
       'data-tooltip',
       'Estimated locally, so it may differ from billed usage.',
     );
+  });
+
+  it('does not round tiny currency values down to zero', () => {
+    render(ValueMetric, {
+      label: 'Today Spend',
+      metric: {
+        id: 'todaySpend',
+        label: 'Today Spend',
+        values: [{ number: 0.0004, kind: 'currency', label: 'USD', estimated: false }],
+        expiriesAt: [],
+      },
+      now: Date.parse('2026-02-20T16:00:00Z'),
+      resetDisplay: 'countdown',
+      timeFormat: 'twentyFourHour',
+    });
+
+    expect(screen.getByText('0.0004 USD')).toBeInTheDocument();
   });
 
   it('opens a sorted reset-expiry timeline and distinguishes count-only fallback', async () => {
