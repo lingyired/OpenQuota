@@ -1,6 +1,6 @@
 [package]
 name = "quota01"
-version = "0.7.7"
+version = "0.7.10"
 description = "Cross-platform AI quota tracker"
 authors = ["Quota01 contributors"]
 edition = "2021"
@@ -49,7 +49,7 @@ tauri-plugin-single-instance = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 fontdue = { version = "0.9.3", default-features = false, features = ["std"] }
 security-framework = "3.7"
-tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.10.1" }
+tauri-plugin-multiline-menubar = { git = "https://github.com/lingyired/tauri-plugin-multiline-menubar", tag = "v1.10.2" }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 tauri-plugin-multiline-taskband = { git = "https://github.com/lingyired/tauri-plugin-multiline-taskband", tag = "v1.2.0" }

@@ -3358,7 +3358,7 @@ dependencies = [
 
 [[package]]
 name = "quota01"
-version = "0.7.7"
+version = "0.7.10"
 dependencies = [
  "base64 0.23.1",
  "chacha20poly1305",
@@ -4665,8 +4665,8 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-multiline-menubar"
-version = "1.10.1"
-source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.10.1#09a1259d6dfb830a06c733f52ea2714228e1c2dd"
+version = "1.10.2"
+source = "git+https://github.com/lingyired/tauri-plugin-multiline-menubar?tag=v1.10.2#3243c4886ec341eb9f9bb8c05a27d83437eaebab"
 dependencies = [
  "cc",
  "muda",
