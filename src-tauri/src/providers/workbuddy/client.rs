@@ -7,7 +7,7 @@ use thiserror::Error;
 
 use super::auth::WorkBuddyAuth;
 
-const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
+pub(crate) const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 const PAID_PACKAGE_CODES: &[&str] = &[
     "TCACA_code_002_AkiJS3ZHF5",
     "TCACA_code_023_4xbGhMrE6q",

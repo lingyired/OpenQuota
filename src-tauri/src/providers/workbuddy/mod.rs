@@ -1,5 +1,8 @@
 mod auth;
 mod client;
+mod login;
+#[cfg(test)]
+mod login_tests;
 mod mapper;
 mod session;
 mod usage;
