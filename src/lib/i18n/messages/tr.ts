@@ -133,6 +133,7 @@ export const tr = {
     enterprise: 'Enterprise',
     ultra: 'Ultra',
     tokenPlan: 'Token Plan',
+    codingPlan: 'Coding Plan',
   },
   settings: {
     title: 'Settings',
@@ -314,6 +315,7 @@ export const tr = {
     apiKey: 'API Key',
     fromYourEnvironment: 'From Your Environment',
     fromConfigFile: 'From Config File',
+    fromCliSignIn: 'From a CLI Sign-In',
     savedSecurely: 'Saved securely',
     customKey: 'Custom Key',
     apiKeyCouldNotSave: 'The API key could not be saved.',
@@ -380,6 +382,8 @@ export const tr = {
     weekly: 'Weekly',
     monthly: 'Monthly',
     balance: 'Balance',
+    grantedBalance: 'Granted Balance',
+    rechargedBalance: 'Recharged Balance',
     totalSpend: 'Total Spend',
     todaySpend: 'Today Spend',
     extraBalance: 'Extra Balance',
@@ -426,15 +430,10 @@ export const tr = {
     sourceFromCodexLogs: 'From your Codex logs (estimated)',
     sourceFromCursorExport: 'From your Cursor usage export',
     sourceFromGrokLogs: 'From your Grok logs (estimated)',
-    sourceFromOpenCodeDb: 'From your OpenCode local database; missing costs use catalog estimates',
-    warnOpenCodeDbUnreadable:
-      'Some OpenCode databases could not be read; available local usage is shown.',
-    warnOpenCodeGoLoginUnreadable:
-      'OpenCode Go login data could not be read; local database usage is still shown.',
-    warnOpenCodeGoSubscriptionRequired:
-      'OpenCode Go subscription required. Local usage is still shown while OpenCode Go quota data is unavailable.',
     warnRefreshLoginNotSaved:
       'The refreshed {provider} login is active for this session but could not be saved.',
+    warnWorkbuddyReadOnlyCredentials:
+      'WorkBuddy credentials were read from workbuddy-switch and are read-only; open workbuddy-switch to refresh them.',
     warnClaudeRelogin:
       'Re-login for live usage. Run `claude` and sign in again to restore subscription limits.',
     warnClaudeRateLimitedShowingStale:
@@ -475,10 +474,17 @@ export const tr = {
     addZaiCnApiKey:
       'Add a Z.ai CN API key in Customize, set ZAI_CN_API_KEY, or configure ~/.config/quota01/zai-cn.json.',
     addMiniMaxCnApiKey: 'Add a MiniMax CN API key in Customize or set MINIMAX_CN_API_KEY.',
+    addSiliconFlowApiKey: 'Add a SiliconFlow API key in Customize or set SILICONFLOW_API_KEY.',
+    addSiliconFlowCnApiKey:
+      'Add a SiliconFlow CN API key in Customize or set SILICONFLOW_CN_API_KEY.',
+    addInfiniApiKey: 'Add an Infini API key in Customize or set INFINI_API_KEY.',
+    addOpenCodeGoApiKey: 'Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.',
     noActiveGlmPlanCn:
       'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.',
     noActiveMiniMaxPlanCn:
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
+    workbuddyCredentialsEncrypted:
+      'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in again in WorkBuddy or CodeBuddy, or launch workbuddy-switch so a readable copy becomes available.',
     openCodeGoSubscriptionRequired: 'OpenCode Go subscription required.',
     notLoggedInCursor: 'Not logged in. Sign in via Cursor app or run `agent login`.',
     sessionExpiredCursor: 'Session expired. Sign in via Cursor app or run `agent login`.',
@@ -515,13 +521,6 @@ export const tr = {
       'The Claude account changed while Quota01 was running. Restart Quota01 to reconnect it safely.',
     claudeOAuthInvalidUrl: 'Claude OAuth settings contain an invalid URL.',
     claudeAccountSettingsUnavailable: 'Claude account settings could not be loaded.',
-    openCodeNotDetected:
-      'OpenCode was not detected. Sign in to OpenCode Go or use OpenCode locally first.',
-    openCodeLoginUnreadable: 'OpenCode login data could not be read. Sign in to OpenCode Go again.',
-    openCodeGoLoginInvalid:
-      'OpenCode Go login data is invalid or expired. Sign in to OpenCode Go again.',
-    openCodeDataDirUnreadable: 'The OpenCode data directory could not be read.',
-    openCodeLocalUsageUnavailable: 'OpenCode local usage data is temporarily unavailable.',
     cursorEnterpriseUsageUnavailable: 'Enterprise usage data is unavailable. Try again later.',
     cursorTeamRequestBasedUsageUnavailable:
       'Team request-based usage data is unavailable. Try again later.',

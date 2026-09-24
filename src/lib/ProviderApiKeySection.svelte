@@ -30,6 +30,9 @@
   const status = $derived<ApiKeyStatus>(credentialState?.status ?? 'notSet');
   const editable = $derived(status === 'notSet' || overrideExternal);
   const canClear = $derived(status === 'saved' || status === 'overrideActive');
+  const fromExternalSource = $derived(
+    status === 'fromEnvironment' || status === 'fromConfig' || status === 'fromCliSignIn',
+  );
   const currentLocale = $derived(locale);
   const credentialTitle = $derived.by(() => {
     void currentLocale;
@@ -57,11 +60,13 @@
       ? t('provider.fromYourEnvironment')
       : status === 'fromConfig'
         ? t('provider.fromConfigFile')
-        : status === 'saved'
-          ? t('provider.savedSecurely')
-          : status === 'overrideActive'
-            ? t('provider.customKey')
-            : '';
+        : status === 'fromCliSignIn'
+          ? t('provider.fromCliSignIn')
+          : status === 'saved'
+            ? t('provider.savedSecurely')
+            : status === 'overrideActive'
+              ? t('provider.customKey')
+              : '';
   });
 
   function errorMessage(cause: unknown, fallback: string) {
@@ -285,7 +290,7 @@
                   </div>
                 </div>
               {/if}
-              {#if status === 'fromEnvironment' || status === 'fromConfig'}
+              {#if fromExternalSource}
                 <label class="api-key-override">
                   <input type="checkbox" bind:checked={overrideExternal} disabled={saving} />
                   {$tStore('provider.overrideWithCustomKey')}

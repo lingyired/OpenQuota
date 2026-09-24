@@ -20,6 +20,14 @@ Quota01 tracks plan usage from the Cursor account already signed in on your comp
 Sign in through the Cursor app or run `agent login`. Quota01 looks for Cursor's local application
 state and platform credential storage, so no separate Quota01 login is required.
 
+## Keychain access
+
+Cursor keeps its tokens in `state.vscdb` and in the `cursor-access-token` /
+`cursor-refresh-token` Keychain entries. macOS asks for authorization the first time a Keychain entry
+is read, so Quota01 reads only the database until you turn the Cursor card on by hand in
+**Customize → Providers**. A Keychain-only login reports the provider as unknown instead of
+"not logged in" until the card is enabled.
+
 Recent history comes from Cursor's usage export. Exported data can arrive later than live account
 usage, so spend and token totals may briefly lag behind the quota meters.
 

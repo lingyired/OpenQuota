@@ -4,9 +4,11 @@ import codebuddyColor from '@lobehub/icons-static-svg/icons/codebuddy-color.svg'
 import codexColor from '@lobehub/icons-static-svg/icons/codex-color.svg';
 import copilotColor from '@lobehub/icons-static-svg/icons/copilot-color.svg';
 import deepseekColor from '@lobehub/icons-static-svg/icons/deepseek-color.svg';
+import infinigenceColor from '@lobehub/icons-static-svg/icons/infinigence-color.svg';
 import kimiColor from '@lobehub/icons-static-svg/icons/kimi-color.svg';
 import minimaxColor from '@lobehub/icons-static-svg/icons/minimax-color.svg';
 import openrouterColor from '@lobehub/icons-static-svg/icons/openrouter-color.svg';
+import siliconcloudColor from '@lobehub/icons-static-svg/icons/siliconcloud-color.svg';
 import antigravity from '../assets/provider-icons/antigravity.svg?raw';
 import claude from '../assets/provider-icons/claude.svg?raw';
 import codex from '../assets/provider-icons/codex.svg?raw';
@@ -14,10 +16,12 @@ import copilot from '../assets/provider-icons/copilot.svg?raw';
 import cursor from '../assets/provider-icons/cursor.svg?raw';
 import deepseek from '../assets/provider-icons/deepseek.svg?raw';
 import grok from '../assets/provider-icons/grok.svg?raw';
+import infini from '../assets/provider-icons/infini.svg?raw';
 import kimi from '../assets/provider-icons/kimi.svg?raw';
 import minimax from '../assets/provider-icons/minimax.svg?raw';
 import opencode from '../assets/provider-icons/opencode.svg?raw';
 import openrouter from '../assets/provider-icons/openrouter.svg?raw';
+import siliconflow from '../assets/provider-icons/siliconflow.svg?raw';
 import zai from '../assets/provider-icons/zai.svg?raw';
 import trae from '../assets/provider-icons/trae.svg?raw';
 import workbuddy from '../assets/provider-icons/workbuddy.svg?raw';
@@ -30,10 +34,12 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   cursor: { source: cursor, color: null },
   deepseek: { source: deepseek, color: '#4D6BFE' },
   grok: { source: grok, color: null },
+  infini: { source: infini, color: '#7F1084' },
   kimi: { source: kimi, color: '#1783FF' },
   minimax: { source: minimax, color: '#E2167E' },
   opencode: { source: opencode, color: null },
   openrouter: { source: openrouter, color: '#C8FF00' },
+  siliconflow: { source: siliconflow, color: '#6E29F6' },
   zai: { source: zai, color: null },
   trae: { source: trae, color: null },
   workbuddy: { source: workbuddy, color: '#6C4DFF' },
@@ -46,9 +52,11 @@ const colorAssetSlugs: Record<string, string> = {
   codex: 'codex',
   copilot: 'copilot',
   deepseek: 'deepseek',
+  infini: 'infinigence',
   kimi: 'kimi',
   minimax: 'minimax',
   openrouter: 'openrouter',
+  siliconflow: 'siliconcloud',
   workbuddy: 'codebuddy',
 };
 
@@ -59,9 +67,11 @@ const colorAssets: Record<string, string> = {
   codebuddy: codebuddyColor,
   copilot: copilotColor,
   deepseek: deepseekColor,
+  infinigence: infinigenceColor,
   kimi: kimiColor,
   minimax: minimaxColor,
   openrouter: openrouterColor,
+  siliconcloud: siliconcloudColor,
 };
 
 const fallbackColors: Record<string, string> = {
@@ -75,8 +85,8 @@ const fallbackColors: Record<string, string> = {
 /**
  * Resolves the brand family behind a provider id. Strips the `@account` suffix
  * used for multi-account setups, and the `-cn` marker used by mainland-China
- * variants (`trae-cn`, `zai-cn`, `minimax-cn`, `kimi-cn`, `workbuddy-cn`), which
- * reuse their parent brand's mark and colour.
+ * variants (`trae-cn`, `zai-cn`, `minimax-cn`, `kimi-cn`, `workbuddy-cn`,
+ * `siliconflow-cn`), which reuse their parent brand's mark and colour.
  */
 export function providerFamily(providerId: string) {
   const family = providerId.split('@', 1)[0];

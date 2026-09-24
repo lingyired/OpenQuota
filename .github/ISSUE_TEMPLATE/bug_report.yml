@@ -63,8 +63,10 @@ body:
       options:
         - Not provider-specific
         - DeepSeek
+        - Infini
         - Kimi CN
         - MiniMax CN
+        - SiliconFlow CN
         - TraeWork CN
         - Workbuddy CN
         - Z.ai CN
@@ -77,6 +79,7 @@ body:
         - MiniMax
         - OpenCode
         - OpenRouter
+        - SiliconFlow
         - Z.ai
         - Multiple providers
     validations:

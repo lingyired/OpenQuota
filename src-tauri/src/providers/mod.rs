@@ -10,6 +10,8 @@ mod daily_usage;
 pub mod deepseek;
 mod detection;
 pub mod grok;
+pub mod infini;
+pub(crate) mod keychain_access;
 pub mod kimi;
 mod log_usage;
 pub mod minimax;
@@ -19,6 +21,7 @@ mod pi_usage;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod provider_icons;
 mod registry;
+pub mod siliconflow;
 #[cfg(test)]
 pub mod test_http;
 pub mod trae;
@@ -154,6 +157,16 @@ pub trait UsageProvider: Send + Sync {
     fn has_local_installation(&self) -> bool {
         false
     }
+    /// Whether this provider can read system credential store entries that belong to another
+    /// application.
+    ///
+    /// macOS prompts for authorization on those reads, so every such read must go through
+    /// `credential_store::read_external_password` (and writes through `write_external_password`),
+    /// which stays inert until the user enables the provider by hand. Detecting existence with
+    /// `generic_password_exists` does not prompt and stays ungated.
+    fn accesses_system_keychain(&self) -> bool {
+        false
+    }
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError>;
 
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
@@ -225,8 +238,8 @@ pub trait UsageProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{
-        antigravity, claude, codex, copilot, cursor, deepseek, grok, kimi, minimax, opencode,
-        openrouter, remember_default_account, trae, zai, ProviderError,
+        antigravity, claude, codex, copilot, cursor, deepseek, grok, infini, kimi, minimax,
+        opencode, openrouter, remember_default_account, siliconflow, trae, zai, ProviderError,
     };
     use crate::models::ProviderErrorKind;
     use tempfile::tempdir;
@@ -393,6 +406,39 @@ mod tests {
             [(
                 "Dashboard".into(),
                 "https://platform.deepseek.com/usage".into()
+            )]
+        );
+        assert_eq!(
+            links(siliconflow::definition(siliconflow::Site::Global)),
+            [
+                (
+                    "Dashboard".into(),
+                    "https://cloud.siliconflow.com/account/balance".into()
+                ),
+                (
+                    "API Keys".into(),
+                    "https://cloud.siliconflow.com/account/ak".into()
+                ),
+            ]
+        );
+        assert_eq!(
+            links(siliconflow::definition(siliconflow::Site::Cn)),
+            [
+                (
+                    "Dashboard".into(),
+                    "https://cloud.siliconflow.cn/account/balance".into()
+                ),
+                (
+                    "API Keys".into(),
+                    "https://cloud.siliconflow.cn/account/ak".into()
+                ),
+            ]
+        );
+        assert_eq!(
+            links(infini::definition()),
+            [(
+                "Dashboard".into(),
+                "https://cloud.infini-ai.com/platform/ai".into()
             )]
         );
         assert_eq!(

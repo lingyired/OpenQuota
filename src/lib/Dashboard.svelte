@@ -315,7 +315,7 @@
   }
   function hideProvider(providerId: string) {
     const provider = settings.providers.find((item) => item.id === providerId);
-    if (provider) updateProvider({ ...provider, enabled: false });
+    if (provider) updateProvider({ ...provider, enabled: false, keychainAccessGranted: false });
     providerMenu = null;
   }
   function dismissDetection() {

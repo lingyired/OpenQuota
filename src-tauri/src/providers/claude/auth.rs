@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 use crate::providers::credential_store::generic_password_exists;
 use crate::{
     hashing::sha256_hex,
-    providers::credential_store::{read_generic_password, write_generic_password},
+    providers::credential_store::{read_external_password, write_external_password},
 };
 
 use super::ClaudeError;
@@ -194,7 +194,7 @@ impl ClaudeCredential {
                 Ok(true)
             }
             CredentialSource::Keychain { service, account } => {
-                write_generic_password(service, account, &bytes)
+                write_external_password("claude", service, account, &bytes)
                     .map_err(|_| ClaudeError::AuthWrite)?;
                 Ok(true)
             }
@@ -296,12 +296,15 @@ pub(super) fn has_local_credentials(scope: &ClaudeCredentialScope) -> bool {
         {
             return true;
         }
-        keychain_candidates(scope)
-            .into_iter()
-            .any(|(service, account)| {
-                generic_password_exists(&service, &account, std::time::Duration::from_secs(2))
-                    == Some(true)
-            })
+        // Reading this entry makes macOS ask for Keychain authorization, so it only counts as
+        // a local credential once the user turned the provider on by hand.
+        crate::providers::keychain_access::is_granted("claude")
+            && keychain_candidates(scope)
+                .into_iter()
+                .any(|(service, account)| {
+                    generic_password_exists(&service, &account, std::time::Duration::from_secs(2))
+                        == Some(true)
+                })
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -363,7 +366,7 @@ fn load_candidates_with_environment(
     let load_keychain = || {
         let mut candidate = None;
         for (service, account) in keychain_candidates(scope) {
-            let Ok(Some(bytes)) = read_generic_password(&service, &account) else {
+            let Ok(Some(bytes)) = read_external_password("claude", &service, &account) else {
                 continue;
             };
             if let Some(credential) = parse_candidate(

@@ -19,6 +19,14 @@ Sign in through Antigravity or run `agy`. Quota01 reuses Antigravity's locally s
 and can also discover a compatible running Antigravity language server. No API key needs to be added
 to Quota01.
 
+## Keychain access
+
+Antigravity's credentials live only in the `gemini` / `antigravity` Keychain entry. macOS asks for
+authorization the first time that entry is read, so Quota01 leaves it alone until you turn the
+Antigravity card on by hand in **Customize → Providers**. Until then the card has nothing to show:
+there is no file-based fallback, and detection reports the provider as unknown rather than
+"not signed in", because the entry was never read.
+
 ## Troubleshooting
 
 - **Not signed in** — open Antigravity or run `agy`, complete sign-in, then refresh Quota01.

@@ -30,8 +30,10 @@ const CURSOR_ICON: &str = include_str!("../../src/assets/provider-icons/cursor.s
 const DEEPSEEK_ICON: &str = include_str!("../../src/assets/provider-icons/deepseek.svg");
 const ANTIGRAVITY_ICON: &str = include_str!("../../src/assets/provider-icons/antigravity.svg");
 const GROK_ICON: &str = include_str!("../../src/assets/provider-icons/grok.svg");
+const INFINI_ICON: &str = include_str!("../../src/assets/provider-icons/infini.svg");
 const OPENCODE_ICON: &str = include_str!("../../src/assets/provider-icons/opencode.svg");
 const OPENROUTER_ICON: &str = include_str!("../../src/assets/provider-icons/openrouter.svg");
+const SILICONFLOW_ICON: &str = include_str!("../../src/assets/provider-icons/siliconflow.svg");
 const ZAI_ICON: &str = include_str!("../../src/assets/provider-icons/zai.svg");
 const KIMI_ICON: &str = include_str!("../../src/assets/provider-icons/kimi.svg");
 const MINIMAX_ICON: &str = include_str!("../../src/assets/provider-icons/minimax.svg");
@@ -279,8 +281,10 @@ fn provider_path(provider_id: &str) -> Option<&'static Path> {
     static CURSOR: OnceLock<Path> = OnceLock::new();
     static ANTIGRAVITY: OnceLock<Path> = OnceLock::new();
     static GROK: OnceLock<Path> = OnceLock::new();
+    static INFINI: OnceLock<Path> = OnceLock::new();
     static OPENCODE: OnceLock<Path> = OnceLock::new();
     static OPENROUTER: OnceLock<Path> = OnceLock::new();
+    static SILICONFLOW: OnceLock<Path> = OnceLock::new();
     static ZAI: OnceLock<Path> = OnceLock::new();
     static KIMI: OnceLock<Path> = OnceLock::new();
     static MINIMAX: OnceLock<Path> = OnceLock::new();
@@ -294,6 +298,7 @@ fn provider_path(provider_id: &str) -> Option<&'static Path> {
         "cursor" => Some(parsed(CURSOR_ICON, &CURSOR)),
         "antigravity" => Some(parsed(ANTIGRAVITY_ICON, &ANTIGRAVITY)),
         "grok" => Some(parsed(GROK_ICON, &GROK)),
+        "infini" => Some(parsed(INFINI_ICON, &INFINI)),
         "opencode" => Some(parsed(OPENCODE_ICON, &OPENCODE)),
         "openrouter" => Some(parsed(OPENROUTER_ICON, &OPENROUTER)),
         // `provider_family` only strips the `@account` suffix, so the mainland-China
@@ -303,6 +308,7 @@ fn provider_path(provider_id: &str) -> Option<&'static Path> {
         "minimax" | "minimax-cn" => Some(parsed(MINIMAX_ICON, &MINIMAX)),
         "trae-cn" => Some(parsed(TRAE_ICON, &TRAE)),
         "workbuddy" | "workbuddy-cn" => Some(parsed(WORKBUDDY_ICON, &WORKBUDDY)),
+        "siliconflow" | "siliconflow-cn" => Some(parsed(SILICONFLOW_ICON, &SILICONFLOW)),
         _ => None,
     }
 }
@@ -656,6 +662,9 @@ mod tests {
             "trae-cn",
             "workbuddy",
             "workbuddy-cn",
+            "siliconflow",
+            "siliconflow-cn",
+            "infini",
         ] {
             let path = provider_path(provider).expect("known provider mark should exist");
             assert!(path.bounds().width() > 0.0);

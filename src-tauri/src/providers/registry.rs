@@ -577,7 +577,8 @@ mod tests {
     #[test]
     fn builtin_provider_catalog_keeps_the_product_defaults() {
         use crate::providers::{
-            antigravity, claude, codex, copilot, cursor, grok, minimax, opencode, openrouter, zai,
+            antigravity, claude, codex, copilot, cursor, grok, infini, minimax, opencode,
+            openrouter, siliconflow, zai,
         };
 
         let registry = ProviderRegistry::new(vec![
@@ -593,6 +594,9 @@ mod tests {
             runtime(zai::definition(zai::Site::Cn)),
             runtime(minimax::definition(minimax::Site::Global)),
             runtime(minimax::definition(minimax::Site::Cn)),
+            runtime(siliconflow::definition(siliconflow::Site::Global)),
+            runtime(siliconflow::definition(siliconflow::Site::Cn)),
+            runtime(infini::definition()),
         ])
         .unwrap();
         let catalog = registry.catalog();
@@ -616,6 +620,9 @@ mod tests {
                 "zai-cn",
                 "minimax",
                 "minimax-cn",
+                "siliconflow",
+                "siliconflow-cn",
+                "infini",
             ]
         );
         assert_eq!(
@@ -652,6 +659,9 @@ mod tests {
             "zai-cn",
             "minimax",
             "minimax-cn",
+            "siliconflow",
+            "siliconflow-cn",
+            "infini",
         ] {
             assert!(!registry.definition(provider_id).unwrap().fallback_enabled);
         }

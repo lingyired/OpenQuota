@@ -26,6 +26,9 @@ describe('native visual contract', () => {
     'workbuddy-cn',
     'deepseek',
     'trae-cn',
+    'siliconflow',
+    'siliconflow-cn',
+    'infini',
   ])('packages the exact %s provider icon', (providerId) => {
     const { container } = render(ProviderIcon, { providerId });
     const icon = container.querySelector('.provider-icon');
@@ -45,6 +48,9 @@ describe('native visual contract', () => {
     ['minimax', 'minimax'],
     ['minimax-cn', 'minimax'],
     ['openrouter', 'openrouter'],
+    ['siliconflow', 'siliconcloud'],
+    ['siliconflow-cn', 'siliconcloud'],
+    ['infini', 'infinigence'],
     ['workbuddy', 'codebuddy'],
     ['workbuddy-cn', 'codebuddy'],
   ])('uses the full-color Lobe asset for %s', (providerId, slug) => {

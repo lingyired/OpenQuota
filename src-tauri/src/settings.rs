@@ -125,6 +125,7 @@ impl SettingsService {
             .iter()
             .map(|provider| provider.id.clone())
             .collect();
+        Self::publish_keychain_access(&settings);
         let service = Self {
             storage,
             registry,
@@ -153,6 +154,21 @@ impl SettingsService {
             .read()
             .map(|settings| settings.clone())
             .unwrap_or_default()
+    }
+
+    /// Republishes the providers the user enabled by hand as the set allowed to read system
+    /// credential store entries owned by another application.
+    ///
+    /// Kept separate from the automatic enablement paths: a provider the app discovered on its
+    /// own stays ungranted, because macOS prompts for Keychain authorization on those reads.
+    fn publish_keychain_access(settings: &AppSettings) {
+        crate::providers::keychain_access::sync(
+            settings
+                .providers
+                .iter()
+                .filter(|provider| provider.keychain_access_granted)
+                .map(|provider| provider.id.clone()),
+        );
     }
 
     pub(crate) async fn lock_command_mutation(&self) -> tokio::sync::MutexGuard<'_, ()> {
@@ -397,6 +413,7 @@ impl SettingsService {
             .map_err(|_| "Quota01 settings could not be saved.".to_owned())?;
         let enablement_changed = enabled_provider_set(settings) != enabled_before;
         current.clone_from(settings);
+        Self::publish_keychain_access(settings);
         if enablement_changed {
             self.enablement_revision.fetch_add(1, Ordering::SeqCst);
         }
@@ -524,6 +541,7 @@ impl SettingsService {
             .collect();
         let enablement_changed = enabled_provider_set(&next) != enabled_before;
         current.clone_from(&next);
+        Self::publish_keychain_access(&next);
         if enablement_changed {
             self.enablement_revision.fetch_add(1, Ordering::SeqCst);
         }
@@ -604,6 +622,7 @@ impl SettingsService {
             .save_settings(&next)
             .map_err(|_| "Quota01 settings could not be saved.".to_owned())?;
         current.clone_from(&next);
+        Self::publish_keychain_access(&next);
         if enabled_provider_set(&next) != enabled_before {
             self.enablement_revision.fetch_add(1, Ordering::SeqCst);
         }
@@ -960,6 +979,9 @@ fn default_provider(definition: &ProviderDefinition, detected: bool) -> Provider
         enabled: detected,
         detected,
         expanded: false,
+        // Never granted automatically: reading another application's Keychain entry prompts
+        // on macOS, so only the user turning this provider on by hand may unlock it.
+        keychain_access_granted: false,
         metrics: definition
             .metrics
             .iter()
@@ -2479,6 +2501,7 @@ mod tests {
             enabled: true,
             detected: true,
             expanded: true,
+            keychain_access_granted: false,
             metrics: metrics
                 .iter()
                 .map(|(metric_id, pinned)| crate::models::MetricLayout {

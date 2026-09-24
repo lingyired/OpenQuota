@@ -111,8 +111,28 @@ describe('translation helpers', () => {
       ),
     ).toBe('在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/quota01/zai.json。');
     expect(tBackend('MiniMax request failed (HTTP 500).')).toBe('MiniMax 请求失败（HTTP 500）。');
-    expect(tBackend('OpenCode local usage data is temporarily unavailable.')).toBe(
-      'OpenCode 本地用量数据暂时不可用。',
+    expect(tBackend('Granted Balance')).toBe('赠送余额');
+    expect(tBackend('Recharged Balance')).toBe('充值余额');
+    expect(tBackend('Coding Plan')).toBe('编程套餐');
+    expect(
+      tBackend('Add a SiliconFlow CN API key in Customize or set SILICONFLOW_CN_API_KEY.'),
+    ).toBe('在自定义中添加 SiliconFlow CN API 密钥，或设置 SILICONFLOW_CN_API_KEY。');
+    expect(tBackend('Add an Infini API key in Customize or set INFINI_API_KEY.')).toBe(
+      '在自定义中添加 Infini API 密钥，或设置 INFINI_API_KEY。',
+    );
+    expect(
+      tBackend(
+        'The SiliconFlow CN API key is invalid. Check it at cloud.siliconflow.cn/account/ak.',
+      ),
+    ).toBe('SiliconFlow CN API 密钥无效。请在 cloud.siliconflow.cn/account/ak 查看。');
+    expect(tBackend('Infini usage data is temporarily unavailable.')).toBe(
+      'Infini 用量数据暂时不可用。',
+    );
+    expect(tBackend('Could not reach Infini. Check your internet connection.')).toBe(
+      '无法访问 Infini。请检查你的网络连接。',
+    );
+    expect(tBackend('Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.')).toBe(
+      '在自定义中添加 OpenCode Go API 密钥，或设置 OPENCODE_GO_API_KEY。',
     );
   });
 

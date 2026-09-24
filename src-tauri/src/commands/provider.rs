@@ -236,6 +236,7 @@ fn mutate_api_key(
                 Some(
                     ApiKeyStatus::FromEnvironment
                         | ApiKeyStatus::FromConfig
+                        | ApiKeyStatus::FromCliSignIn
                         | ApiKeyStatus::OverrideActive
                 )
             ) {

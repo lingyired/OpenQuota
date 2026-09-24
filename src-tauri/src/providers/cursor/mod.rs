@@ -486,6 +486,10 @@ impl crate::providers::UsageProvider for CursorProvider {
         definition()
     }
 
+    fn accesses_system_keychain(&self) -> bool {
+        true
+    }
+
     fn has_local_credentials(&self) -> bool {
         CursorAuthState::has_local_credentials()
     }

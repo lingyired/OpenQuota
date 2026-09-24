@@ -72,6 +72,7 @@ const settings: AppSettings = {
       enabled: false,
       detected: false,
       expanded: false,
+      keychainAccessGranted: false,
       metrics: [
         { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
@@ -82,6 +83,7 @@ const settings: AppSettings = {
       enabled: false,
       detected: false,
       expanded: false,
+      keychainAccessGranted: false,
       metrics: [
         {
           id: 'deepseek.balance',

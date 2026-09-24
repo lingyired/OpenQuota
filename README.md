@@ -57,9 +57,13 @@ systems for China and the rest of the world, both are listed as separate provide
 
 - **[DeepSeek](docs/providers/deepseek.md)** — balance, cumulative spend, and today's spend by
   currency through secure WebView sign-in (no API key)
+- **[Infini](docs/providers/infini.md)** — Coding Plan 5-hour, 7-day, and 30-day request quotas
+  (API key)
 - **[Kimi CN](docs/providers/kimi-cn.md)** — Kimi Code session and weekly quotas (API key)
 - **[MiniMax CN](docs/providers/minimax-cn.md)** — Token Plan session and weekly quotas on
   `minimaxi.com` (API key)
+- **[SiliconFlow CN](docs/providers/siliconflow-cn.md)** — balance, granted balance, and recharged
+  balance on `api.siliconflow.cn` (API key)
 - **[TraeWork CN](docs/providers/trae-work-cn.md)** — available Trae credits through secure WebView sign-in
 - **[Workbuddy CN](docs/providers/workbuddy-cn.md)** — credit packages, available credits, and usage
   history from the WorkBuddy or CodeBuddy login already on your computer (no API key)
@@ -79,18 +83,20 @@ systems for China and the rest of the world, both are listed as separate provide
   quotas, plus organization billing
 - **[Grok](docs/providers/grok.md)** — weekly allowance, extra usage status, token history, and
   estimated spend
-- **[OpenCode](docs/providers/opencode.md)** — OpenCode Go session, weekly and monthly spend caps,
-  plus local hosted usage history
+- **[OpenCode Go](docs/providers/opencode.md)** — OpenCode Go session, weekly and monthly spend caps
 - **[OpenRouter](docs/providers/openrouter.md)** — credit balance and daily, weekly and monthly spend
   (API key)
+- **[SiliconFlow](docs/providers/siliconflow.md)** — balance, granted balance, and recharged balance
+  on `api.siliconflow.com` (API key)
 - **[MiniMax](docs/providers/minimax.md)** — Token Plan session and weekly quotas on `minimax.io`
   (API key)
 - **[Z.ai](docs/providers/zai.md)** — GLM Coding Plan session, weekly, and web-search quotas on
   `api.z.ai` (API key)
 
-Most providers use credentials already available on your computer. OpenRouter, Z.ai, Z.ai CN, Kimi
-CN, MiniMax, and MiniMax CN require API keys, which you can add in Customize; Quota01 stores them
-securely in your encrypted credential vault protected by the operating system credential store.
+Most providers use credentials already available on your computer. OpenRouter, SiliconFlow,
+SiliconFlow CN, Z.ai, Z.ai CN, Kimi CN, MiniMax, MiniMax CN, and Infini require API keys, which you
+can add in Customize; Quota01 stores them securely in your encrypted credential vault protected by
+the operating system credential store.
 DeepSeek and TraeWork CN use a WebView sign-in and store only the resulting account session in the
 credential store. Workbuddy CN reuses the WorkBuddy or CodeBuddy login data on disk. Codex
 subscription limits require a ChatGPT login and are not available in API-key-only sessions.

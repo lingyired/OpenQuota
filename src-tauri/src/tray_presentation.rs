@@ -239,10 +239,28 @@ fn tray_metric(
                             UsageDisplay::Used => "used",
                             UsageDisplay::Left => "left",
                         };
-                        let unit = quota.unit.as_deref().unwrap_or("requests");
+                        // A credit window reads as `Credits ✦3315 left`: the marker
+                        // already names the unit, so the raw unit word would only
+                        // repeat it. Other count windows (requests, searches) keep
+                        // their unit because they have no marker of their own.
+                        let credits = is_credit_unit(quota.unit.as_deref());
+                        let reading = if credits {
+                            format!("{CREDIT_SYMBOL}{value:.0}")
+                        } else {
+                            format!("{value:.0}")
+                        };
+                        let detail = if credits {
+                            format!("{} {reading} {word}", quota.label)
+                        } else {
+                            format!(
+                                "{} {reading} {} {word}",
+                                quota.label,
+                                quota.unit.as_deref().unwrap_or("requests")
+                            )
+                        };
                         return TrayMetric {
-                            value: format!("{value:.0}"),
-                            detail: format!("{} {value:.0} {unit} {word}", quota.label),
+                            value: reading,
+                            detail,
                             gauge: used_fraction.map(|used_fraction| TrayGauge {
                                 display_fraction: match display {
                                     UsageDisplay::Used => used_fraction,
@@ -357,6 +375,12 @@ fn value_metric(
 }
 
 fn format_tray_value(value: &MetricValue) -> String {
+    if is_credit_unit(value.label.as_deref()) {
+        return format!(
+            "{CREDIT_SYMBOL}{}",
+            format_currency_number(value.number, true)
+        );
+    }
     let number = match value.kind {
         MetricValueKind::Dollars => format!("${:.0}", value.number),
         MetricValueKind::Count => format_tokens(value.number.max(0.0) as u64),
@@ -374,6 +398,12 @@ fn format_tray_value(value: &MetricValue) -> String {
 }
 
 fn format_detail_value(value: &MetricValue) -> String {
+    if is_credit_unit(value.label.as_deref()) {
+        return format!(
+            "{CREDIT_SYMBOL}{}",
+            format_currency_number(value.number, false)
+        );
+    }
     let number = match value.kind {
         MetricValueKind::Dollars => format!(
             "${}",
@@ -391,6 +421,23 @@ fn format_detail_value(value: &MetricValue) -> String {
             .map(|label| format!("{number} {label}"))
             .unwrap_or(number)
     }
+}
+
+/// The marker every credit reading carries, in the slot `¥`/`$` occupy for
+/// money. Mirrors `CREDITS_SYMBOL` in `src/lib/metricFormat.ts`.
+const CREDIT_SYMBOL: char = '✦';
+
+/// Units that are points rather than money or a plain count. Mirrors
+/// `isCreditUnit()` in `src/lib/metricFormat.ts`, `积分` included because
+/// `t('units.credits')` is a member of the same set.
+fn is_credit_unit(unit: Option<&str>) -> bool {
+    let Some(unit) = unit.map(str::trim) else {
+        return false;
+    };
+    ["credits", "credit", "points", "point"]
+        .iter()
+        .any(|known| unit.eq_ignore_ascii_case(known))
+        || unit == "积分"
 }
 
 fn format_currency(number: f64, currency: Option<&str>, compact: bool) -> String {
@@ -491,7 +538,7 @@ mod tests {
             ProviderViewState, QuotaWindow, SnapshotSource, StatusMetric, StatusTone, UsageHistory,
             ValueMetric,
         },
-        providers::{codex, cursor, opencode, workbuddy, ProviderRegistry},
+        providers::{codex, cursor, opencode, trae, workbuddy, ProviderRegistry},
         settings::default_settings,
     };
 
@@ -839,13 +886,13 @@ mod tests {
             crate::models::UsageDisplay::Left,
         )
         .unwrap();
-        assert_eq!(metric.value, "$33 · 821 credits");
-        assert_eq!(metric.detail, "Extra Usage $32.8 · 821 credits");
+        assert_eq!(metric.value, "$33 · ✦821");
+        assert_eq!(metric.detail, "Extra Usage $32.8 · ✦821");
         assert_eq!(metric.gauge, None);
     }
 
     #[test]
-    fn workbuddy_nearest_expiring_tray_value_is_a_bare_count() {
+    fn workbuddy_nearest_expiring_tray_value_keeps_the_credit_marker() {
         let snapshot = ProviderSnapshot {
             credit_packages: Vec::new(),
             provider_id: "workbuddy-cn".into(),
@@ -857,7 +904,7 @@ mod tests {
                 values: vec![MetricValue {
                     number: 71.38,
                     kind: MetricValueKind::Count,
-                    label: None,
+                    label: Some("credits".into()),
                     estimated: false,
                 }],
                 expiries_at: Vec::new(),
@@ -878,7 +925,7 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(metric.value, "71");
+        assert_eq!(metric.value, "✦71.4");
     }
 
     #[test]
@@ -906,7 +953,7 @@ mod tests {
                 values: vec![MetricValue {
                     number: 1019.42000608,
                     kind: MetricValueKind::Count,
-                    label: None,
+                    label: Some("credits".into()),
                     estimated: false,
                 }],
                 expiries_at: Vec::new(),
@@ -928,7 +975,57 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(metric.value, "1.0K");
+        assert_eq!(metric.value, "✦1K");
+    }
+
+    #[test]
+    fn credit_windows_mark_the_number_and_drop_the_unit_word() {
+        let snapshot = ProviderSnapshot {
+            credit_packages: Vec::new(),
+            provider_id: "trae-cn".into(),
+            plan: None,
+            quotas: vec![QuotaWindow {
+                id: "credits".into(),
+                label: "Credits".into(),
+                used_percent: 54.7,
+                resets_at: None,
+                period_seconds: 0,
+                format: crate::models::QuotaFormat::Count,
+                used_value: Some(821.0),
+                limit_value: Some(1500.0),
+                unit: Some("credits".into()),
+                estimated: false,
+                source_note: None,
+            }],
+            value_metrics: Vec::new(),
+            status_metrics: Vec::new(),
+            notices: Vec::new(),
+            usage: UsageHistory::default(),
+            warnings: Vec::new(),
+            refreshed_at: Utc::now(),
+        };
+        let catalog =
+            ProviderRegistry::from_definitions(vec![trae::definition(), codex::definition()])
+                .unwrap();
+        let definition = catalog.metric("trae-cn.credits").unwrap();
+
+        let left =
+            super::tray_metric(definition, &snapshot, crate::models::UsageDisplay::Left).unwrap();
+        let used =
+            super::tray_metric(definition, &snapshot, crate::models::UsageDisplay::Used).unwrap();
+
+        assert_eq!(left.value, "✦679");
+        assert_eq!(left.detail, "Credits ✦679 left");
+        assert_eq!(used.value, "✦821");
+        assert_eq!(used.detail, "Credits ✦821 used");
+        // The window keeps its fraction: only the reading text carries the marker.
+        assert_eq!(
+            left.gauge,
+            Some(TrayGauge {
+                display_fraction: 1.0 - 821.0 / 1500.0,
+                remaining_fraction: 1.0 - 821.0 / 1500.0,
+            })
+        );
     }
 
     #[test]
@@ -1028,5 +1125,37 @@ mod tests {
             estimated: false,
         };
         assert_eq!(super::format_detail_value(&usd_spend), "$2059.1");
+    }
+
+    #[test]
+    fn credit_values_read_as_a_marker_instead_of_a_unit_word() {
+        let credits = MetricValue {
+            number: 71.38,
+            kind: MetricValueKind::Count,
+            label: Some("credits".into()),
+            estimated: false,
+        };
+        let localized = MetricValue {
+            label: Some("积分".into()),
+            ..credits.clone()
+        };
+        let requests = MetricValue {
+            number: 71.38,
+            kind: MetricValueKind::Count,
+            label: Some("requests".into()),
+            estimated: false,
+        };
+
+        assert_eq!(super::format_tray_value(&credits), "✦71.4");
+        assert_eq!(super::format_detail_value(&credits), "✦71.4");
+        // `t('units.credits')` is 积分 in the Chinese pack, so both spellings
+        // have to resolve to the same reading.
+        assert_eq!(super::format_tray_value(&localized), "✦71.4");
+        assert_eq!(super::format_detail_value(&localized), "✦71.4");
+        // A count with a unit of its own keeps the reading it always had.
+        assert_eq!(super::format_tray_value(&requests), "71 requests");
+        assert_eq!(super::format_detail_value(&requests), "71 requests");
+        assert!(!super::is_credit_unit(Some("searches")));
+        assert!(!super::is_credit_unit(None));
     }
 }

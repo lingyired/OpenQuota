@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc, time::Duration};
 
-use super::ProviderRegistry;
+use super::{keychain_access, ProviderRegistry};
 
 const CREDENTIAL_PROBE_TIMEOUT: Duration = Duration::from_secs(10);
 
@@ -25,6 +25,26 @@ pub async fn detect_local_credentials(
     detect_local_credentials_with_timeout(registry, provider_ids, CREDENTIAL_PROBE_TIMEOUT).await
 }
 
+/// Classifies a finished probe.
+///
+/// A provider that reads another application's Keychain entry reports `Unknown` while access is
+/// ungranted: only its file-backed sources were visible, so "absent" would be a guess. `Unknown`
+/// leaves the stored state untouched, which keeps the automatic fallback from enabling a card
+/// that has nothing to show yet.
+fn classify_probe(
+    detected: bool,
+    accesses_system_keychain: bool,
+    granted: bool,
+) -> CredentialProbeStatus {
+    if detected {
+        CredentialProbeStatus::Detected
+    } else if accesses_system_keychain && !granted {
+        CredentialProbeStatus::Unknown
+    } else {
+        CredentialProbeStatus::Absent
+    }
+}
+
 async fn detect_local_credentials_with_timeout(
     registry: Arc<ProviderRegistry>,
     provider_ids: &[String],
@@ -38,12 +58,16 @@ async fn detect_local_credentials_with_timeout(
         let provider_id = provider_id.clone();
         let probe_provider_id = provider_id.clone();
         let probe = tauri::async_runtime::spawn(async move {
+            let worker_provider_id = probe_provider_id.clone();
             let worker = tauri::async_runtime::spawn_blocking(move || {
-                runtime.has_local_credentials() || runtime.has_local_installation()
+                classify_probe(
+                    runtime.has_local_credentials() || runtime.has_local_installation(),
+                    runtime.accesses_system_keychain(),
+                    keychain_access::is_granted(&worker_provider_id),
+                )
             });
             match tokio::time::timeout(timeout, worker).await {
-                Ok(Ok(true)) => CredentialProbeStatus::Detected,
-                Ok(Ok(false)) => CredentialProbeStatus::Absent,
+                Ok(Ok(status)) => status,
                 Ok(Err(_)) => {
                     crate::app_warn!(
                         "providers",
@@ -89,8 +113,8 @@ mod tests {
     };
 
     use super::{
-        detect_local_credentials, detect_local_credentials_with_timeout, CredentialProbeStatus,
-        ProviderRegistry,
+        classify_probe, detect_local_credentials, detect_local_credentials_with_timeout,
+        CredentialProbeStatus, ProviderRegistry,
     };
 
     struct ProbeProvider {
@@ -141,6 +165,26 @@ mod tests {
             detected,
             barrier,
         })
+    }
+
+    #[test]
+    fn ungranted_keychain_providers_report_unknown_instead_of_absent() {
+        assert_eq!(
+            classify_probe(true, true, false),
+            CredentialProbeStatus::Detected
+        );
+        assert_eq!(
+            classify_probe(false, true, false),
+            CredentialProbeStatus::Unknown
+        );
+        assert_eq!(
+            classify_probe(false, true, true),
+            CredentialProbeStatus::Absent
+        );
+        assert_eq!(
+            classify_probe(false, false, false),
+            CredentialProbeStatus::Absent
+        );
     }
 
     #[test]

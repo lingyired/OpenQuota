@@ -1,3 +1,36 @@
+use super::keychain_access;
+
+/// Reads a credential that belongs to another application.
+///
+/// macOS answers these reads with a Keychain authorization prompt, so access is limited to
+/// providers the user enabled by hand. A denied read reports "no such credential" instead of
+/// an error, which lets the caller fall back to file-backed sources that never prompt.
+pub fn read_external_password(
+    provider_id: &str,
+    service: &str,
+    account: &str,
+) -> Result<Option<Vec<u8>>, String> {
+    if !keychain_access::is_granted(provider_id) {
+        return Ok(None);
+    }
+    read_generic_password(service, account)
+}
+
+/// Writes back a refreshed credential that belongs to another application. A denied write is
+/// skipped rather than failed: the caller only gets here holding a credential it could read,
+/// and a missing write-back costs nothing beyond one extra refresh next time.
+pub fn write_external_password(
+    provider_id: &str,
+    service: &str,
+    account: &str,
+    value: &[u8],
+) -> Result<(), String> {
+    if !keychain_access::is_granted(provider_id) {
+        return Ok(());
+    }
+    write_generic_password(service, account, value)
+}
+
 #[cfg(target_os = "macos")]
 const MACOS_ITEM_NOT_FOUND: i32 = -25_300;
 #[cfg(target_os = "macos")]
