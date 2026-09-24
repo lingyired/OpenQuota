@@ -107,15 +107,35 @@
       error = failure;
       return;
     }
+    // A provider error is terminal whether or not `done` is set: the Rust side
+    // reports an expired/cancelled attempt and a failed session save alike as
+    // `{ done: true, error: Some(message) }`, so `done` must never be read as a
+    // successful sign-in while an error is present.
+    if (outcome?.error) {
+      const message = outcome.error;
+      if (isExpiry(message)) {
+        expire();
+      } else {
+        // The provider's own wording is more useful than a generic line: it
+        // names an untrusted domain, a vault write failure, etc.
+        endAttempt();
+        notice = null;
+        error = message;
+      }
+      return;
+    }
     if (outcome?.done) {
       await complete();
       return;
     }
-    if (outcome?.error) {
-      expire();
-      return;
-    }
     schedulePoll(loginId);
+  }
+
+  // Only the provider's expiry wording gets the localized "expired" copy; every
+  // other failure keeps the provider's message. The backend's failure messages
+  // are English (workbuddy/login.rs), and only the expiry one contains this.
+  function isExpiry(message: string) {
+    return /expired/i.test(message);
   }
 
   async function complete() {

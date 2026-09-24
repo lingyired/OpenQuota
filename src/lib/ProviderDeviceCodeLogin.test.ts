@@ -62,6 +62,7 @@ async function startSignIn() {
 describe('ProviderDeviceCodeLogin', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    mocks.invoke.mockReset();
     mockCommands();
   });
 
@@ -213,7 +214,13 @@ describe('ProviderDeviceCodeLogin', () => {
     mockCommands({
       poll_provider_login: () => {
         polls += 1;
-        return Promise.resolve({ done: false, error: 'expired_token' });
+        // The real wire shape: expiry is a terminal *failure* carrying the
+        // provider's own wording — `done: true` with an error
+        // (`workbuddy/login.rs` `active_state`).
+        return Promise.resolve({
+          done: true,
+          error: 'This WorkBuddy sign-in attempt expired. Start again.',
+        });
       },
     });
     renderPanel();
@@ -223,6 +230,37 @@ describe('ProviderDeviceCodeLogin', () => {
     await vi.advanceTimersByTimeAsync(2000);
 
     expect(screen.getByRole('status')).toHaveTextContent('expired');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
+    expect(screen.queryByText('https://example.test/device')).not.toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(polls).toBe(1);
+  });
+
+  it('shows the provider message instead of a connection when a poll fails for another reason', async () => {
+    let polls = 0;
+    // A vault/session-save failure and an untrusted-domain rejection reach the
+    // frontend the same way as expiry: `done: true` with an error. Neither may
+    // ever be rendered as a completed sign-in.
+    const failure =
+      'WorkBuddy returned credentials for an untrusted domain (evil.example). Sign in again.';
+    mockCommands({
+      poll_provider_login: () => {
+        polls += 1;
+        return Promise.resolve({ done: true, error: failure });
+      },
+    });
+    renderPanel();
+    await flush();
+    await startSignIn();
+
+    await vi.advanceTimersByTimeAsync(2000);
+
+    expect(screen.getByRole('alert')).toHaveTextContent(failure);
+    expect(screen.queryByText('Connected')).not.toBeInTheDocument();
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
     expect(screen.queryByText('https://example.test/device')).not.toBeInTheDocument();
 
