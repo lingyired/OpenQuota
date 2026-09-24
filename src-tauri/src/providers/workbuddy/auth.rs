@@ -18,6 +18,44 @@ const ACCESS_TOKEN_PATHS: &[&[&str]] = &[
     &["access_token"],
 ];
 
+/// 其余字段的候选路径同样按优先级排列。集中成常量是为了让 `load_from_path` 只表达
+/// 「读哪些字段」，而不是把一串嵌套数组混进取值逻辑里。
+const REFRESH_TOKEN_PATHS: &[&[&str]] = &[
+    &["auth", "refreshToken"],
+    &["auth", "refresh_token"],
+    &["refreshToken"],
+    &["refresh_token"],
+];
+const TOKEN_TYPE_PATHS: &[&[&str]] = &[
+    &["auth", "tokenType"],
+    &["auth", "token_type"],
+    &["tokenType"],
+    &["token_type"],
+];
+const DOMAIN_PATHS: &[&[&str]] = &[&["domain"], &["auth", "domain"]];
+const UID_PATHS: &[&[&str]] = &[&["uid"], &["account", "uid"], &["account", "id"]];
+const ENTERPRISE_ID_PATHS: &[&[&str]] = &[
+    &["enterpriseId"],
+    &["enterprise_id"],
+    &["auth", "enterpriseId"],
+    &["auth", "enterprise_id"],
+    &["account", "enterpriseId"],
+    &["account", "enterprise_id"],
+];
+const NICKNAME_PATHS: &[&[&str]] = &[
+    &["nickname"],
+    &["name"],
+    &["account", "nickname"],
+    &["account", "label"],
+];
+const EMAIL_PATHS: &[&[&str]] = &[&["email"], &["account", "email"], &["auth", "email"]];
+const EXPIRES_AT_PATHS: &[&[&str]] = &[
+    &["expiresAt"],
+    &["expires_at"],
+    &["auth", "expiresAt"],
+    &["auth", "expires_at"],
+];
+
 #[derive(Debug, Error)]
 pub enum WorkBuddyAuthError {
     #[error("WorkBuddy is not logged in.")]
@@ -33,20 +71,10 @@ pub enum WorkBuddyAuthError {
     Encrypted,
 }
 
-/// 凭据来源。决定能不能把刷新后的 token 写回磁盘。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum WorkBuddyAuthSource {
-    /// WorkBuddy / CodeBuddy 自己写的登录文件：明文凭据，刷新后应写回。
-    AuthFile,
-    /// workbuddy-switch 的账号库：属于另一个应用，只能只读借用。
-    SharedStore,
-}
-
 #[derive(Debug, Clone)]
 pub struct WorkBuddyAuth {
     pub path: PathBuf,
     pub document: Value,
-    pub source: WorkBuddyAuthSource,
     pub access_token: String,
     pub refresh_token: Option<String>,
     pub token_type: String,
@@ -65,16 +93,14 @@ pub struct WorkBuddyAuth {
 
 impl WorkBuddyAuth {
     pub fn load() -> Result<Self, WorkBuddyAuthError> {
-        Self::load_from_paths(&auth_file_path(), &shared_store_path())
-    }
-
-    pub fn load_from_path(path: &Path) -> Result<Self, WorkBuddyAuthError> {
-        Self::load_from_paths(path, &shared_store_path())
+        Self::load_from_path(&auth_file_path())
     }
 
     /// 从 WorkBuddy 登录文件读取凭据。WorkBuddy 5.6 起把 accessToken 写成
-    /// `{$wbEncrypted, envelope}` 加密信封，此时退回只读账号库里的明文副本。
-    pub fn load_from_paths(path: &Path, shared_store: &Path) -> Result<Self, WorkBuddyAuthError> {
+    /// `{$wbEncrypted, envelope}` 加密信封：这是「读不出来」而不是「没登录」，必须报
+    /// `Encrypted`，否则凭据探测会把 provider 判成 `Absent` 并自动隐藏，用户根本看不到
+    /// 真正的原因。
+    pub fn load_from_path(path: &Path) -> Result<Self, WorkBuddyAuthError> {
         let text = fs::read_to_string(path).map_err(|_| WorkBuddyAuthError::NotLoggedIn)?;
         let document: Value =
             serde_json::from_str(&text).map_err(|_| WorkBuddyAuthError::Invalid)?;
@@ -82,154 +108,25 @@ impl WorkBuddyAuth {
             first_string(&document, ACCESS_TOKEN_PATHS).filter(|value| !value.is_empty())
         else {
             return if is_encrypted_envelope(first_value(&document, ACCESS_TOKEN_PATHS)) {
-                let uid = first_string(
-                    &document,
-                    &[&["uid"], &["account", "uid"], &["account", "id"]],
-                );
-                let domain = first_string(&document, &[&["domain"], &["auth", "domain"]])
-                    .unwrap_or_default();
-                Self::from_shared_store(shared_store, uid.as_deref(), &domain)
-                    .ok_or(WorkBuddyAuthError::Encrypted)
+                Err(WorkBuddyAuthError::Encrypted)
             } else {
                 Err(WorkBuddyAuthError::NotLoggedIn)
             };
         };
         Ok(Self {
             path: path.to_owned(),
-            source: WorkBuddyAuthSource::AuthFile,
             access_token,
-            refresh_token: first_string(
-                &document,
-                &[
-                    &["auth", "refreshToken"],
-                    &["auth", "refresh_token"],
-                    &["refreshToken"],
-                    &["refresh_token"],
-                ],
-            ),
-            token_type: first_string(
-                &document,
-                &[
-                    &["auth", "tokenType"],
-                    &["auth", "token_type"],
-                    &["tokenType"],
-                    &["token_type"],
-                ],
-            )
-            .unwrap_or_else(|| "Bearer".into()),
-            domain: first_string(&document, &[&["domain"], &["auth", "domain"]])
-                .unwrap_or_default(),
-            uid: first_string(
-                &document,
-                &[&["uid"], &["account", "uid"], &["account", "id"]],
-            ),
-            enterprise_id: first_string(
-                &document,
-                &[
-                    &["enterpriseId"],
-                    &["enterprise_id"],
-                    &["auth", "enterpriseId"],
-                    &["auth", "enterprise_id"],
-                    &["account", "enterpriseId"],
-                    &["account", "enterprise_id"],
-                ],
-            ),
-            nickname: first_string(
-                &document,
-                &[
-                    &["nickname"],
-                    &["name"],
-                    &["account", "nickname"],
-                    &["account", "label"],
-                ],
-            ),
-            email: first_string(
-                &document,
-                &[&["email"], &["account", "email"], &["auth", "email"]],
-            ),
-            expires_at: first_value(
-                &document,
-                &[
-                    &["expiresAt"],
-                    &["expires_at"],
-                    &["auth", "expiresAt"],
-                    &["auth", "expires_at"],
-                ],
-            )
-            .and_then(parse_datetime),
+            refresh_token: first_string(&document, REFRESH_TOKEN_PATHS),
+            token_type: first_string(&document, TOKEN_TYPE_PATHS)
+                .unwrap_or_else(|| "Bearer".into()),
+            domain: first_string(&document, DOMAIN_PATHS).unwrap_or_default(),
+            uid: first_string(&document, UID_PATHS),
+            enterprise_id: first_string(&document, ENTERPRISE_ID_PATHS),
+            nickname: first_string(&document, NICKNAME_PATHS),
+            email: first_string(&document, EMAIL_PATHS),
+            expires_at: first_value(&document, EXPIRES_AT_PATHS).and_then(parse_datetime),
             document,
         })
-    }
-
-    /// 只读借用另一个应用的明文副本：必须按 uid 精确配对，取不到就报加密错误，
-    /// 绝不能随便挑一个账号（会把别人的用量当成当前账号展示）。
-    fn from_shared_store(store: &Path, uid: Option<&str>, domain: &str) -> Option<WorkBuddyAuth> {
-        let uid = uid?;
-        let parsed: Value = serde_json::from_str(&fs::read_to_string(store).ok()?).ok()?;
-        let mut candidates = parsed.as_array()?.iter().filter(|account| {
-            account.get("uid").and_then(Value::as_str) == Some(uid)
-                && account
-                    .get("access_token")
-                    .and_then(Value::as_str)
-                    .is_some_and(|token| !token.trim().is_empty())
-        });
-        let first = candidates.next()?;
-        let chosen = std::iter::once(first)
-            .chain(candidates)
-            .find(|account| {
-                account
-                    .get("domain")
-                    .and_then(Value::as_str)
-                    .is_some_and(|value| value.trim().eq_ignore_ascii_case(domain))
-            })
-            .unwrap_or(first);
-        Some(WorkBuddyAuth {
-            path: store.to_owned(),
-            document: Value::Null,
-            source: WorkBuddyAuthSource::SharedStore,
-            access_token: chosen
-                .get("access_token")
-                .and_then(Value::as_str)?
-                .trim()
-                .to_owned(),
-            refresh_token: chosen
-                .get("refresh_token")
-                .and_then(Value::as_str)
-                .map(str::trim)
-                .filter(|token| !token.is_empty())
-                .map(str::to_owned),
-            token_type: chosen
-                .get("token_type")
-                .and_then(Value::as_str)
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or("Bearer")
-                .to_owned(),
-            domain: chosen
-                .get("domain")
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
-            uid: Some(uid.to_owned()),
-            enterprise_id: chosen
-                .get("enterpriseId")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            nickname: chosen
-                .get("nickname")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            email: chosen
-                .get("email")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            expires_at: chosen.get("expiresAt").and_then(parse_datetime),
-        })
-    }
-
-    /// 只读来源（借来的明文副本）不允许写回：那会覆盖别人的凭据，也可能让对方
-    /// 的 refresh token 因轮换而失效。刷新失败的提示由 provider 层负责。
-    pub fn is_read_only(&self) -> bool {
-        self.source != WorkBuddyAuthSource::AuthFile
     }
 
     pub fn has_local_credentials() -> bool {
@@ -259,9 +156,6 @@ impl WorkBuddyAuth {
         access_token: String,
         refresh_token: Option<String>,
     ) -> Result<(), WorkBuddyAuthError> {
-        if self.is_read_only() {
-            return Err(WorkBuddyAuthError::Storage);
-        }
         let current = Self::load_from_path(&self.path)?;
         if current.access_token != self.access_token || current.document != self.document {
             return Err(WorkBuddyAuthError::Storage);
@@ -304,15 +198,6 @@ pub fn auth_file_path() -> PathBuf {
     {
         home_dir().join(".local/share/CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info");
     }
-}
-
-/// workbuddy-switch 的账号库。它自己走 OAuth 登录并保活，库里的 token 是明文，
-/// 因此当 WorkBuddy 5.6 的登录文件不可读时，可以按 uid 借用一份只读副本。
-///
-/// 这是**可选**来源：该应用是第三方工具，可能没装、没登录或没在运行，
-/// 所以调用方必须把「借不到」当成正常分支处理，而不是当成缺配置。
-pub fn shared_store_path() -> PathBuf {
-    home_dir().join(".wb-switch/accounts.json")
 }
 
 fn home_dir() -> PathBuf {
@@ -425,87 +310,16 @@ mod tests {
         )
     }
 
-    fn write_store(dir: &Path, contents: &str) -> PathBuf {
-        let path = dir.join("accounts.json");
-        fs::write(&path, contents).unwrap();
-        path
-    }
-
     #[test]
-    fn encrypted_auth_file_falls_back_to_the_readable_shared_store() {
+    fn an_encrypted_login_file_reports_encryption_instead_of_signing_out() {
         let dir = tempdir().unwrap();
-        let auth_path = dir.path().join("workbuddy-desktop.info");
-        fs::write(&auth_path, encrypted_auth_document("uid-1")).unwrap();
-        let store = write_store(
-            dir.path(),
-            r#"[{"uid":"uid-1","domain":"www.codebuddy.cn","access_token":"plain-1","refresh_token":"plain-r1","token_type":"Bearer","expiresAt":1795002322225}]"#,
-        );
+        let path = dir.path().join("workbuddy-desktop.info");
+        fs::write(&path, encrypted_auth_document("uid-1")).unwrap();
 
-        let auth = WorkBuddyAuth::load_from_paths(&auth_path, &store).unwrap();
-
-        assert_eq!(auth.access_token, "plain-1");
-        assert_eq!(auth.refresh_token.as_deref(), Some("plain-r1"));
-        assert_eq!(auth.uid.as_deref(), Some("uid-1"));
-        assert_eq!(auth.request_base_url(), "https://www.codebuddy.cn");
-        assert!(auth.is_read_only());
-    }
-
-    #[test]
-    fn encrypted_auth_file_without_a_readable_copy_reports_encryption() {
-        let dir = tempdir().unwrap();
-        let auth_path = dir.path().join("workbuddy-desktop.info");
-        fs::write(&auth_path, encrypted_auth_document("uid-1")).unwrap();
-
-        let other_account = write_store(dir.path(), r#"[{"uid":"uid-2","access_token":"other"}]"#);
         assert!(matches!(
-            WorkBuddyAuth::load_from_paths(&auth_path, &other_account),
+            WorkBuddyAuth::load_from_path(&path),
             Err(WorkBuddyAuthError::Encrypted)
         ));
-
-        let missing = dir.path().join("missing.json");
-        assert!(matches!(
-            WorkBuddyAuth::load_from_paths(&auth_path, &missing),
-            Err(WorkBuddyAuthError::Encrypted)
-        ));
-    }
-
-    #[test]
-    fn plaintext_auth_file_wins_over_the_shared_store() {
-        let dir = tempdir().unwrap();
-        let auth_path = dir.path().join("workbuddy-desktop.info");
-        fs::write(
-            &auth_path,
-            r#"{"account":{"uid":"uid-1"},"auth":{"accessToken":"from-auth"}}"#,
-        )
-        .unwrap();
-        let store = write_store(
-            dir.path(),
-            r#"[{"uid":"uid-1","access_token":"from-store"}]"#,
-        );
-
-        let auth = WorkBuddyAuth::load_from_paths(&auth_path, &store).unwrap();
-
-        assert_eq!(auth.access_token, "from-auth");
-        assert!(!auth.is_read_only());
-    }
-
-    #[test]
-    fn shared_store_credentials_are_never_written_back() {
-        let dir = tempdir().unwrap();
-        let auth_path = dir.path().join("workbuddy-desktop.info");
-        let original = encrypted_auth_document("uid-1");
-        fs::write(&auth_path, &original).unwrap();
-        let store = write_store(
-            dir.path(),
-            r#"[{"uid":"uid-1","access_token":"plain-1","refresh_token":"plain-r1"}]"#,
-        );
-
-        let mut auth = WorkBuddyAuth::load_from_paths(&auth_path, &store).unwrap();
-        let saved = auth.save_tokens("rotated".into(), Some("rotated-r".into()));
-
-        assert!(matches!(saved, Err(WorkBuddyAuthError::Storage)));
-        assert_eq!(fs::read_to_string(&auth_path).unwrap(), original);
-        assert_eq!(auth.access_token, "plain-1");
     }
 
     #[test]

@@ -200,9 +200,7 @@ impl WorkBuddyProvider {
 
         let mut resources = self.fetch_resources(&auth, now);
         if resources.iter().any(ResourceOutcome::is_unauthorized) {
-            if skip_read_only_refresh(&auth, &mut warnings) {
-                refresh_attempted = true;
-            } else if auth
+            if auth
                 .refresh_token
                 .as_deref()
                 .is_some_and(|token| !token.trim().is_empty())
@@ -300,11 +298,6 @@ impl WorkBuddyProvider {
         auth: &mut WorkBuddyAuth,
         warnings: &mut Vec<String>,
     ) -> Result<(), WorkBuddyError> {
-        if auth.is_read_only() {
-            // 兜底：借用来的凭据绝不能拿去刷新。服务端可能轮换 refresh token，而我们不能
-            // 写回别人的账号库，一旦消费掉就会把对方（以及我们自己下次刷新）一起弄失效。
-            return Err(WorkBuddyError::RefreshFailed);
-        }
         if auth
             .refresh_token
             .as_deref()
@@ -421,7 +414,6 @@ impl WorkBuddyProvider {
         } = attempt
         {
             if !*refresh_attempted
-                && !auth.is_read_only()
                 && auth
                     .refresh_token
                     .as_deref()
@@ -440,11 +432,9 @@ impl WorkBuddyProvider {
                     }
                 }
             } else {
-                if !skip_read_only_refresh(auth, warnings) {
-                    warnings.push(
-                        "WorkBuddy usage request was unauthorized and could not be retried.".into(),
-                    );
-                }
+                warnings.push(
+                    "WorkBuddy usage request was unauthorized and could not be retried.".into(),
+                );
                 UsageFetchOutcome::Unauthorized {
                     pages,
                     page_number,
@@ -587,20 +577,6 @@ fn retry_resource(
     } else {
         outcome
     }
-}
-
-/// 借用来的凭据是只读的：不能拿去做刷新，否则可能消费掉别人账号库里的 refresh token。
-/// 返回 true 表示「因为只读而放弃刷新」，并保证只读提示只记一条，避免每个请求都刷屏。
-fn skip_read_only_refresh(auth: &WorkBuddyAuth, warnings: &mut Vec<String>) -> bool {
-    if !auth.is_read_only() {
-        return false;
-    }
-    const READ_ONLY_WARNING: &str =
-        "WorkBuddy credentials were read from workbuddy-switch and are read-only; open workbuddy-switch to refresh them.";
-    if !warnings.iter().any(|warning| warning == READ_ONLY_WARNING) {
-        warnings.push(READ_ONLY_WARNING.into());
-    }
-    true
 }
 
 fn append_resource_warnings(resources: &ResourceOutcomes, warnings: &mut Vec<String>) {
@@ -784,8 +760,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        classify_endpoint, definition, map_resource_metrics, skip_read_only_refresh,
-        EndpointResponse, ResourceOutcome, WorkBuddyAuth, WorkBuddyError,
+        classify_endpoint, definition, map_resource_metrics, EndpointResponse, ResourceOutcome,
+        WorkBuddyError,
     };
     use crate::models::{MetricSection, MetricSource, ProviderErrorKind};
     use crate::providers::workbuddy::mapper::{MappedResources, ResourcePackage};
@@ -882,47 +858,6 @@ mod tests {
         let message = WorkBuddyError::CredentialsEncrypted.to_string();
         assert_ne!(message, WorkBuddyError::NotLoggedIn.to_string());
         assert!(message.contains("5.6"));
-    }
-
-    fn borrowed_credentials() -> WorkBuddyAuth {
-        let dir = tempfile::tempdir().unwrap();
-        let auth_path = dir.path().join("workbuddy-desktop.info");
-        std::fs::write(
-            &auth_path,
-            r#"{"account":{"uid":"uid-1"},"auth":{"accessToken":{"$wbEncrypted":1,"envelope":"ZW5j"}}}"#,
-        )
-        .unwrap();
-        let store = dir.path().join("accounts.json");
-        std::fs::write(
-            &store,
-            r#"[{"uid":"uid-1","access_token":"plain-1","refresh_token":"plain-r1"}]"#,
-        )
-        .unwrap();
-        WorkBuddyAuth::load_from_paths(&auth_path, &store).unwrap()
-    }
-
-    #[test]
-    fn borrowed_credentials_skip_refresh_and_warn_exactly_once() {
-        let auth = borrowed_credentials();
-
-        let mut warnings = Vec::new();
-        assert!(skip_read_only_refresh(&auth, &mut warnings));
-        assert!(skip_read_only_refresh(&auth, &mut warnings));
-
-        assert_eq!(warnings.len(), 1, "只读提示只应记录一次");
-        assert!(warnings[0].contains("read-only"));
-    }
-
-    #[test]
-    fn regular_credentials_still_refresh() {
-        let dir = tempfile::tempdir().unwrap();
-        let auth_path = dir.path().join("workbuddy-desktop.info");
-        std::fs::write(&auth_path, r#"{"auth":{"accessToken":"plain"}}"#).unwrap();
-        let auth = WorkBuddyAuth::load_from_path(&auth_path).unwrap();
-
-        let mut warnings = Vec::new();
-        assert!(!skip_read_only_refresh(&auth, &mut warnings));
-        assert!(warnings.is_empty());
     }
 
     #[test]
