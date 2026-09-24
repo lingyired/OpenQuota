@@ -10,6 +10,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 
 const catalogData: ProviderCatalog = {
   webviewAuthProviderIds: ['trae-cn', 'deepseek'],
+  deviceCodeSignInProviderIds: ['workbuddy-cn'],
   providers: [
     {
       id: 'trae-cn',
@@ -61,6 +62,26 @@ const catalogData: ProviderCatalog = {
         },
       ],
     },
+    {
+      id: 'workbuddy-cn',
+      displayName: 'Workbuddy CN',
+      shortName: 'WB',
+      fallbackEnabled: false,
+      localUsageSourceNote: null,
+      links: [{ label: 'Dashboard', url: 'https://workbuddy.example.test/usage' }],
+      metrics: [
+        {
+          id: 'workbuddy-cn.quota',
+          label: 'Quota',
+          source: { kind: 'quota', sourceId: 'quota', sessionWindow: false },
+          pinnable: true,
+          defaultEnabled: true,
+          defaultSection: 'alwaysVisible',
+          defaultPinned: true,
+          tray: { shortLabel: 'Q', suffix: null },
+        },
+      ],
+    },
   ],
 };
 
@@ -93,8 +114,18 @@ const settings: AppSettings = {
         },
       ],
     },
+    {
+      id: 'workbuddy-cn',
+      enabled: false,
+      detected: false,
+      expanded: false,
+      keychainAccessGranted: false,
+      metrics: [
+        { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
+      ],
+    },
   ],
-  knownProviderIds: ['trae-cn', 'deepseek'],
+  knownProviderIds: ['trae-cn', 'deepseek', 'workbuddy-cn'],
   providerNames: {},
   language: 'en',
   showTotalSpend: true,
@@ -185,6 +216,31 @@ describe('CustomizeProviderDetail session authentication', () => {
     });
     expect(mocks.invoke).not.toHaveBeenCalledWith('get_provider_api_key_state', {
       providerId: 'deepseek',
+    });
+  });
+
+  it('renders the device-code sign-in panel when the provider declares that capability', async () => {
+    render(CustomizeProviderDetail, {
+      settings,
+      providerId: 'workbuddy-cn',
+      catalog: new ProviderCatalogIndex(catalogData),
+      renamableProviderIds: [],
+      onChange: () => {},
+      onNameChange: () => {},
+      onReorderStart: () => {},
+      onReorderEnd: () => {},
+      reducedMotion: true,
+    });
+
+    expect(
+      await screen.findByRole('region', { name: 'Workbuddy CN Connection' }),
+    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
+    expect(mocks.invoke).toHaveBeenCalledWith('get_provider_session_state', {
+      providerId: 'workbuddy-cn',
+    });
+    expect(mocks.invoke).not.toHaveBeenCalledWith('get_provider_api_key_state', {
+      providerId: 'workbuddy-cn',
     });
   });
 });
