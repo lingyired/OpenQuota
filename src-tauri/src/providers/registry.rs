@@ -178,6 +178,14 @@ impl UsageProvider for DefinitionOnlyProvider {
     }
 }
 
+/// 命令层的测试要沿真实分派路径组装 registry，而不是另造一套占位 provider，
+/// 所以这几个桩对 crate 内可见。
+#[cfg(test)]
+pub(crate) use tests::{
+    definition as test_definition, DeviceCodeStubProvider, StubProvider, WebviewStubProvider,
+    DEVICE_CODE_FAILED_LOGIN_ID, DEVICE_CODE_LOGIN_ID,
+};
+
 fn validate_definition(
     provider: &ProviderDefinition,
     metric_owners: &BTreeMap<String, String>,
@@ -303,20 +311,32 @@ mod tests {
 
     use crate::{
         models::{
-            MetricDefinition, MetricSection, MetricSource, ProviderDefinition, ProviderSnapshot,
+            ApiKeyStatus, DeviceCodeChallenge, DeviceCodePoll, MetricDefinition, MetricSection,
+            MetricSource, ProviderDefinition, ProviderSnapshot,
         },
         providers::{ProviderError, UsageProvider},
     };
 
     use super::{ProviderRegistry, ProviderRegistryError};
 
-    struct StubProvider(ProviderDefinition);
+    pub(crate) struct StubProvider(pub(crate) ProviderDefinition);
 
     struct ApiKeyStubProvider(ProviderDefinition);
 
-    struct WebviewStubProvider(ProviderDefinition);
+    pub(crate) struct WebviewStubProvider(pub(crate) ProviderDefinition);
 
-    struct DeviceCodeStubProvider(ProviderDefinition);
+    pub(crate) struct DeviceCodeStubProvider(pub(crate) ProviderDefinition);
+
+    /// 桩认得的登录句柄：命令必须原样透传，桩才认这次轮询与取消。
+    pub(crate) const DEVICE_CODE_LOGIN_ID: &str = "device-code-login";
+
+    /// 桩用这个句柄报告「尝试已失败」：错误必须以轮询结果的形式回到前端，
+    /// 而不是把整条命令变成 `Err`。
+    pub(crate) const DEVICE_CODE_FAILED_LOGIN_ID: &str = "device-code-failed";
+
+    const DEVICE_CODE_VERIFICATION_URI: &str = "https://example.com/device";
+
+    const DEVICE_CODE_EXPIRES_IN: u64 = 600;
 
     impl UsageProvider for StubProvider {
         fn definition(&self) -> ProviderDefinition {
@@ -371,6 +391,44 @@ mod tests {
             })
         }
 
+        /// 真实 provider（WorkBuddy）的申请结果从这里出去，桩给出确定值，
+        /// 命令测试因此能钉住「原样透传」而不是钉住某段实现。
+        fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
+            Ok(DeviceCodeChallenge {
+                login_id: DEVICE_CODE_LOGIN_ID.into(),
+                verification_uri: DEVICE_CODE_VERIFICATION_URI.into(),
+                expires_in: DEVICE_CODE_EXPIRES_IN,
+            })
+        }
+
+        fn poll_device_code_login(&self, login_id: &str) -> DeviceCodePoll {
+            match login_id {
+                DEVICE_CODE_LOGIN_ID => DeviceCodePoll {
+                    done: true,
+                    error: None,
+                },
+                DEVICE_CODE_FAILED_LOGIN_ID => DeviceCodePoll {
+                    done: true,
+                    error: Some("The test sign-in failed.".into()),
+                },
+                // 认不出的句柄按「还没完成」处理：命令丢掉 login_id 时测试必须看得出来。
+                _ => DeviceCodePoll {
+                    done: false,
+                    error: None,
+                },
+            }
+        }
+
+        fn cancel_device_code_login(&self, login_id: &str) -> bool {
+            login_id == DEVICE_CODE_LOGIN_ID
+        }
+
+        /// 设备码登录签发的会话存在 Quota01 自己的 vault 里，因此这个桩
+        /// 同 WorkBuddy 一样报得出会话、却没有 WebView 可清理。
+        fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
+            Some(Ok(ApiKeyStatus::Saved))
+        }
+
         fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
             unreachable!()
         }
@@ -394,7 +452,7 @@ mod tests {
         }
     }
 
-    fn definition(id: &str) -> ProviderDefinition {
+    pub(crate) fn definition(id: &str) -> ProviderDefinition {
         ProviderDefinition {
             id: id.into(),
             display_name: "Provider".into(),

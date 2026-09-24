@@ -34,6 +34,11 @@ pub(crate) use provider_icons::provider_icon_svg;
 #[cfg(test)]
 pub(crate) use registry::normalize_default_pins;
 pub use registry::ProviderRegistry;
+#[cfg(test)]
+pub(crate) use registry::{
+    test_definition, DeviceCodeStubProvider, StubProvider, WebviewStubProvider,
+    DEVICE_CODE_FAILED_LOGIN_ID, DEVICE_CODE_LOGIN_ID,
+};
 
 use crate::models::{
     ApiKeyStatus, DeviceCodeChallenge, DeviceCodePoll, ProviderDefinition, ProviderErrorKind,
@@ -203,11 +208,6 @@ pub trait UsageProvider: Send + Sync {
         None
     }
 
-    // Task 6 的 Tauri 命令是这三个操作的生产调用方：命令落地之前它们没有任何可达调用点，
-    // dead_code 会顺着 impl 连坐到整个设备码实现（login.rs 与 models::DeviceCodePoll）。
-    // 这里只放行这三个方法本身，Task 6 接线后删除；login.rs 与 DeviceCodePoll 的临时放行
-    // 已按 R8 移除，不再恢复。
-    #[allow(dead_code)]
     fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
         Err(ProviderError::new(
             ProviderErrorKind::Internal,
@@ -217,7 +217,6 @@ pub trait UsageProvider: Send + Sync {
 
     /// 轮询只回传「是否完成」和错误文案：会话在 provider 内部落库，
     /// token 绝不经过这条线进入前端。
-    #[allow(dead_code)]
     fn poll_device_code_login(&self, _login_id: &str) -> DeviceCodePoll {
         DeviceCodePoll {
             done: true,
@@ -225,7 +224,6 @@ pub trait UsageProvider: Send + Sync {
         }
     }
 
-    #[allow(dead_code)]
     fn cancel_device_code_login(&self, _login_id: &str) -> bool {
         false
     }
