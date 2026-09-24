@@ -1,10 +1,6 @@
-// 设备码登录（Task 4）接入 provider 之前，这份存储在本模块外还没有调用点。
-// 它已经由测试完整覆盖，所以显式放行 dead_code，让未接线的入口不至于变成常驻警告。
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 
-use crate::{models::ApiKeyStatus, providers::api_key::ApiKeyStore};
+use crate::providers::api_key::ApiKeyStore;
 
 /// WorkBuddy 会话：Quota01 自己通过设备码登录取得的凭据。
 ///
@@ -59,11 +55,6 @@ impl WorkBuddySession {
         }
         Ok(session)
     }
-
-    /// 无 expiresAt 时视为未过期：缺少过期信息不该让一份可用凭据被丢弃。
-    pub fn is_expired(&self, now_ms: i64) -> bool {
-        self.expires_at.is_some_and(|expires| expires <= now_ms)
-    }
 }
 
 const VAULT_ACCOUNT: &str = "workbuddy-cn-session";
@@ -100,18 +91,6 @@ impl WorkBuddySessionStore {
         WorkBuddySession::from_json(value)?;
         self.store
             .save(value)
-            .map_err(|_| WorkBuddySessionError::Storage)
-    }
-
-    pub fn delete(&self) -> Result<(), WorkBuddySessionError> {
-        self.store
-            .delete()
-            .map_err(|_| WorkBuddySessionError::Storage)
-    }
-
-    pub fn status(&self) -> Result<ApiKeyStatus, WorkBuddySessionError> {
-        self.store
-            .status()
             .map_err(|_| WorkBuddySessionError::Storage)
     }
 }
@@ -160,19 +139,6 @@ mod tests {
         ));
     }
 
-    #[test]
-    fn reports_expiry_against_the_supplied_clock() {
-        let mut subject = session();
-        subject.expires_at = Some(1_000);
-        assert!(subject.is_expired(1_500));
-        assert!(!subject.is_expired(500));
-        subject.expires_at = None;
-        assert!(
-            !subject.is_expired(i64::MAX),
-            "a session without an expiry stays usable rather than being discarded"
-        );
-    }
-
     struct MemorySecrets(std::sync::Mutex<Option<Vec<u8>>>);
 
     impl SecretBackend for MemorySecrets {
@@ -213,17 +179,12 @@ mod tests {
     }
 
     #[test]
-    fn store_round_trip_and_delete_use_the_vault() {
+    fn store_round_trip_uses_the_vault() {
         let subject = store(None);
         assert_eq!(subject.load().unwrap(), None);
-        assert_eq!(subject.status().unwrap(), ApiKeyStatus::NotSet);
 
         subject.save(&session().to_json().unwrap()).unwrap();
         assert_eq!(subject.load().unwrap(), Some(session()));
-        assert_eq!(subject.status().unwrap(), ApiKeyStatus::Saved);
-
-        subject.delete().unwrap();
-        assert_eq!(subject.load().unwrap(), None);
     }
 
     #[test]

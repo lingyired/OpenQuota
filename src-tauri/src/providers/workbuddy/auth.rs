@@ -9,6 +9,8 @@ use serde_json::{Map, Value};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
+use super::session::WorkBuddySession;
+
 /// 登录文件里 accessToken 的候选路径，按优先级排列。加密检测与明文读取共用同一份
 /// 顺序，避免两处不一致导致「明明有明文却被判定为加密」。
 const ACCESS_TOKEN_PATHS: &[&[&str]] = &[
@@ -89,13 +91,13 @@ pub struct WorkBuddyAuth {
     pub email: Option<String>,
     #[allow(dead_code)]
     pub expires_at: Option<DateTime<Utc>>,
+    /// 这个视图背后是否有真实的登录文件。由 Quota01 会话构造的视图为 false：
+    /// 它只给 client 提供凭据字段，刷新结果必须由 `WorkBuddySessionStore` 写回，
+    /// 所以 `save_tokens` 对它直接失败，而不是靠调用方记得绕开它。
+    file_backed: bool,
 }
 
 impl WorkBuddyAuth {
-    pub fn load() -> Result<Self, WorkBuddyAuthError> {
-        Self::load_from_path(&auth_file_path())
-    }
-
     /// 从 WorkBuddy 登录文件读取凭据。WorkBuddy 5.6 起把 accessToken 写成
     /// `{$wbEncrypted, envelope}` 加密信封：这是「读不出来」而不是「没登录」，必须报
     /// `Encrypted`，否则凭据探测会把 provider 判成 `Absent` 并自动隐藏，用户根本看不到
@@ -126,11 +128,30 @@ impl WorkBuddyAuth {
             email: first_string(&document, EMAIL_PATHS),
             expires_at: first_value(&document, EXPIRES_AT_PATHS).and_then(parse_datetime),
             document,
+            file_backed: true,
         })
     }
 
-    pub fn has_local_credentials() -> bool {
-        Self::has_local_credentials_at(&auth_file_path())
+    /// 把 Quota01 自有会话映射成 client 需要的 `WorkBuddyAuth` 形状，让
+    /// `request_base_url`、`token_type`、`uid`、`enterprise_id` 的语义完全一致。
+    ///
+    /// 视图是只读的：没有真实登录文件，`save_tokens` 一定会失败，会话的刷新结果
+    /// 只能由 `WorkBuddySessionStore::save` 写回 vault。
+    pub(crate) fn from_session(session: &WorkBuddySession) -> Self {
+        Self {
+            path: PathBuf::new(),
+            document: Value::Null,
+            access_token: session.access_token.clone(),
+            refresh_token: session.refresh_token.clone(),
+            token_type: session.token_type.clone(),
+            domain: session.domain.clone(),
+            uid: session.uid.clone(),
+            enterprise_id: session.enterprise_id.clone(),
+            nickname: session.nickname.clone(),
+            email: session.email.clone(),
+            expires_at: session.expires_at.and_then(DateTime::from_timestamp_millis),
+            file_backed: false,
+        }
     }
 
     /// 登录文件存在就说明本机登录过 WorkBuddy/CodeBuddy。即使 WorkBuddy 5.6 之后内容
@@ -156,6 +177,11 @@ impl WorkBuddyAuth {
         access_token: String,
         refresh_token: Option<String>,
     ) -> Result<(), WorkBuddyAuthError> {
+        // 会话视图没有可写的登录文件；它的刷新结果属于 vault。
+        // 这里直接拒绝，避免会话凭据被误写进 WorkBuddy 的登录文件。
+        if !self.file_backed {
+            return Err(WorkBuddyAuthError::Storage);
+        }
         let current = Self::load_from_path(&self.path)?;
         if current.access_token != self.access_token || current.document != self.document {
             return Err(WorkBuddyAuthError::Storage);
@@ -331,6 +357,46 @@ mod tests {
         assert!(WorkBuddyAuth::has_local_credentials_at(&auth_path));
         assert!(!WorkBuddyAuth::has_local_credentials_at(
             &dir.path().join("missing.info")
+        ));
+    }
+
+    fn session() -> WorkBuddySession {
+        WorkBuddySession {
+            access_token: "access-session".into(),
+            refresh_token: Some("refresh-session".into()),
+            token_type: "Bearer".into(),
+            domain: "www.workbuddy.cn".into(),
+            uid: Some("uid-session".into()),
+            nickname: Some("Ling".into()),
+            email: Some("ling@example.com".into()),
+            enterprise_id: Some("ent-session".into()),
+            expires_at: Some(1_800_000_000_000),
+            refresh_expires_at: None,
+        }
+    }
+
+    #[test]
+    fn a_session_view_keeps_the_request_semantics_of_the_login_file() {
+        let view = WorkBuddyAuth::from_session(&session());
+
+        assert_eq!(view.access_token, "access-session");
+        assert_eq!(view.refresh_token.as_deref(), Some("refresh-session"));
+        assert_eq!(view.token_type, "Bearer");
+        assert_eq!(view.uid.as_deref(), Some("uid-session"));
+        assert_eq!(view.enterprise_id.as_deref(), Some("ent-session"));
+        assert_eq!(view.nickname.as_deref(), Some("Ling"));
+        assert_eq!(view.email.as_deref(), Some("ling@example.com"));
+        assert_eq!(view.request_base_url(), "https://www.workbuddy.cn");
+        assert_eq!(view.usage_base_url(), "https://www.workbuddy.cn");
+    }
+
+    #[test]
+    fn a_session_view_refuses_to_write_the_login_file() {
+        let mut view = WorkBuddyAuth::from_session(&session());
+
+        assert!(matches!(
+            view.save_tokens("new-access".into(), Some("new-refresh".into())),
+            Err(WorkBuddyAuthError::Storage)
         ));
     }
 }
