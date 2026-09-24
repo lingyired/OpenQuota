@@ -131,6 +131,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   // Provider errors
   'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.':
     'providerError.workbuddyCredentialsEncrypted',
+  'Could not reach WorkBuddy.': ['providerError.couldNotReach', { provider: 'WorkBuddy' }],
   'WorkBuddy returned credentials without a domain. Sign in again.':
     'providerError.workbuddyCredentialsWithoutDomain',
   'This WorkBuddy sign-in attempt is unknown. Start again.':

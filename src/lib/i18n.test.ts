@@ -160,6 +160,7 @@ describe('translation helpers', () => {
     );
     expect(tBackend('The sign-in could not be started.')).toBe('无法启动登录。');
     expect(tBackend('The sign-in status could not be read.')).toBe('无法读取登录状态。');
+    expect(tBackend('Could not reach WorkBuddy.')).toBe('无法访问 WorkBuddy。请检查你的网络连接。');
     expect(tBackend('That provider does not have a saved connection.')).toBe(
       '该提供方没有已保存的连接。',
     );
