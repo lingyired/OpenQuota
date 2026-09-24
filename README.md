@@ -66,7 +66,8 @@ systems for China and the rest of the world, both are listed as separate provide
   balance on `api.siliconflow.cn` (API key)
 - **[TraeWork CN](docs/providers/trae-work-cn.md)** — available Trae credits through secure WebView sign-in
 - **[Workbuddy CN](docs/providers/workbuddy-cn.md)** — credit packages, available credits, and usage
-  history from the WorkBuddy or CodeBuddy login already on your computer (no API key)
+  history through browser sign-in in Quota01 (no API key), with the local WorkBuddy or CodeBuddy
+  login as a fallback
 - **[Z.ai CN](docs/providers/zai-cn.md)** — GLM Coding Plan session, weekly, and web-search quotas on
   `open.bigmodel.cn` (API key)
 
