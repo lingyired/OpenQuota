@@ -107,7 +107,11 @@ impl DeviceCodeLogin {
         let data = body.get("data").unwrap_or(&body);
         let state =
             non_empty_string(data, &["state"]).ok_or(WorkBuddyLoginError::InvalidResponse)?;
+        // 授权地址只来自响应体：一旦带着 `file:` 之类的 scheme 进入挑战，界面显示它、
+        // 系统默认处理器打开它，都会把本地启动能力交给一个被劫持的响应。所以在解析边界上
+        // 就把非 https 的地址判为无效响应，绝不让它变成一个挑战。
         let verification_uri = non_empty_string(data, &["authUrl", "auth_url", "url"])
+            .filter(|uri| uri.starts_with("https://"))
             .ok_or(WorkBuddyLoginError::InvalidResponse)?;
         let login_id = self.register(
             &state,

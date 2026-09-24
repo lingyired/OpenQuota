@@ -21,12 +21,23 @@ pub async fn start_provider_login(
     let challenge = start_provider_login_inner(registry.inner().clone(), provider_id).await?;
     // 打开失败不回滚这次登录：挑战已经申请好了，界面仍能显示地址让用户手动打开，
     // 把整条命令变成错误反而会让这次登录的 login_id 一起丢掉。
-    if app
-        .opener()
-        .open_url(&challenge.verification_uri, None::<&str>)
-        .is_err()
-    {
-        crate::app_warn!("auth", "the device-code sign-in page could not be opened");
+    //
+    // R23：登录层已经把非 https 的地址判为无效响应，这里再挡一次，是为了让登录层
+    // 校验被放宽时也不会把网络给的 scheme 交给系统默认处理器。拒绝只记录（不打印地址本身），
+    // 挑战照常返回，界面仍然可以显示链接。
+    if challenge.verification_uri.starts_with("https://") {
+        if app
+            .opener()
+            .open_url(&challenge.verification_uri, None::<&str>)
+            .is_err()
+        {
+            crate::app_warn!("auth", "the device-code sign-in page could not be opened");
+        }
+    } else {
+        crate::app_warn!(
+            "auth",
+            "the device-code sign-in page was not opened because its address is not https"
+        );
     }
     Ok(challenge)
 }

@@ -46,6 +46,29 @@ fn start_accepts_an_alternate_authorization_url_key() {
     );
 }
 
+/// 授权地址来自响应体，不是编译期常量：只有 https 才能交给系统默认处理器，
+/// 否则一个被劫持的响应就能让应用在本机打开任意 scheme。
+#[test]
+fn start_rejects_an_authorization_url_that_is_not_https() {
+    for uri in [
+        "http://example.test/auth",
+        "file:///etc/passwd",
+        "//example.test/auth",
+    ] {
+        let server = test_http::serve_once(
+            200,
+            &[],
+            &json!({"code": 0, "data": {"state": "st-1", "authUrl": uri}}).to_string(),
+        );
+        let login = DeviceCodeLogin::for_test(&server);
+
+        assert!(
+            matches!(login.start(), Err(WorkBuddyLoginError::InvalidResponse)),
+            "a non-https authorization URL must never become a challenge: {uri}"
+        );
+    }
+}
+
 #[test]
 fn start_without_a_state_is_an_invalid_response() {
     let server = test_http::serve_once(200, &[], &json!({"code": 0, "data": {}}).to_string());
