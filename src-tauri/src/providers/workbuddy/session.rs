@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::providers::api_key::ApiKeyStore;
+use crate::{models::ApiKeyStatus, providers::api_key::ApiKeyStore};
 
 /// WorkBuddy 会话：Quota01 自己通过设备码登录取得的凭据。
 ///
@@ -91,6 +91,18 @@ impl WorkBuddySessionStore {
         WorkBuddySession::from_json(value)?;
         self.store
             .save(value)
+            .map_err(|_| WorkBuddySessionError::Storage)
+    }
+
+    pub fn delete(&self) -> Result<(), WorkBuddySessionError> {
+        self.store
+            .delete()
+            .map_err(|_| WorkBuddySessionError::Storage)
+    }
+
+    pub fn status(&self) -> Result<ApiKeyStatus, WorkBuddySessionError> {
+        self.store
+            .status()
             .map_err(|_| WorkBuddySessionError::Storage)
     }
 }
@@ -194,5 +206,18 @@ mod tests {
             subject.load(),
             Err(WorkBuddySessionError::Malformed)
         ));
+    }
+
+    #[test]
+    fn status_and_delete_round_trip_through_the_store() {
+        let subject = store(None);
+        assert_eq!(subject.status().unwrap(), ApiKeyStatus::NotSet);
+
+        subject.save(&session().to_json().unwrap()).unwrap();
+        assert_eq!(subject.status().unwrap(), ApiKeyStatus::Saved);
+
+        subject.delete().unwrap();
+        assert_eq!(subject.status().unwrap(), ApiKeyStatus::NotSet);
+        assert_eq!(subject.load().unwrap(), None);
     }
 }

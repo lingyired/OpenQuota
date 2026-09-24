@@ -17,10 +17,10 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::models::{
-    CreditPackage, MetricDefinition, MetricSection, MetricSource, MetricValue, MetricValueKind,
-    ProviderDefinition, ProviderErrorKind, ProviderLink, ProviderNotice, ProviderNoticeTone,
-    ProviderSnapshot, QuotaWindow, StatusMetric, UsageCompleteness, UsageHistory,
-    UsagePeriodSelection, ValueMetric,
+    ApiKeyStatus, CreditPackage, MetricDefinition, MetricSection, MetricSource, MetricValue,
+    MetricValueKind, ProviderDefinition, ProviderErrorKind, ProviderLink, ProviderNotice,
+    ProviderNoticeTone, ProviderSnapshot, QuotaWindow, StatusMetric, UsageCompleteness,
+    UsageHistory, UsagePeriodSelection, ValueMetric,
 };
 
 use self::{
@@ -653,7 +653,14 @@ impl UsageProvider for WorkBuddyProvider {
     }
 
     fn has_local_credentials(&self) -> bool {
+        // 设备码登录不需要机器上装过 WorkBuddy，所以只看登录文件会把「已经用 Quota01
+        // 登录过、但没装 WorkBuddy」的用户判成 Absent，从而自动禁用并隐藏 provider。
+        // 这里沿用 `ApiKeyStore::has_credentials` 的容错：vault 读不出来时按无会话处理。
         WorkBuddyAuth::has_local_credentials_at(&self.auth_path)
+            || self
+                .sessions
+                .status()
+                .is_ok_and(|status| status != ApiKeyStatus::NotSet)
     }
 
     fn cache_identity(&self) -> super::CacheIdentity<'_> {
@@ -686,6 +693,32 @@ impl UsageProvider for WorkBuddyProvider {
                 identity,
             }),
         })
+    }
+
+    /// 只报告 Quota01 自己签发的会话。旧版明文登录文件是 Quota01 不拥有的凭据，
+    /// 而这个面板的意义正是提供 Quota01 自己的登录入口，所以它不算作一个会话。
+    fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
+        Some(
+            self.sessions
+                .status()
+                .map_err(WorkBuddyError::from)
+                .map_err(ProviderError::from),
+        )
+    }
+
+    fn save_session(&self, value: &str) -> Result<(), ProviderError> {
+        self.sessions
+            .save(value)
+            .map_err(WorkBuddyError::from)
+            .map_err(ProviderError::from)
+    }
+
+    fn delete_session(&self) -> Result<(), ProviderError> {
+        // 只清 vault 里的会话：登录文件属于 WorkBuddy 自己，绝不在这里删除。
+        self.sessions
+            .delete()
+            .map_err(WorkBuddyError::from)
+            .map_err(ProviderError::from)
     }
 }
 
@@ -929,12 +962,12 @@ mod tests {
         classify_endpoint, definition, map_resource_metrics, EndpointResponse, ResourceOutcome,
         WorkBuddyCredential, WorkBuddyError, WorkBuddyProvider,
     };
-    use crate::models::{MetricSection, MetricSource, ProviderErrorKind};
+    use crate::models::{ApiKeyStatus, MetricSection, MetricSource, ProviderErrorKind};
     use crate::providers::api_key::{ApiKeyStore, EnvironmentReader, SecretBackend, SecretBytes};
     use crate::providers::test_http;
     use crate::providers::workbuddy::mapper::{MappedResources, ResourcePackage};
     use crate::providers::workbuddy::session::WorkBuddySessionStore;
-    use crate::providers::ProviderError;
+    use crate::providers::{ProviderError, UsageProvider};
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -1313,5 +1346,40 @@ mod tests {
             provider.sessions.load().unwrap().is_none(),
             "a login-file credential must never be written into the vault"
         );
+    }
+
+    #[test]
+    fn a_stored_session_is_reported_and_cleared_through_the_session_hooks() {
+        let provider = WorkBuddyProvider::for_test_with_session(Some("access-session"), None);
+        assert_eq!(
+            provider.session_status().unwrap().unwrap(),
+            ApiKeyStatus::Saved
+        );
+
+        provider.delete_session().unwrap();
+        assert_eq!(
+            provider.session_status().unwrap().unwrap(),
+            ApiKeyStatus::NotSet
+        );
+    }
+
+    #[test]
+    fn a_provider_without_a_login_file_still_counts_as_having_local_credentials() {
+        let with_session = WorkBuddyProvider::for_test_with_session(Some("access-session"), None);
+        assert!(with_session.has_local_credentials());
+
+        let neither = WorkBuddyProvider::for_test_with_session(None, None);
+        assert!(!neither.has_local_credentials());
+    }
+
+    #[test]
+    fn cache_identity_prefers_the_session_and_falls_back_to_the_login_file() {
+        let session_only = WorkBuddyProvider::for_test_with_session(Some("access-session"), None);
+        let file_only = WorkBuddyProvider::for_test_with_session(None, Some("access-file"));
+        let both =
+            WorkBuddyProvider::for_test_with_session(Some("access-session"), Some("access-file"));
+
+        assert_ne!(session_only.cache_identity(), file_only.cache_identity());
+        assert_eq!(both.cache_identity(), session_only.cache_identity());
     }
 }
