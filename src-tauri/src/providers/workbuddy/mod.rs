@@ -1,6 +1,7 @@
 mod auth;
 mod client;
 mod mapper;
+mod session;
 mod usage;
 
 use std::sync::Arc;
