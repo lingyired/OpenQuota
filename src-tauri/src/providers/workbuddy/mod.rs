@@ -118,7 +118,7 @@ pub(crate) enum WorkBuddyError {
     InvalidAuth,
     #[error("WorkBuddy credentials could not be read or updated.")]
     CredentialStorage,
-    #[error("WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in again in WorkBuddy or CodeBuddy, or launch workbuddy-switch so a readable copy becomes available.")]
+    #[error("WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.")]
     CredentialsEncrypted,
     #[error("WorkBuddy access token expired and could not be refreshed. Sign in again.")]
     TokenExpired,

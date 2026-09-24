@@ -432,8 +432,6 @@ export const es = {
     sourceFromGrokLogs: 'From your Grok logs (estimated)',
     warnRefreshLoginNotSaved:
       'The refreshed {provider} login is active for this session but could not be saved.',
-    warnWorkbuddyReadOnlyCredentials:
-      'WorkBuddy credentials were read from workbuddy-switch and are read-only; open workbuddy-switch to refresh them.',
     warnClaudeRelogin:
       'Re-login for live usage. Run `claude` and sign in again to restore subscription limits.',
     warnClaudeRateLimitedShowingStale:
@@ -484,7 +482,19 @@ export const es = {
     noActiveMiniMaxPlanCn:
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
     workbuddyCredentialsEncrypted:
-      'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in again in WorkBuddy or CodeBuddy, or launch workbuddy-switch so a readable copy becomes available.',
+      'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.',
+    workbuddyUntrustedDomain:
+      'WorkBuddy returned credentials for an untrusted domain ({domain}). Sign in again.',
+    workbuddyCredentialsWithoutDomain:
+      'WorkBuddy returned credentials without a domain. Sign in again.',
+    workbuddySignInAttemptUnknown: 'This WorkBuddy sign-in attempt is unknown. Start again.',
+    workbuddySignInAttemptInactive:
+      'This WorkBuddy sign-in attempt is no longer active. Start again.',
+    workbuddySignInAttemptExpired: 'This WorkBuddy sign-in attempt expired. Start again.',
+    deviceCodeUnsupported: 'That provider does not use a device-code sign-in.',
+    signInCouldNotStart: 'The sign-in could not be started.',
+    signInStatusUnreadable: 'The sign-in status could not be read.',
+    noSavedConnection: 'That provider does not have a saved connection.',
     openCodeGoSubscriptionRequired: 'OpenCode Go subscription required.',
     notLoggedInCursor: 'Not logged in. Sign in via Cursor app or run `agent login`.',
     sessionExpiredCursor: 'Session expired. Sign in via Cursor app or run `agent login`.',

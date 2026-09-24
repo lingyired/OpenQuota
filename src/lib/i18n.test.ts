@@ -136,6 +136,42 @@ describe('translation helpers', () => {
     );
   });
 
+  it('translates the WorkBuddy sign-in and device-code backend messages', async () => {
+    await switchLocale('zh-CN');
+    expect(
+      tBackend(
+        'WorkBuddy returned credentials for an untrusted domain (evil.example). Sign in again.',
+      ),
+    ).toBe('WorkBuddy 返回了不受信任域名（evil.example）的凭据。请重新登录。');
+    expect(tBackend('WorkBuddy returned credentials without a domain. Sign in again.')).toBe(
+      'WorkBuddy 返回的凭据缺少域名。请重新登录。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt is unknown. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试未知。请重新开始。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt is no longer active. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试已不再有效。请重新开始。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt expired. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试已过期。请重新开始。',
+    );
+    expect(tBackend('That provider does not use a device-code sign-in.')).toBe(
+      '该提供方不使用设备码登录。',
+    );
+    expect(tBackend('The sign-in could not be started.')).toBe('无法启动登录。');
+    expect(tBackend('The sign-in status could not be read.')).toBe('无法读取登录状态。');
+    expect(tBackend('That provider does not have a saved connection.')).toBe(
+      '该提供方没有已保存的连接。',
+    );
+    expect(
+      tBackend(
+        'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.',
+      ),
+    ).toBe(
+      'WorkBuddy 会加密保存在本机的登录数据，因此无法直接读取。请在 Quota01 中登录 WorkBuddy 以建立连接；本机若仍有旧版明文登录文件，仍会继续使用。',
+    );
+  });
+
   it('tBackend falls back to the raw string when unknown', () => {
     expect(tBackend('Some brand-new backend string')).toBe('Some brand-new backend string');
   });

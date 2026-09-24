@@ -423,8 +423,6 @@ export const zhCn = {
     sourceFromCursorExport: '来自你的 Cursor 用量导出',
     sourceFromGrokLogs: '来自你的 Grok 日志（估算）',
     warnRefreshLoginNotSaved: '刷新后的 {provider} 登录本次会话有效，但无法保存。',
-    warnWorkbuddyReadOnlyCredentials:
-      'WorkBuddy 凭据是从 workbuddy-switch 只读读取的；请打开 workbuddy-switch 刷新。',
     warnClaudeRelogin: '需要重新登录以获取实时用量。请运行 `claude` 并重新登录以恢复订阅限额。',
     warnClaudeRateLimitedShowingStale: 'Claude 实时用量触发限流；正在显示最近一次成功的限额。',
     claudeRateLimitedRetrying: 'Claude 实时用量触发限流；约 {count} 分钟后重试。',
@@ -469,7 +467,16 @@ export const zhCn = {
     noActiveMiniMaxPlanCn:
       '没有有效的 MiniMax Token 套餐。请在 platform.minimaxi.com 订阅以查看用量。',
     workbuddyCredentialsEncrypted:
-      'WorkBuddy 5.6 起会把本机保存的登录凭据加密，无法直接读取。请在 WorkBuddy 或 CodeBuddy 中重新登录，或启动 workbuddy-switch 以提供一份可读副本。',
+      'WorkBuddy 会加密保存在本机的登录数据，因此无法直接读取。请在 Quota01 中登录 WorkBuddy 以建立连接；本机若仍有旧版明文登录文件，仍会继续使用。',
+    workbuddyUntrustedDomain: 'WorkBuddy 返回了不受信任域名（{domain}）的凭据。请重新登录。',
+    workbuddyCredentialsWithoutDomain: 'WorkBuddy 返回的凭据缺少域名。请重新登录。',
+    workbuddySignInAttemptUnknown: '此 WorkBuddy 登录尝试未知。请重新开始。',
+    workbuddySignInAttemptInactive: '此 WorkBuddy 登录尝试已不再有效。请重新开始。',
+    workbuddySignInAttemptExpired: '此 WorkBuddy 登录尝试已过期。请重新开始。',
+    deviceCodeUnsupported: '该提供方不使用设备码登录。',
+    signInCouldNotStart: '无法启动登录。',
+    signInStatusUnreadable: '无法读取登录状态。',
+    noSavedConnection: '该提供方没有已保存的连接。',
     openCodeGoSubscriptionRequired: '需要 OpenCode Go 订阅。',
     notLoggedInCursor: '尚未登录。请通过 Cursor 应用登录，或运行 `agent login`。',
     sessionExpiredCursor: '会话已过期。请通过 Cursor 应用登录，或运行 `agent login`。',

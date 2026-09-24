@@ -66,10 +66,10 @@ pub enum WorkBuddyAuthError {
     Invalid,
     #[error("WorkBuddy credentials could not be read or updated.")]
     Storage,
-    /// WorkBuddy 5.6 起把 token 写成 `{$wbEncrypted, envelope}` 加密信封，本机又找不到
-    /// 可读的明文副本。这不是「未登录」，必须与 `NotLoggedIn` 区分开，否则会把用户
-    /// 引向无用的「重新登录」。
-    #[error("WorkBuddy 5.6 encrypts its local login data and no readable copy was found.")]
+    /// WorkBuddy 5.6 起把 token 写成 `{$wbEncrypted, envelope}` 加密信封，本机读不出
+    /// 明文。这不是「未登录」，必须与 `NotLoggedIn` 区分开，否则会把用户引向无用的
+    /// 「重新登录」；真正的出路是在 Quota01 里登录 WorkBuddy（旧版明文登录文件仍照常使用）。
+    #[error("WorkBuddy 5.6 encrypts its local login data, so it cannot be read directly.")]
     Encrypted,
 }
 

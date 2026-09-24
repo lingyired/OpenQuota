@@ -432,8 +432,6 @@ export const zhTw = {
     sourceFromGrokLogs: 'From your Grok logs (estimated)',
     warnRefreshLoginNotSaved:
       'The refreshed {provider} login is active for this session but could not be saved.',
-    warnWorkbuddyReadOnlyCredentials:
-      'WorkBuddy 憑證是從 workbuddy-switch 唯讀讀取的；請開啟 workbuddy-switch 重新整理。',
     warnClaudeRelogin:
       'Re-login for live usage. Run `claude` and sign in again to restore subscription limits.',
     warnClaudeRateLimitedShowingStale:
@@ -484,7 +482,16 @@ export const zhTw = {
     noActiveMiniMaxPlanCn:
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
     workbuddyCredentialsEncrypted:
-      'WorkBuddy 5.6 起會將本機儲存的登入憑證加密，無法直接讀取。請在 WorkBuddy 或 CodeBuddy 重新登入，或啟動 workbuddy-switch 以提供可讀副本。',
+      'WorkBuddy 會加密儲存在本機的登入資料，因此無法直接讀取。請在 Quota01 中登入 WorkBuddy 以建立連線；本機若仍有舊版明文登入檔案，仍會繼續使用。',
+    workbuddyUntrustedDomain: 'WorkBuddy 傳回了不受信任網域（{domain}）的憑證。請重新登入。',
+    workbuddyCredentialsWithoutDomain: 'WorkBuddy 傳回的憑證缺少網域。請重新登入。',
+    workbuddySignInAttemptUnknown: '此 WorkBuddy 登入嘗試未知。請重新開始。',
+    workbuddySignInAttemptInactive: '此 WorkBuddy 登入嘗試已不再有效。請重新開始。',
+    workbuddySignInAttemptExpired: '此 WorkBuddy 登入嘗試已過期。請重新開始。',
+    deviceCodeUnsupported: '該提供方不使用裝置碼登入。',
+    signInCouldNotStart: '無法啟動登入。',
+    signInStatusUnreadable: '無法讀取登入狀態。',
+    noSavedConnection: '該提供方沒有已儲存的連線。',
     openCodeGoSubscriptionRequired: 'OpenCode Go subscription required.',
     notLoggedInCursor: 'Not logged in. Sign in via Cursor app or run `agent login`.',
     sessionExpiredCursor: 'Session expired. Sign in via Cursor app or run `agent login`.',
