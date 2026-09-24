@@ -205,6 +205,7 @@ export interface ProviderCatalog {
   providers: ProviderDefinition[];
   apiKeyProviderIds?: string[];
   webviewAuthProviderIds?: string[];
+  deviceCodeSignInProviderIds?: string[];
 }
 
 export interface MetricLayout {

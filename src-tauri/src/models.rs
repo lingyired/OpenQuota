@@ -654,6 +654,8 @@ pub struct ProviderCatalog {
     pub api_key_provider_ids: Vec<String>,
     #[serde(default)]
     pub webview_auth_provider_ids: Vec<String>,
+    #[serde(default)]
+    pub device_code_sign_in_provider_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -1008,9 +1010,6 @@ pub struct DeviceCodeChallenge {
 /// 设备码登录的轮询结果，会原样发给前端。
 ///
 /// 这里刻意不放会话：token 只在 Rust 内部流转，绝不经过前端。
-// Task 5 接线之前没有任何可达代码构造它，而 models 是私有模块，
-// 所以先显式放行 dead_code；Task 5 用上之后删掉这一行。
-#[allow(dead_code)]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceCodePoll {

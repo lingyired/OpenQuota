@@ -130,6 +130,217 @@ fn polling_after_authorization_returns_the_session() {
 }
 
 #[test]
+fn polling_merges_the_account_profile_into_the_session() {
+    // 换 token 与取资料是两次请求，所以这里必须用 `serve_sequence`：
+    // `serve_once` 只接受一次连接，资料请求会打到已关闭的端口上。
+    let server = test_http::serve_sequence(&[
+        (
+            200,
+            &json!({
+                "code": 0,
+                "data": {
+                    "accessToken": "access-1",
+                    "refreshToken": "refresh-1",
+                    "domain": "www.codebuddy.cn"
+                }
+            })
+            .to_string(),
+        ),
+        (
+            200,
+            &json!({
+                "code": 0,
+                "data": {
+                    "uid": "uid-1",
+                    "nickname": "Ling",
+                    "email": "ling@example.com",
+                    "enterpriseId": "ent-1"
+                }
+            })
+            .to_string(),
+        ),
+    ]);
+    let login = DeviceCodeLogin::for_test(&server);
+    let login_id = login.register_for_test("st-1");
+
+    match login.poll(&login_id) {
+        LoginPoll::Ready(session) => {
+            assert_eq!(session.access_token, "access-1");
+            assert_eq!(session.uid.as_deref(), Some("uid-1"));
+            assert_eq!(session.nickname.as_deref(), Some("Ling"));
+            assert_eq!(session.email.as_deref(), Some("ling@example.com"));
+            assert_eq!(session.enterprise_id.as_deref(), Some("ent-1"));
+        }
+        other => panic!("expected Ready, got {other:?}"),
+    }
+}
+
+#[test]
+fn polling_accepts_snake_case_profile_spellings() {
+    let server = test_http::serve_sequence(&[
+        (
+            200,
+            &json!({
+                "code": 0,
+                "data": {"accessToken": "access-1", "domain": "codebuddy.cn"}
+            })
+            .to_string(),
+        ),
+        (
+            200,
+            &json!({
+                "code": 0,
+                "data": {"nick_name": "Ling", "enterprise_id": "ent-1"}
+            })
+            .to_string(),
+        ),
+    ]);
+    let login = DeviceCodeLogin::for_test(&server);
+    let login_id = login.register_for_test("st-1");
+
+    match login.poll(&login_id) {
+        LoginPoll::Ready(session) => {
+            assert_eq!(session.nickname.as_deref(), Some("Ling"));
+            assert_eq!(session.enterprise_id.as_deref(), Some("ent-1"));
+        }
+        other => panic!("expected Ready, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_failed_profile_fetch_keeps_the_token_only_session() {
+    let server = test_http::serve_sequence(&[
+        (
+            200,
+            &json!({
+                "code": 0,
+                "data": {"accessToken": "access-1", "domain": "www.codebuddy.cn"}
+            })
+            .to_string(),
+        ),
+        (500, r#"{"code":500,"msg":"boom"}"#),
+    ]);
+    let login = DeviceCodeLogin::for_test(&server);
+    let login_id = login.register_for_test("st-1");
+
+    match login.poll(&login_id) {
+        LoginPoll::Ready(session) => {
+            assert_eq!(
+                session.access_token, "access-1",
+                "a working token must never be discarded over a profile hiccup"
+            );
+            assert_eq!(session.uid, None);
+            assert_eq!(session.nickname, None);
+        }
+        other => panic!("expected Ready, got {other:?}"),
+    }
+}
+
+#[test]
+fn a_profile_body_that_is_not_json_keeps_the_token_only_session() {
+    let server = test_http::serve_sequence(&[
+        (
+            200,
+            &json!({
+                "code": 0,
+                "data": {"accessToken": "access-1", "domain": "www.codebuddy.cn"}
+            })
+            .to_string(),
+        ),
+        (200, "<html>blocked</html>"),
+    ]);
+    let login = DeviceCodeLogin::for_test(&server);
+    let login_id = login.register_for_test("st-1");
+
+    match login.poll(&login_id) {
+        LoginPoll::Ready(session) => {
+            assert_eq!(session.access_token, "access-1");
+            assert_eq!(session.uid, None);
+        }
+        other => panic!("expected Ready, got {other:?}"),
+    }
+}
+
+#[test]
+fn the_profile_request_carries_the_bearer_token_and_the_domain() {
+    use std::{
+        io::{Read, Write},
+        net::{TcpListener, TcpStream},
+        sync::mpsc,
+        time::Duration,
+    };
+
+    /// 读到请求头结束为止；`serve_sequence` 只回响应、看不到请求原文。
+    fn read_request(stream: &mut TcpStream) -> String {
+        let mut buffer = Vec::new();
+        let mut chunk = [0_u8; 1024];
+        while !buffer.windows(4).any(|window| window == b"\r\n\r\n") {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => break,
+                Ok(read) => buffer.extend_from_slice(&chunk[..read]),
+            }
+        }
+        String::from_utf8_lossy(&buffer).to_string()
+    }
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let base_url = format!("http://{}", listener.local_addr().unwrap());
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || {
+        for index in 0..2 {
+            let Ok((mut stream, _)) = listener.accept() else {
+                return;
+            };
+            let request = read_request(&mut stream);
+            let body = if index == 0 {
+                json!({"code": 0, "data": {"accessToken": "access-1", "domain": "www.codebuddy.cn"}})
+                    .to_string()
+            } else {
+                json!({"code": 0, "data": {"uid": "uid-1"}}).to_string()
+            };
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                body.len()
+            );
+            let _ = stream.write_all(response.as_bytes());
+            let _ = sender.send((index, request));
+        }
+    });
+
+    let login = DeviceCodeLogin::for_test(&base_url);
+    let login_id = login.register_for_test("st-1");
+    assert!(matches!(login.poll(&login_id), LoginPoll::Ready(_)));
+
+    let mut requests = Vec::new();
+    for _ in 0..2 {
+        requests.push(
+            receiver
+                .recv_timeout(Duration::from_secs(5))
+                .expect("both the token and the profile request should arrive"),
+        );
+    }
+    let profile = requests
+        .iter()
+        .find(|(index, _)| *index == 1)
+        .map(|(_, request)| request)
+        .expect("the profile request is the second one");
+    let profile = profile.to_lowercase();
+
+    assert!(
+        profile.contains("/v2/plugin/login/account?state=st-1"),
+        "the profile request must target the account endpoint with the server state: {profile}"
+    );
+    assert!(
+        profile.contains("authorization: bearer access-1"),
+        "the profile request must carry the freshly issued token: {profile}"
+    );
+    assert!(
+        profile.contains("x-domain: www.codebuddy.cn"),
+        "the profile request must carry the verified domain: {profile}"
+    );
+}
+
+#[test]
 fn polling_a_response_without_a_token_stays_pending() {
     let server = test_http::serve_once(
         200,

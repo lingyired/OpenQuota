@@ -35,7 +35,10 @@ pub(crate) use provider_icons::provider_icon_svg;
 pub(crate) use registry::normalize_default_pins;
 pub use registry::ProviderRegistry;
 
-use crate::models::{ApiKeyStatus, ProviderDefinition, ProviderErrorKind, ProviderSnapshot};
+use crate::models::{
+    ApiKeyStatus, DeviceCodeChallenge, DeviceCodePoll, ProviderDefinition, ProviderErrorKind,
+    ProviderSnapshot,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebviewCredentialSource {
@@ -48,6 +51,14 @@ pub struct WebviewAuth {
     pub login_url: String,
     pub credential: WebviewCredentialSource,
     pub window_label: String,
+}
+
+/// 设备码登录的描述：`platform` 是申请 state 时上报的产品标识。
+/// 具体流程（申请 state、轮询换 token、取账号资料）留在 provider 内部，
+/// 前端只拿句柄和展示信息，永远碰不到 `state` 或 token。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceCodeAuth {
+    pub platform: String,
 }
 
 pub fn provider_family(provider_id: &str) -> &str {
@@ -184,6 +195,39 @@ pub trait UsageProvider: Send + Sync {
 
     fn webview_auth(&self) -> Option<WebviewAuth> {
         None
+    }
+
+    /// 设备码登录的能力声明。`None` 表示这个 provider 不走设备码，
+    /// registry 据此生成 `device_code_sign_in_provider_ids`，前端也据此决定是否显示登录面板。
+    fn device_code_auth(&self) -> Option<DeviceCodeAuth> {
+        None
+    }
+
+    // Task 6 的 Tauri 命令是这三个操作的生产调用方：命令落地之前它们没有任何可达调用点，
+    // dead_code 会顺着 impl 连坐到整个设备码实现（login.rs 与 models::DeviceCodePoll）。
+    // 这里只放行这三个方法本身，Task 6 接线后删除；login.rs 与 DeviceCodePoll 的临时放行
+    // 已按 R8 移除，不再恢复。
+    #[allow(dead_code)]
+    fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorKind::Internal,
+            "That provider does not use a device-code sign-in.",
+        ))
+    }
+
+    /// 轮询只回传「是否完成」和错误文案：会话在 provider 内部落库，
+    /// token 绝不经过这条线进入前端。
+    #[allow(dead_code)]
+    fn poll_device_code_login(&self, _login_id: &str) -> DeviceCodePoll {
+        DeviceCodePoll {
+            done: true,
+            error: Some("That provider does not use a device-code sign-in.".to_owned()),
+        }
+    }
+
+    #[allow(dead_code)]
+    fn cancel_device_code_login(&self, _login_id: &str) -> bool {
+        false
     }
 
     fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {

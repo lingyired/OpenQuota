@@ -37,6 +37,7 @@ impl ProviderRegistry {
         let mut metric_owners = BTreeMap::<String, String>::new();
         let mut api_key_provider_ids = Vec::new();
         let mut webview_auth_provider_ids = Vec::new();
+        let mut device_code_sign_in_provider_ids = Vec::new();
 
         for provider in providers {
             let mut definition = provider.definition();
@@ -65,6 +66,9 @@ impl ProviderRegistry {
             if provider.webview_auth().is_some() {
                 webview_auth_provider_ids.push(definition.id.clone());
             }
+            if provider.device_code_auth().is_some() {
+                device_code_sign_in_provider_ids.push(definition.id.clone());
+            }
             runtimes.insert(definition.id.clone(), provider);
             definitions.push(definition);
         }
@@ -81,6 +85,7 @@ impl ProviderRegistry {
                 providers: definitions,
                 api_key_provider_ids,
                 webview_auth_provider_ids,
+                device_code_sign_in_provider_ids,
             },
             definition_indices,
             metric_indices,
@@ -311,6 +316,8 @@ mod tests {
 
     struct WebviewStubProvider(ProviderDefinition);
 
+    struct DeviceCodeStubProvider(ProviderDefinition);
+
     impl UsageProvider for StubProvider {
         fn definition(&self) -> ProviderDefinition {
             self.0.clone()
@@ -341,6 +348,26 @@ mod tests {
                     name: "session".into(),
                 },
                 window_label: "test-login".into(),
+            })
+        }
+
+        fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+            unreachable!()
+        }
+    }
+
+    impl UsageProvider for DeviceCodeStubProvider {
+        fn definition(&self) -> ProviderDefinition {
+            self.0.clone()
+        }
+
+        fn has_local_credentials(&self) -> bool {
+            false
+        }
+
+        fn device_code_auth(&self) -> Option<crate::providers::DeviceCodeAuth> {
+            Some(crate::providers::DeviceCodeAuth {
+                platform: "test".into(),
             })
         }
 
@@ -438,6 +465,20 @@ mod tests {
         .unwrap();
 
         assert_eq!(registry.catalog().webview_auth_provider_ids, ["webview"]);
+    }
+
+    #[test]
+    fn registry_exposes_device_code_sign_in_capabilities() {
+        let registry = ProviderRegistry::new(vec![
+            Arc::new(DeviceCodeStubProvider(definition("device-code"))),
+            runtime(definition("plain")),
+        ])
+        .unwrap();
+
+        assert_eq!(
+            registry.catalog().device_code_sign_in_provider_ids,
+            ["device-code"]
+        );
     }
 
     #[test]

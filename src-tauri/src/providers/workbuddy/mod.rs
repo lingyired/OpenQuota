@@ -17,23 +17,26 @@ use serde_json::Value;
 use thiserror::Error;
 
 use crate::models::{
-    ApiKeyStatus, CreditPackage, MetricDefinition, MetricSection, MetricSource, MetricValue,
-    MetricValueKind, ProviderDefinition, ProviderErrorKind, ProviderLink, ProviderNotice,
-    ProviderNoticeTone, ProviderSnapshot, QuotaWindow, StatusMetric, UsageCompleteness,
-    UsageHistory, UsagePeriodSelection, ValueMetric,
+    ApiKeyStatus, CreditPackage, DeviceCodeChallenge, DeviceCodePoll, MetricDefinition,
+    MetricSection, MetricSource, MetricValue, MetricValueKind, ProviderDefinition,
+    ProviderErrorKind, ProviderLink, ProviderNotice, ProviderNoticeTone, ProviderSnapshot,
+    QuotaWindow, StatusMetric, UsageCompleteness, UsageHistory, UsagePeriodSelection, ValueMetric,
 };
 
 use self::{
     auth::{WorkBuddyAuth, WorkBuddyAuthError},
     client::{EndpointResponse, WorkBuddyClient, WorkBuddyClientError},
+    login::{DeviceCodeLogin, LoginPoll, WorkBuddyLoginError},
     mapper::{map_resources, MappedResources},
     session::{WorkBuddySession, WorkBuddySessionError, WorkBuddySessionStore},
     usage::{build_history, collect_pages, parse_page, ParsedUsagePage, MAX_PAGES},
 };
-use super::{ProviderError, ProviderRefresh, UsageProvider};
+use super::{DeviceCodeAuth, ProviderError, ProviderRefresh, UsageProvider};
 
 const PROVIDER_ID: &str = "workbuddy-cn";
 const SOURCE_NOTE: &str = "WorkBuddy official usage";
+/// Quota01 自己签约凭据走 CN 站点：设备码流程就是为这个站点实现的。
+const DEVICE_CODE_BASE_URL: &str = "https://www.codebuddy.cn";
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -164,6 +167,15 @@ impl From<WorkBuddyClientError> for WorkBuddyError {
     }
 }
 
+impl From<WorkBuddyLoginError> for WorkBuddyError {
+    fn from(error: WorkBuddyLoginError) -> Self {
+        match error {
+            WorkBuddyLoginError::Connection => Self::Connection,
+            WorkBuddyLoginError::InvalidResponse => Self::InvalidResponse,
+        }
+    }
+}
+
 impl From<WorkBuddyError> for ProviderError {
     fn from(error: WorkBuddyError) -> Self {
         let kind = match error {
@@ -220,6 +232,8 @@ pub struct WorkBuddyProvider {
     auth_path: PathBuf,
     /// Quota01 自己签发的会话。它是首选凭据，刷新结果也只写回这里。
     sessions: WorkBuddySessionStore,
+    /// 设备码登录状态机：Quota01 自己签发凭据的入口，`state` 只留在它内部。
+    login: DeviceCodeLogin,
     /// 测试用的临时登录目录，随 provider 一起析构；生产构造下为 None。
     #[cfg(test)]
     _auth_dir: Option<tempfile::TempDir>,
@@ -305,6 +319,7 @@ impl WorkBuddyProvider {
             account_identity,
             auth_path,
             sessions,
+            login: DeviceCodeLogin::new(DEVICE_CODE_BASE_URL)?,
             #[cfg(test)]
             _auth_dir: None,
         })
@@ -347,6 +362,8 @@ impl WorkBuddyProvider {
             account_identity,
             auth_path,
             sessions,
+            // 登录状态机同样指向不可路由地址，测试只能通过 `with_test_base_url` 指到本地 server。
+            login: DeviceCodeLogin::for_test("http://127.0.0.1:1"),
             _auth_dir: Some(dir),
         }
     }
@@ -355,6 +372,8 @@ impl WorkBuddyProvider {
     #[cfg(test)]
     pub(crate) fn with_test_base_url(mut self, base_url: &str) -> Self {
         self.client = Arc::new(WorkBuddyClient::for_test(base_url));
+        // 登录状态机与业务请求必须打到同一台测试 server，否则轮询会打到已关闭的端口。
+        self.login = DeviceCodeLogin::for_test(base_url);
         self
     }
 
@@ -676,6 +695,60 @@ impl UsageProvider for WorkBuddyProvider {
 
     fn account_identity(&self) -> Option<&str> {
         self.account_identity.as_deref()
+    }
+
+    fn device_code_auth(&self) -> Option<DeviceCodeAuth> {
+        Some(DeviceCodeAuth {
+            platform: "workbuddy".into(),
+        })
+    }
+
+    /// 申请 state 的两种失败要分开：连不上是网络问题，响应不可信是服务端问题，
+    /// 前端据此给用户不同的提示。
+    fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
+        self.login.start().map_err(|error| {
+            let kind = match error {
+                WorkBuddyLoginError::Connection => ProviderErrorKind::Network,
+                WorkBuddyLoginError::InvalidResponse => ProviderErrorKind::InvalidResponse,
+            };
+            ProviderError::from_display(kind, error)
+        })
+    }
+
+    /// 轮询结果先在 provider 内部落库，再换成不含凭据的 wire 类型回传。
+    /// 落库失败时这次尝试同样已经结束（done 为 true），但必须把失败报成错误文案，
+    /// 不能让前端以为凭据已经可用。
+    fn poll_device_code_login(&self, login_id: &str) -> DeviceCodePoll {
+        match self.login.poll(login_id) {
+            LoginPoll::Pending => DeviceCodePoll {
+                done: false,
+                error: None,
+            },
+            LoginPoll::Failed(message) => DeviceCodePoll {
+                done: true,
+                error: Some(message),
+            },
+            LoginPoll::Ready(session) => {
+                // 存的是完整会话文档，不是裸 token：store 会按会话文档校验。
+                let saved = session
+                    .to_json()
+                    .and_then(|document| self.sessions.save(&document));
+                match saved {
+                    Ok(()) => DeviceCodePoll {
+                        done: true,
+                        error: None,
+                    },
+                    Err(error) => DeviceCodePoll {
+                        done: true,
+                        error: Some(error.to_string()),
+                    },
+                }
+            }
+        }
+    }
+
+    fn cancel_device_code_login(&self, login_id: &str) -> bool {
+        self.login.cancel(login_id)
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
@@ -1223,6 +1296,33 @@ mod tests {
         ))
     }
 
+    /// 写入永远失败的 vault：登录成功但会话存不下去时，轮询必须把这件事报回前端，
+    /// 而不是静默当成登录成功。
+    struct FailingSecrets;
+
+    impl SecretBackend for FailingSecrets {
+        fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+            Ok(None)
+        }
+
+        fn write(&self, _account: &str, _value: &[u8]) -> Result<(), String> {
+            Err("vault unavailable".into())
+        }
+
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn failing_session_store() -> WorkBuddySessionStore {
+        WorkBuddySessionStore::with_store(ApiKeyStore::with_backends(
+            "workbuddy-cn-session",
+            "WORKBUDDY_SESSION",
+            Arc::new(FailingSecrets),
+            Arc::new(EmptyEnvironment),
+        ))
+    }
+
     /// 测试用的会话文档：带 refresh_token，刷新写回才有东西可续。
     pub(super) fn session_document(access_token: &str, expires_at: Option<i64>) -> String {
         json!({
@@ -1370,6 +1470,158 @@ mod tests {
 
         let neither = WorkBuddyProvider::for_test_with_session(None, None);
         assert!(!neither.has_local_credentials());
+    }
+
+    #[test]
+    fn device_code_auth_reports_the_workbuddy_platform() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+
+        let auth = provider
+            .device_code_auth()
+            .expect("WorkBuddy signs in with a device code");
+
+        assert_eq!(auth.platform, "workbuddy");
+    }
+
+    #[test]
+    fn starting_a_device_code_login_returns_the_challenge_from_the_test_server() {
+        let server = test_http::serve_once(
+            200,
+            &[],
+            &json!({"code": 0, "data": {"state": "st-1", "authUrl": "https://example.test/auth"}})
+                .to_string(),
+        );
+        let provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+
+        let challenge = provider
+            .start_device_code_login()
+            .expect("the test server issues a state");
+
+        assert_eq!(challenge.verification_uri, "https://example.test/auth");
+        assert!(!challenge.login_id.is_empty());
+    }
+
+    #[test]
+    fn a_device_code_login_that_cannot_reach_workbuddy_maps_to_a_network_error() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+
+        let error = provider
+            .start_device_code_login()
+            .expect_err("no server is reachable");
+
+        assert_eq!(error.kind(), ProviderErrorKind::Network);
+    }
+
+    #[test]
+    fn cancelling_a_device_code_login_reports_whether_it_was_active() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+        let login_id = provider.login.register_for_test("st-1");
+
+        assert!(provider.cancel_device_code_login(&login_id));
+        assert!(!provider.cancel_device_code_login(&login_id));
+    }
+
+    #[test]
+    fn a_pending_device_code_poll_reports_not_done_and_stores_nothing() {
+        let server = test_http::serve_once(
+            200,
+            &[],
+            &json!({"code": 12153, "msg": "pending"}).to_string(),
+        );
+        let provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+        let login_id = provider.login.register_for_test("st-1");
+
+        let poll = provider.poll_device_code_login(&login_id);
+
+        assert!(!poll.done);
+        assert_eq!(poll.error, None);
+        assert!(provider.sessions.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn an_unknown_device_code_login_reports_done_with_a_message() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+
+        let poll = provider.poll_device_code_login("missing");
+
+        assert!(poll.done);
+        let message = poll.error.expect("a failed attempt carries a message");
+        assert!(!message.is_empty());
+        assert!(provider.sessions.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_ready_device_code_poll_persists_the_session_and_never_returns_it() {
+        let server = test_http::serve_sequence(&[
+            (
+                200,
+                &json!({
+                    "code": 0,
+                    "data": {
+                        "accessToken": "access-1",
+                        "refreshToken": "refresh-1",
+                        "domain": "www.codebuddy.cn"
+                    }
+                })
+                .to_string(),
+            ),
+            (
+                200,
+                &json!({
+                    "code": 0,
+                    "data": {"uid": "uid-1", "nickname": "Ling"}
+                })
+                .to_string(),
+            ),
+        ]);
+        let provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+        let login_id = provider.login.register_for_test("st-1");
+
+        let poll = provider.poll_device_code_login(&login_id);
+
+        assert!(poll.done);
+        assert_eq!(poll.error, None);
+        let stored = provider
+            .sessions
+            .load()
+            .unwrap()
+            .expect("a ready poll must persist the session");
+        assert_eq!(stored.access_token, "access-1");
+        assert_eq!(stored.refresh_token.as_deref(), Some("refresh-1"));
+        assert_eq!(stored.uid.as_deref(), Some("uid-1"));
+    }
+
+    #[test]
+    fn a_session_that_cannot_be_persisted_is_reported_as_an_error() {
+        let server = test_http::serve_sequence(&[
+            (
+                200,
+                &json!({
+                    "code": 0,
+                    "data": {"accessToken": "access-1", "domain": "www.codebuddy.cn"}
+                })
+                .to_string(),
+            ),
+            (
+                200,
+                &json!({"code": 0, "data": {"uid": "uid-1"}}).to_string(),
+            ),
+        ]);
+        let mut provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+        provider.sessions = failing_session_store();
+        let login_id = provider.login.register_for_test("st-1");
+
+        let poll = provider.poll_device_code_login(&login_id);
+
+        assert!(poll.done);
+        assert!(
+            poll.error.is_some(),
+            "a persistence failure must never be swallowed"
+        );
     }
 
     #[test]

@@ -1,8 +1,3 @@
-// 设备码登录接入 provider 之前，这份状态机在本模块外还没有调用点。
-// 它已经由测试覆盖了每条分支，所以显式放行 dead_code，
-// 让尚未接线的入口不至于变成常驻警告；等 provider 接线后删除。
-#![allow(dead_code)]
-
 use std::{collections::HashMap, sync::Mutex, time::Duration};
 
 use chrono::Utc;
@@ -22,6 +17,7 @@ const LOGIN_TTL_MS: i64 = LOGIN_TTL_SECONDS as i64 * 1000;
 const PLATFORM: &str = "workbuddy";
 const STATE_PATH: &str = "/v2/plugin/auth/state";
 const TOKEN_PATH: &str = "/v2/plugin/auth/token";
+const ACCOUNT_PATH: &str = "/v2/plugin/login/account";
 
 /// 只有这几个域名下的凭据才会被后续请求使用：域名决定请求发往哪台主机，
 /// 也决定 `X-Domain` 头，因此白名单之外的域名一律丢弃、绝不落库。
@@ -194,7 +190,7 @@ impl DeviceCodeLogin {
         };
 
         let now_ms = Utc::now().timestamp_millis();
-        let session = WorkBuddySession {
+        let mut session = WorkBuddySession {
             access_token,
             refresh_token: non_empty_string(data, &["refreshToken", "refresh_token"]),
             token_type: non_empty_string(data, &["tokenType", "token_type"])
@@ -217,6 +213,9 @@ impl DeviceCodeLogin {
                 now_ms,
             ),
         };
+        // 资料请求放在取消判定之前：`mark_done` 之后的语义（取消优先）保持与改动前完全一致，
+        // 资料只是给这份会话补充展示信息。
+        self.enrich_profile(&state, &mut session);
         // 请求期间用户可能刚点了取消：取消优先，不能把凭据交给一个已作废的尝试。
         if !self.mark_done(login_id) {
             return LoginPoll::Failed(
@@ -224,6 +223,44 @@ impl DeviceCodeLogin {
             );
         }
         LoginPoll::Ready(Box::new(session))
+    }
+
+    /// 取账号资料并合并进会话。
+    ///
+    /// 资料只是展示信息：传输失败、非成功状态、不可解析的响应都保持 token-only 的会话，
+    /// 一份已经能用的凭据绝不因为资料拿不到而被丢弃。响应体不打印，避免把用户资料写进日志。
+    fn enrich_profile(&self, state: &str, session: &mut WorkBuddySession) {
+        let response = self
+            .client
+            .get(format!("{}{ACCOUNT_PATH}", self.base_url))
+            .query(&[("state", state)])
+            .header("Authorization", format!("Bearer {}", session.access_token))
+            .header("X-Domain", session.domain.as_str())
+            .header("Accept", "application/json, text/plain, */*")
+            .send();
+        let Ok(response) = response else {
+            crate::app_warn!("http", "workbuddy login account request failed (transport)");
+            return;
+        };
+        if !response.status().is_success() {
+            return;
+        }
+        let Ok(body) = response.json::<Value>() else {
+            return;
+        };
+        let data = body.get("data").unwrap_or(&body);
+        if let Some(uid) = non_empty_string(data, &["uid"]) {
+            session.uid = Some(uid);
+        }
+        if let Some(nickname) = non_empty_string(data, &["nickname", "nick_name"]) {
+            session.nickname = Some(nickname);
+        }
+        if let Some(email) = non_empty_string(data, &["email"]) {
+            session.email = Some(email);
+        }
+        if let Some(enterprise_id) = non_empty_string(data, &["enterpriseId", "enterprise_id"]) {
+            session.enterprise_id = Some(enterprise_id);
+        }
     }
 
     /// 取消一次尝试。返回它是否真的从「进行中」变成了「已结束」：
@@ -285,11 +322,6 @@ impl DeviceCodeLogin {
 impl DeviceCodeLogin {
     pub(crate) fn for_test(base_url: &str) -> Self {
         Self::new(base_url).expect("a test login client should build")
-    }
-
-    /// `start()` 路径的测试用；返回 `poll`/`cancel` 真正接受的登录 id。
-    pub(crate) fn start_for_test(&self) -> String {
-        self.start().unwrap().login_id
     }
 
     /// 直接登记一个待授权尝试。`test_http::serve_once` 只接受一次连接，
