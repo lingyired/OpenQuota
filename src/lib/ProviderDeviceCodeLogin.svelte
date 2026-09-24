@@ -8,7 +8,7 @@
     startProviderLogin,
   } from './backend';
   import Icon from './Icon.svelte';
-  import { t, tStore } from './i18n';
+  import { t, tBackendStore, tStore } from './i18n';
   import ProviderIcon from './ProviderIcon.svelte';
   import type {
     ApiKeyStatus,
@@ -245,7 +245,7 @@
   {/if}
   {#if error}
     <p class="session-message session-error" role="alert">
-      <Icon name="about" size={14} strokeWidth={2.2} />{error}
+      <Icon name="about" size={14} strokeWidth={2.2} />{$tBackendStore(error)}
     </p>
   {:else if expired}
     <p class="session-message session-expired" role="status">

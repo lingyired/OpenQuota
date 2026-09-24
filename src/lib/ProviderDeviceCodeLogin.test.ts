@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { locale } from 'svelte-i18n';
 import ProviderDeviceCodeLogin from './ProviderDeviceCodeLogin.svelte';
+import { tBackend } from './i18n';
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
@@ -60,10 +62,12 @@ async function startSignIn() {
 }
 
 describe('ProviderDeviceCodeLogin', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.useFakeTimers();
     mocks.invoke.mockReset();
     mockCommands();
+    // Every test starts from a known locale; one of them switches to zh-CN.
+    await locale.set('en');
   });
 
   afterEach(() => {
@@ -263,6 +267,43 @@ describe('ProviderDeviceCodeLogin', () => {
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
     expect(screen.queryByText('https://example.test/device')).not.toBeInTheDocument();
+
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(polls).toBe(1);
+  });
+
+  it('translates a provider failure through the backend glossary', async () => {
+    let polls = 0;
+    const failure =
+      'WorkBuddy returned credentials for an untrusted domain (evil.example). Sign in again.';
+    mockCommands({
+      poll_provider_login: () => {
+        polls += 1;
+        return Promise.resolve({ done: true, error: failure });
+      },
+    });
+    renderPanel();
+    await flush();
+    await startSignIn();
+
+    await vi.advanceTimersByTimeAsync(2000);
+    // English-to-English: the glossary maps this string to the same wording, so
+    // raw and translated renders are indistinguishable while the locale is en.
+    expect(screen.getByRole('alert')).toHaveTextContent(failure);
+
+    // Switching the locale *after* the message was stored only shows localized
+    // copy if the panel translates at render time. Rendering the raw state, or
+    // capturing `t(...)`/`tBackend(...)` when the poll settles, both stay
+    // English here and fail the assertions below.
+    await locale.set('zh-CN');
+    await flush();
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(
+      'WorkBuddy 返回了不受信任域名（evil.example）的凭据。请重新登录。',
+    );
+    expect(alert).toHaveTextContent(tBackend(failure));
+    expect(alert).not.toHaveTextContent('untrusted domain');
 
     await vi.advanceTimersByTimeAsync(20000);
     expect(polls).toBe(1);
