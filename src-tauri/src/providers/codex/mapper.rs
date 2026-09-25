@@ -480,7 +480,6 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
-                keychain_access_granted: false,
                 metrics: ["codex.session", "codex.weekly"]
                     .into_iter()
                     .map(|id| MetricLayout {

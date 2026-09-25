@@ -232,12 +232,6 @@ export interface ProviderLayout {
   enabled: boolean;
   detected: boolean;
   expanded: boolean;
-  /**
-   * Set when the user turns this provider on by hand. Only then may Quota01 read the system
-   * credential store entries that belong to another application, because macOS prompts for
-   * authorization on those reads. Automatic enablement never sets it.
-   */
-  keychainAccessGranted: boolean;
   metrics: MetricLayout[];
 }
 

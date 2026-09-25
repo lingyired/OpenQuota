@@ -386,7 +386,6 @@ export const settingsState: SettingsViewState = {
         enabled: true,
         detected: true,
         expanded: false,
-        keychainAccessGranted: false,
         metrics: [
           { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
           { id: 'codex.weekly', enabled: true, section: 'alwaysVisible', pinned: true },

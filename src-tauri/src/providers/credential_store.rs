@@ -1,125 +1,67 @@
+#[cfg(not(target_os = "macos"))]
 use super::keychain_access;
 
-/// Reads a credential that belongs to another application.
-///
-/// macOS answers these reads with a Keychain authorization prompt, so access is limited to
-/// providers the user enabled by hand. A denied read reports "no such credential" instead of
-/// an error, which lets the caller fall back to file-backed sources that never prompt.
+/// Reads a credential that belongs to another application on supported platforms.
 pub fn read_external_password(
     provider_id: &str,
     service: &str,
     account: &str,
 ) -> Result<Option<Vec<u8>>, String> {
-    if !keychain_access::is_granted(provider_id) {
-        return Ok(None);
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (provider_id, service, account);
+        return Err("External credential-store access is disabled on macOS.".into());
     }
-    read_generic_password(service, account)
+    #[cfg(not(target_os = "macos"))]
+    {
+        if !keychain_access::is_granted(provider_id) {
+            return Ok(None);
+        }
+        read_generic_password(service, account)
+    }
 }
 
-/// Writes back a refreshed credential that belongs to another application. A denied write is
-/// skipped rather than failed: the caller only gets here holding a credential it could read,
-/// and a missing write-back costs nothing beyond one extra refresh next time.
+/// Writes back a refreshed credential that belongs to another application on supported platforms.
 pub fn write_external_password(
     provider_id: &str,
     service: &str,
     account: &str,
     value: &[u8],
 ) -> Result<(), String> {
-    if !keychain_access::is_granted(provider_id) {
-        return Ok(());
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (provider_id, service, account, value);
+        return Err("External credential-store access is disabled on macOS.".into());
     }
-    write_generic_password(service, account, value)
+    #[cfg(not(target_os = "macos"))]
+    {
+        if !keychain_access::is_granted(provider_id) {
+            return Ok(());
+        }
+        write_generic_password(service, account, value)
+    }
 }
 
 #[cfg(target_os = "macos")]
-const MACOS_ITEM_NOT_FOUND: i32 = -25_300;
-#[cfg(target_os = "macos")]
-const MACOS_AUTH_FAILED: i32 = -25_293;
-#[cfg(target_os = "macos")]
-const MACOS_INTERACTION_NOT_ALLOWED: i32 = -25_308;
-
-#[cfg(target_os = "macos")]
 pub fn generic_password_service_exists(
-    service: &str,
+    _service: &str,
     _timeout: std::time::Duration,
 ) -> Option<bool> {
-    use security_framework::item::{ItemClass, ItemSearchOptions};
-
-    match ItemSearchOptions::new()
-        .class(ItemClass::generic_password())
-        .service(service)
-        .load_attributes(true)
-        .skip_authenticated_items(true)
-        .search()
-    {
-        Ok(_) => Some(true),
-        Err(error) if error.code() == MACOS_ITEM_NOT_FOUND => Some(false),
-        Err(_) => None,
-    }
+    None
 }
 
 #[cfg(target_os = "macos")]
 pub fn generic_password_exists(
-    service: &str,
-    account: &str,
+    _service: &str,
+    _account: &str,
     _timeout: std::time::Duration,
 ) -> Option<bool> {
-    use security_framework::item::{ItemClass, ItemSearchOptions};
-
-    match ItemSearchOptions::new()
-        .class(ItemClass::generic_password())
-        .service(service)
-        .account(account)
-        .load_attributes(true)
-        .skip_authenticated_items(true)
-        .search()
-    {
-        Ok(items) => Some(!items.is_empty()),
-        Err(error) if error.code() == MACOS_ITEM_NOT_FOUND => Some(false),
-        Err(error)
-            if matches!(
-                error.code(),
-                MACOS_AUTH_FAILED | MACOS_INTERACTION_NOT_ALLOWED
-            ) =>
-        {
-            Some(true)
-        }
-        Err(_) => None,
-    }
+    None
 }
 
 #[cfg(target_os = "macos")]
-pub fn read_generic_password(service: &str, account: &str) -> Result<Option<Vec<u8>>, String> {
-    use security_framework::passwords::{generic_password, PasswordOptions};
-
-    match generic_password(PasswordOptions::new_generic_password(service, account)) {
-        Ok(value) => Ok(Some(value)),
-        Err(error) if error.code() == MACOS_ITEM_NOT_FOUND => Ok(None),
-        Err(_) => Err("The macOS Keychain could not be read.".into()),
-    }
-}
-
-#[cfg(target_os = "macos")]
-pub fn read_owned_password(service: &str, account: &str) -> Result<Option<Vec<u8>>, String> {
-    read_generic_password(service, account)
-}
-
-#[cfg(target_os = "macos")]
-pub fn write_generic_password(service: &str, account: &str, value: &[u8]) -> Result<(), String> {
-    security_framework::passwords::set_generic_password(service, account, value)
-        .map_err(|_| "The macOS Keychain could not be updated.".into())
-}
-
-#[cfg(target_os = "macos")]
-#[allow(dead_code)]
-pub fn delete_generic_password(service: &str, account: &str) -> Result<(), String> {
-    use security_framework::passwords::delete_generic_password as delete_password;
-
-    match delete_password(service, account) {
-        Ok(()) => Ok(()),
-        Err(error) if error.code() == MACOS_ITEM_NOT_FOUND => Ok(()),
-        Err(_) => Err("The macOS Keychain item could not be removed.".into()),
-    }
+pub fn read_generic_password(_service: &str, _account: &str) -> Result<Option<Vec<u8>>, String> {
+    Err("System credential-store access is disabled on macOS.".into())
 }
 
 #[cfg(target_os = "windows")]
@@ -267,11 +209,6 @@ pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Resul
     }
 }
 
-#[cfg(target_os = "macos")]
-pub fn write_owned_password(service: &str, account: &str, value: &[u8]) -> Result<(), String> {
-    write_generic_password(service, account, value)
-}
-
 #[cfg(target_os = "windows")]
 #[allow(dead_code)]
 pub fn delete_generic_password(service: &str, account: &str) -> Result<(), String> {
@@ -292,12 +229,6 @@ pub fn delete_generic_password(service: &str, account: &str) -> Result<(), Strin
 }
 
 #[cfg(target_os = "windows")]
-#[allow(dead_code)]
-pub fn delete_owned_password(service: &str, account: &str) -> Result<(), String> {
-    delete_generic_password(service, account)
-}
-
-#[cfg(target_os = "macos")]
 #[allow(dead_code)]
 pub fn delete_owned_password(service: &str, account: &str) -> Result<(), String> {
     delete_generic_password(service, account)
@@ -558,7 +489,7 @@ mod tests {
         assert!(decode_go_keyring_value(b"plain text").is_none());
     }
 
-    #[cfg(any(target_os = "macos", target_os = "windows", target_os = "linux"))]
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     #[test]
     fn system_credential_store_round_trip_when_requested() {
         if std::env::var("QUOTA01_TEST_CREDENTIAL_STORE").as_deref() != Ok("1") {

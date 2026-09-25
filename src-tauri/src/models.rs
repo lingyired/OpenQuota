@@ -674,11 +674,6 @@ pub struct ProviderLayout {
     pub enabled: bool,
     pub detected: bool,
     pub expanded: bool,
-    /// Set when the user turns this provider on by hand. Automatic enablement (startup
-    /// probing, fallback defaults) never sets it, because reading another application's
-    /// Keychain entry prompts for authorization on macOS.
-    #[serde(default)]
-    pub keychain_access_granted: bool,
     pub metrics: Vec<MetricLayout>,
 }
 

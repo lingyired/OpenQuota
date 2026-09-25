@@ -47,7 +47,6 @@ const settings: AppSettings = {
       enabled: true,
       detected: true,
       expanded: true,
-      keychainAccessGranted: false,
       metrics: [
         { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'codex.weekly', enabled: true, section: 'alwaysVisible', pinned: true },
@@ -59,7 +58,6 @@ const settings: AppSettings = {
       enabled: false,
       detected: true,
       expanded: false,
-      keychainAccessGranted: false,
       metrics: [],
     },
     {
@@ -67,7 +65,6 @@ const settings: AppSettings = {
       enabled: true,
       detected: true,
       expanded: false,
-      keychainAccessGranted: false,
       metrics: [],
     },
   ],
@@ -266,6 +263,29 @@ describe('pointer reorder integrations', () => {
     expect(
       onChange.mock.calls[0][0].providers.map((provider: { id: string }) => provider.id),
     ).toEqual(['claude', 'codex', 'antigravity']);
+  });
+
+  it('updates provider enablement without emitting credential grant state', async () => {
+    const onChange = vi.fn();
+    render(CustomizeProviderList, {
+      settings,
+      catalog: providerCatalogIndex,
+      onOpen: vi.fn(),
+      onChange,
+      onReorderStart: vi.fn(),
+      onReorderEnd: vi.fn(),
+      onSettings: vi.fn(),
+      reducedMotion: false,
+    });
+
+    await fireEvent.change(screen.getByRole('checkbox', { name: 'Enable claude' }), {
+      target: { checked: false },
+    });
+
+    const changed = onChange.mock.calls[0][0] as AppSettings;
+    const claude = changed.providers.find((provider) => provider.id === 'claude')!;
+    expect(claude.enabled).toBe(false);
+    expect(claude).not.toHaveProperty('keychainAccessGranted');
   });
 
   it('moves a metric across Customize sections through the same pointer engine', async () => {

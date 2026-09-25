@@ -680,7 +680,6 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
-                keychain_access_granted: false,
                 metrics: vec![MetricLayout {
                     id: "custom.rolling".into(),
                     enabled: true,
@@ -761,7 +760,6 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
-                keychain_access_granted: false,
                 metrics: vec![
                     MetricLayout {
                         id: "switching.session".into(),
@@ -853,7 +851,6 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
-                keychain_access_granted: false,
                 metrics: vec![MetricLayout {
                     id: "codex.weekly".into(),
                     enabled: true,

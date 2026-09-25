@@ -96,10 +96,8 @@
             type="checkbox"
             checked={provider.enabled}
             onchange={(event) => {
-              // Enabling by hand is also the grant to read this provider's system Keychain
-              // entry, which macOS guards with an authorization prompt. Disabling revokes it.
               const enabled = event.currentTarget.checked;
-              updateProvider({ ...provider, enabled, keychainAccessGranted: enabled });
+              updateProvider({ ...provider, enabled });
             }}
           /><span></span></label
         >
