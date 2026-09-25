@@ -125,7 +125,7 @@ impl FileVaultKeyStore {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
-            if metadata.permissions().mode() & 0o777 != 0o600 {
+            if metadata.permissions().mode() & 0o7777 != 0o600 {
                 return Err("The credential vault key permissions are invalid.".to_owned());
             }
         }
@@ -141,6 +141,7 @@ impl FileVaultKeyStore {
 #[cfg(any(target_os = "macos", test))]
 impl VaultKeyStore for FileVaultKeyStore {
     fn read(&self) -> Result<Option<Vec<u8>>, String> {
+        self.ensure_directory()?;
         self.read_validated()
     }
 
@@ -542,6 +543,47 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn reopening_vault_restores_private_app_data_directory_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let path = app_data.join("credentials.vault");
+        let first = CredentialVault::with_backends(
+            path.clone(),
+            Arc::new(FileVaultKeyStore::new(app_data.clone())),
+        );
+        first.write("trae-cn", b"session").unwrap();
+        fs::set_permissions(&app_data, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let reopened = CredentialVault::with_backends(
+            path,
+            Arc::new(FileVaultKeyStore::new(app_data.clone())),
+        );
+        assert_eq!(reopened.read_bytes("trae-cn").unwrap().unwrap(), b"session");
+        assert_eq!(
+            fs::metadata(app_data).unwrap().permissions().mode() & 0o7777,
+            0o700
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_key_store_rejects_special_permission_bits() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let store = FileVaultKeyStore::new(directory.path().join("app-data"));
+        store.write(&vec![0x31; KEY_LEN]).unwrap();
+        let key_path = directory.path().join("app-data/credentials.key");
+        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o2600)).unwrap();
+
+        assert!(store.read().is_err());
+        assert_eq!(fs::read(&key_path).unwrap(), vec![0x31; KEY_LEN]);
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn file_key_store_rejects_wrong_length_and_symlink_key_files() {
         use std::os::unix::fs::symlink;
 
@@ -665,5 +707,32 @@ mod tests {
         assert!(keys.value.lock().unwrap().is_none());
         assert!(!vault.contains("trae-cn").unwrap());
         assert!(path.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_backed_reset_removes_key_and_reinitializes_an_empty_vault() {
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let path = app_data.join("credentials.vault");
+        let make_vault = || {
+            CredentialVault::with_backends(
+                path.clone(),
+                Arc::new(FileVaultKeyStore::new(app_data.clone())),
+            )
+        };
+        let vault = make_vault();
+        vault.write("trae-cn", b"session").unwrap();
+        let key_path = app_data.join("credentials.key");
+        assert!(key_path.exists());
+
+        vault.reset().unwrap();
+        assert!(!path.exists());
+        assert!(!key_path.exists());
+
+        let reopened = make_vault();
+        assert!(!reopened.contains("trae-cn").unwrap());
+        assert!(path.exists());
+        assert!(key_path.exists());
     }
 }
