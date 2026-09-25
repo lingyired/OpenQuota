@@ -58,6 +58,13 @@ impl WorkBuddySession {
 }
 
 const VAULT_ACCOUNT: &str = "workbuddy-cn-session";
+/// 免交互来源，和 DeepSeek / Trae 等 provider 的约定一致：把一份会话文档放在这里，
+/// 就能在没有登录流程的情况下拿到凭据（无头验证、测试期都靠它）。
+///
+/// 优先级是 vault 在前、这里在后（见 `ApiKeyStore::load`），所以删掉这个文件即可
+/// 回到交互登录，两者不会互相遮蔽。
+const CONFIG_PATHS: &[&str] = &["~/.config/quota01/workbuddy.json"];
+const ENVIRONMENT_NAMES: &[&str] = &["WORKBUDDY_SESSION"];
 
 #[derive(Clone)]
 pub struct WorkBuddySessionStore {
@@ -67,7 +74,8 @@ pub struct WorkBuddySessionStore {
 impl WorkBuddySessionStore {
     pub fn new() -> Self {
         Self {
-            store: ApiKeyStore::new_with_sources(VAULT_ACCOUNT, &[], &[]),
+            store: ApiKeyStore::new_with_sources(VAULT_ACCOUNT, ENVIRONMENT_NAMES, CONFIG_PATHS)
+                .with_config_documents(),
         }
     }
 
@@ -175,6 +183,29 @@ mod tests {
         fn value(&self, _name: &str) -> Option<String> {
             None
         }
+    }
+
+    /// 固定吐出给定文档的环境读取器，只认 `WORKBUDDY_SESSION` 这一个名字。
+    struct FixedEnvironment(String);
+
+    impl EnvironmentReader for FixedEnvironment {
+        fn value(&self, name: &str) -> Option<String> {
+            (name == "WORKBUDDY_SESSION").then(|| self.0.clone())
+        }
+    }
+
+    /// 会话也可以来自环境变量 / 配置文件（测试期免登录就靠它），所以这条来源必须
+    /// 和 vault 那条一样能读出并解析出完整会话，而不是只当作存在性检查。
+    #[test]
+    fn a_session_supplied_by_the_environment_is_loaded() {
+        let store = WorkBuddySessionStore::with_store(ApiKeyStore::with_backends(
+            VAULT_ACCOUNT,
+            "WORKBUDDY_SESSION",
+            std::sync::Arc::new(MemorySecrets(std::sync::Mutex::new(None))),
+            std::sync::Arc::new(FixedEnvironment(session().to_json().unwrap())),
+        ));
+
+        assert_eq!(store.load().unwrap(), Some(session()));
     }
 
     /// 一个永远失败的 vault 后端：`save` 的失败路径正是登录成功后落库时决定

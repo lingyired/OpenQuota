@@ -100,6 +100,10 @@ pub struct ApiKeyStore {
     legacy_provider_ids: Vec<String>,
     environment_names: Vec<String>,
     config_paths: Vec<String>,
+    /// 配置文件是否按「整份文档」读取。默认是「一个 key」的语义：从 JSON 里挑
+    /// `apiKey` 一类的字段。WorkBuddy 的凭据是一份会话文档，形状对不上，所以要能
+    /// 把整份文件当凭据，而不是被 `key_from_config` 挑字段挑没了。
+    config_documents: bool,
     secrets: Arc<dyn SecretBackend>,
     environment: Arc<dyn EnvironmentReader>,
     config_files: Arc<dyn ConfigFileReader>,
@@ -134,10 +138,20 @@ impl ApiKeyStore {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect(),
+            config_documents: false,
             secrets: Arc::new(VaultSecretBackend),
             environment: Arc::new(ProcessEnvironment),
             config_files: Arc::new(ProcessConfigFiles),
         }
+    }
+
+    /// 配置文件按整份文档读取，而不是从里面挑一个字段。
+    ///
+    /// 用于凭据本身就是一份文档的 provider：WorkBuddy 的会话是 JSON 文档，
+    /// 被 `key_from_config` 当成 key 信封去挑字段只会挑成空。
+    pub fn with_config_documents(mut self) -> Self {
+        self.config_documents = true;
+        self
     }
 
     #[cfg(test)]
@@ -152,6 +166,7 @@ impl ApiKeyStore {
             legacy_provider_ids: Vec::new(),
             environment_names: vec![environment_name.to_owned()],
             config_paths: Vec::new(),
+            config_documents: false,
             secrets,
             environment,
             config_files: Arc::new(ProcessConfigFiles),
@@ -187,6 +202,7 @@ impl ApiKeyStore {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect(),
+            config_documents: false,
             secrets,
             environment,
             config_files,
@@ -286,9 +302,13 @@ impl ApiKeyStore {
 
     fn config_key(&self) -> Option<SecretString> {
         self.config_paths.iter().find_map(|path| {
-            self.config_files
-                .read(path)
-                .and_then(|value| key_from_config(value.as_slice()))
+            self.config_files.read(path).and_then(|value| {
+                if self.config_documents {
+                    document_from_config(value.as_slice())
+                } else {
+                    key_from_config(value.as_slice())
+                }
+            })
         })
     }
 
@@ -328,6 +348,12 @@ fn key_from_config(bytes: &[u8]) -> Option<SecretString> {
         .find_map(|name| object.get(*name)?.as_str().map(str::to_owned))
         .and_then(non_empty);
     }
+    non_empty(text.to_owned())
+}
+
+/// 文档式配置来源：整份文件就是凭据，原样取出（保留它的 JSON 结构）。
+fn document_from_config(bytes: &[u8]) -> Option<SecretString> {
+    let text = std::str::from_utf8(bytes).ok()?.trim();
     non_empty(text.to_owned())
 }
 
@@ -548,6 +574,45 @@ mod tests {
 
         assert!(store.has_credentials());
         assert_eq!(store.status().unwrap(), ApiKeyStatus::Saved);
+    }
+
+    #[test]
+    fn a_document_config_source_keeps_the_whole_file() {
+        // 文档式来源（WorkBuddy 的会话）不能被「挑字段」的语义吃掉：
+        // 同一份内容按 key 语义会取不到任何字段。
+        let document = r#"{"access_token":"access-1","domain":"www.codebuddy.cn"}"#;
+        let config_files = Arc::new(MemoryConfigFiles(HashMap::from([(
+            "~/workbuddy.json".into(),
+            document.as_bytes().to_vec(),
+        )])));
+
+        let as_key = ApiKeyStore::with_source_backends(
+            "workbuddy-cn-session",
+            &[],
+            &["~/workbuddy.json"],
+            Arc::new(MemorySecrets::default()),
+            Arc::new(MemoryEnvironment(HashMap::new())),
+            config_files.clone(),
+        );
+        assert!(as_key.load().unwrap().is_none());
+
+        let as_document = ApiKeyStore::with_source_backends(
+            "workbuddy-cn-session",
+            &[],
+            &["~/workbuddy.json"],
+            Arc::new(MemorySecrets::default()),
+            Arc::new(MemoryEnvironment(HashMap::new())),
+            config_files,
+        )
+        .with_config_documents();
+        assert_eq!(
+            as_document
+                .load()
+                .unwrap()
+                .as_ref()
+                .map(|value| value.as_str()),
+            Some(document)
+        );
     }
 
     #[test]

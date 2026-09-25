@@ -185,6 +185,31 @@ fn remove_web_storage_session(
         .map_err(|_| "The provider WebView session could not be removed.".to_owned())
 }
 
+/// 抓取失败时的诊断：记下窗口停在哪一页、两个 web storage 里各有哪些 key 名。
+///
+/// 只记 **key 名**，不记值——值就是凭据本身。URL 也只记 origin + path 和 query 的
+/// **参数名**：登录回跳会把凭据放在 query 里，整条 URL 打进日志就等于泄露凭据。
+async fn log_web_storage_diagnostic(window: &tauri::WebviewWindow) {
+    let script = "(() => { try { return JSON.stringify({ \
+        page: location.origin + location.pathname, \
+        queryKeys: Array.from(new URLSearchParams(location.search).keys()), \
+        sessionKeys: Object.keys(window.sessionStorage), \
+        localKeys: Object.keys(window.localStorage) \
+    }); } catch (_) { return null; } })()";
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    if window
+        .eval_with_callback(script, move |value| {
+            let _ = sender.send(value);
+        })
+        .is_err()
+    {
+        return;
+    }
+    if let Ok(Some(value)) = tokio::time::timeout(Duration::from_secs(3), receiver.recv()).await {
+        crate::app_warn!("auth", "provider sign-in storage diagnostic: {value}");
+    }
+}
+
 fn resolve_provider_link<'a>(
     registry: &'a ProviderRegistry,
     provider_id: &str,
@@ -465,7 +490,18 @@ async fn capture_provider_session_inner(
         | WebviewCredentialSource::SessionStorage { .. } => login_window.clone(),
     }
     .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
-    let session = read_provider_session(&session_window, &auth).await?;
+    let session = match read_provider_session(&session_window, &auth).await {
+        Ok(session) => session,
+        Err(error) => {
+            // 抓取失败时先把关闭请求放行：否则关闭会被一直拦下、抓取又完成不了，
+            // 用户就被卡在一个关不掉的窗口里。诊断随后记下，最后才报错。
+            if let Some(close_guard) = app.try_state::<ProviderSessionCloseGuard>() {
+                close_guard.mark(&auth.window_label);
+            }
+            log_web_storage_diagnostic(&session_window).await;
+            return Err(error);
+        }
+    };
 
     let credential_guard = settings.lock_credential_mutation().await;
     settings.record_provider_credential_mutation();

@@ -221,9 +221,7 @@ impl MenubarState {
                     crate::app_info!(
                         "menubar",
                         "menu bar instance {probe_id}: settled is_visible={:?}",
-                        probe_app
-                            .multiline_menubar()
-                            .is_visible(probe_id.clone())
+                        probe_app.multiline_menubar().is_visible(probe_id.clone())
                     );
                 });
             }
