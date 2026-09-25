@@ -1,11 +1,16 @@
 use std::sync::Arc;
 
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_opener::OpenerExt;
 
 use crate::{
+    commands::provider::reconcile_provider_credential_state,
     models::{DeviceCodeChallenge, DeviceCodePoll},
+    notifications::finish_refresh,
+    pacing::NotificationEvaluator,
     providers::ProviderRegistry,
+    service::ProviderService,
+    settings::SettingsService,
 };
 
 /// 申请一次设备码登录。
@@ -62,13 +67,97 @@ async fn start_provider_login_inner(
 /// 轮询一次设备码登录。
 ///
 /// 载荷里没有会话：token 在 provider 内部落库，这条线只有「完成了吗」和错误文案。
+/// 但凭据一旦真的落库，这里就必须跟上所有会话命令共有的收尾：否则面板已经显示
+/// 「已连接」，仪表盘却还停在登录前的错误与旧数据上，要等下一次定时刷新才更新。
 #[tauri::command]
 pub async fn poll_provider_login(
+    app: AppHandle,
     registry: State<'_, Arc<ProviderRegistry>>,
+    service: State<'_, Arc<ProviderService>>,
+    settings: State<'_, Arc<SettingsService>>,
+    notifications: State<'_, Arc<NotificationEvaluator>>,
     provider_id: String,
     login_id: String,
 ) -> Result<DeviceCodePoll, String> {
-    poll_provider_login_inner(registry.inner().clone(), provider_id, login_id).await
+    let service = service.inner().clone();
+    let settings = settings.inner().clone();
+    let notifications = notifications.inner().clone();
+    let settle_provider_id = provider_id.clone();
+    poll_provider_login_and_settle(
+        registry.inner().clone(),
+        provider_id,
+        login_id,
+        move || async move {
+            finish_provider_login(
+                &app,
+                &service,
+                &settings,
+                &notifications,
+                &settle_provider_id,
+            )
+            .await;
+        },
+    )
+    .await
+}
+
+/// 只有在轮询报告「已完成且没有错误」时才执行凭据变更后的收尾。
+///
+/// 带错误的 `done`（过期、域被拒、写库失败）说明 vault 里没有新凭据，
+/// 未完成的 `done: false` 更是如此；这两种结果触发刷新只会把旧状态再播一遍。
+async fn poll_provider_login_and_settle<F, Fut>(
+    registry: Arc<ProviderRegistry>,
+    provider_id: String,
+    login_id: String,
+    credentials_stored: F,
+) -> Result<DeviceCodePoll, String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = ()>,
+{
+    let poll = poll_provider_login_inner(registry, provider_id, login_id).await?;
+    if poll.done && poll.error.is_none() {
+        credentials_stored().await;
+    }
+    Ok(poll)
+}
+
+/// 凭据变更后的收尾，顺序与 `capture_provider_session` / `delete_provider_session`
+/// 相同：凭据变更守卫、重算 provider 状态、按设置决定是否刷新、广播用量状态。
+async fn finish_provider_login(
+    app: &AppHandle,
+    service: &Arc<ProviderService>,
+    settings: &SettingsService,
+    notifications: &NotificationEvaluator,
+    provider_id: &str,
+) {
+    let credential_guard = settings.lock_credential_mutation().await;
+    settings.record_provider_credential_mutation();
+    let command_guard = settings.lock_command_mutation().await;
+    let settings_reconciled =
+        reconcile_provider_credential_state(app, service, settings, provider_id, true, true)
+            .is_ok();
+    let should_refresh = settings
+        .get()
+        .providers
+        .iter()
+        .any(|provider| provider.id == provider_id && provider.enabled);
+    drop(command_guard);
+    drop(credential_guard);
+
+    if should_refresh {
+        service.refresh(provider_id, true).await;
+    }
+    let usage = service.state();
+    let _ = app.emit("usage-state", &usage);
+    finish_refresh(app, &usage, settings, notifications);
+    crate::app_info!("auth", "device-code session saved for {provider_id}");
+    if !settings_reconciled {
+        crate::app_warn!(
+            "auth",
+            "provider state after device-code session save could not be reconciled for {provider_id}"
+        );
+    }
 }
 
 async fn poll_provider_login_inner(
@@ -107,7 +196,10 @@ fn cancel_provider_login_inner(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        Arc,
+    };
 
     use crate::{
         models::DeviceCodePoll,
@@ -118,7 +210,8 @@ mod tests {
     };
 
     use super::{
-        cancel_provider_login_inner, poll_provider_login_inner, start_provider_login_inner,
+        cancel_provider_login_inner, poll_provider_login_and_settle, poll_provider_login_inner,
+        start_provider_login_inner,
     };
 
     /// 真实 registry：一个没有设备码能力的 provider，加一个能走完整流程的桩。
@@ -222,6 +315,75 @@ mod tests {
 
         assert!(poll.done);
         assert!(poll.error.is_some());
+    }
+
+    /// 轮询结果里只有 `done: true, error: None` 意味着 provider 把会话写进了
+    /// Quota01 自己的 vault；收尾（凭据变更守卫、重算、刷新）必须只在这时跑一次。
+    #[test]
+    fn a_completed_poll_settles_the_stored_credentials_exactly_once() {
+        let settled = Arc::new(AtomicUsize::new(0));
+        let counter = settled.clone();
+
+        let poll = tauri::async_runtime::block_on(poll_provider_login_and_settle(
+            registry(),
+            "device-code".into(),
+            DEVICE_CODE_LOGIN_ID.into(),
+            move || async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+            },
+        ))
+        .unwrap();
+
+        assert_eq!(
+            poll,
+            DeviceCodePoll {
+                done: true,
+                error: None,
+            }
+        );
+        assert_eq!(settled.load(Ordering::SeqCst), 1);
+    }
+
+    /// 带错误的 `done`（过期、域被拒、写库失败）说明 vault 里没有新凭据，
+    /// 此时刷新只会把旧状态再播一遍。
+    #[test]
+    fn a_failed_poll_does_not_settle_credentials() {
+        let settled = Arc::new(AtomicUsize::new(0));
+        let counter = settled.clone();
+
+        let poll = tauri::async_runtime::block_on(poll_provider_login_and_settle(
+            registry(),
+            "device-code".into(),
+            DEVICE_CODE_FAILED_LOGIN_ID.into(),
+            move || async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+            },
+        ))
+        .unwrap();
+
+        assert!(poll.done);
+        assert!(poll.error.is_some());
+        assert_eq!(settled.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn a_pending_poll_does_not_settle_credentials() {
+        let settled = Arc::new(AtomicUsize::new(0));
+        let counter = settled.clone();
+
+        let poll = tauri::async_runtime::block_on(poll_provider_login_and_settle(
+            registry(),
+            "device-code".into(),
+            "another-login".into(),
+            move || async move {
+                counter.fetch_add(1, Ordering::SeqCst);
+            },
+        ))
+        .unwrap();
+
+        assert!(!poll.done);
+        assert!(poll.error.is_none());
+        assert_eq!(settled.load(Ordering::SeqCst), 0);
     }
 
     #[test]

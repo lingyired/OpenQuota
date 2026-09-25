@@ -267,7 +267,7 @@ fn mutate_api_key(
     })
 }
 
-fn reconcile_provider_credential_state(
+pub(crate) fn reconcile_provider_credential_state(
     app: &AppHandle,
     service: &ProviderService,
     settings: &SettingsService,
