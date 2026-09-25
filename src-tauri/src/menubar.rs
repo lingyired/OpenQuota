@@ -186,7 +186,9 @@ impl MenubarState {
         let mut created = self.created.lock().unwrap_or_else(|e| e.into_inner());
         match created.get(id) {
             None => {
-                let _ = mb.create(id.to_string());
+                // 这几步此前全是 `let _ =`：状态栏项出问题时无法区分「没建出来」还是
+                // 「建了但不可见」，而这正是排查过不去的坎。把创建与可见性结果记下来。
+                let created = mb.create(id.to_string());
                 let _ = mb.set_text(id.to_string(), config.text.0.clone(), config.text.1.clone());
                 let _ = mb.set_line_visible(
                     id.to_string(),
@@ -203,7 +205,27 @@ impl MenubarState {
                 let _ = mb.set_font_sizes(id.to_string(), config.top_size, config.bottom_size);
                 let _ = mb.set_alignment(id.to_string(), config.top_align, config.bottom_align);
                 let _ = mb.set_tooltip(id.to_string(), config.tooltip.clone());
-                let _ = mb.set_visible(id.to_string(), config.visible);
+                let visible = mb.set_visible(id.to_string(), config.visible);
+                crate::app_info!(
+                    "menubar",
+                    "menu bar instance {id}: create={created:?} set_visible({})={visible:?} is_visible={:?}",
+                    config.visible,
+                    mb.is_visible(id.to_string())
+                );
+                // 平台的可见性要等主线程应用完才生效，紧接着读到的可能是旧值；
+                // 再看一眼稳定后的值，才能区分「没生效」和「根本没显示」。
+                let probe_app = app.clone();
+                let probe_id = id.to_string();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    crate::app_info!(
+                        "menubar",
+                        "menu bar instance {probe_id}: settled is_visible={:?}",
+                        probe_app
+                            .multiline_menubar()
+                            .is_visible(probe_id.clone())
+                    );
+                });
             }
             Some(previous) => {
                 if previous.text != config.text {
