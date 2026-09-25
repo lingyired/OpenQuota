@@ -674,6 +674,9 @@ pub struct ProviderLayout {
     pub enabled: bool,
     pub detected: bool,
     pub expanded: bool,
+    #[cfg(not(target_os = "macos"))]
+    #[serde(default)]
+    pub keychain_access_granted: bool,
     pub metrics: Vec<MetricLayout>,
 }
 
