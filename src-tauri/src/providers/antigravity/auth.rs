@@ -10,8 +10,7 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
-#[cfg(target_os = "macos")]
-use crate::providers::credential_store::generic_password_exists;
+#[cfg(not(target_os = "macos"))]
 use crate::providers::credential_store::{decode_go_keyring_value, read_external_password};
 
 use super::AntigravityError;
@@ -124,6 +123,7 @@ impl AccessTokenCache {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn load_token() -> Result<Option<AntigravityToken>, AntigravityError> {
     let Some(raw) = read_external_password("antigravity", "gemini", "antigravity")
         .map_err(|_| AntigravityError::CredentialStoreUnreadable)?
@@ -135,22 +135,12 @@ pub fn load_token() -> Result<Option<AntigravityToken>, AntigravityError> {
         .ok_or(AntigravityError::InvalidCredentialData)
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn has_local_credentials() -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        // Reading this entry makes macOS ask for Keychain authorization, so it only counts as
-        // a local credential once the user turned the provider on by hand.
-        crate::providers::keychain_access::is_granted("antigravity")
-            && generic_password_exists("gemini", "antigravity", std::time::Duration::from_secs(2))
-                == Some(true)
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        credential_state_is_actionable(load_token())
-    }
+    credential_state_is_actionable(load_token())
 }
 
-#[cfg(any(not(target_os = "macos"), test))]
+#[cfg(not(target_os = "macos"))]
 fn credential_state_is_actionable(
     state: Result<Option<AntigravityToken>, AntigravityError>,
 ) -> bool {
@@ -164,6 +154,7 @@ pub fn credential_fingerprint(refresh_token: Option<&str>) -> Option<[u8; 32]> {
     Some(Sha256::digest(refresh_token.as_bytes()).into())
 }
 
+#[cfg(not(target_os = "macos"))]
 pub fn extract_token(raw: &[u8]) -> Option<AntigravityToken> {
     let encoded = std::str::from_utf8(raw)
         .ok()?
@@ -201,6 +192,7 @@ pub fn extract_token(raw: &[u8]) -> Option<AntigravityToken> {
     })
 }
 
+#[cfg(not(target_os = "macos"))]
 fn token_from_value(value: &Value) -> Option<AntigravityToken> {
     let object = value.as_object()?;
     let source = object
@@ -239,12 +231,14 @@ fn token_from_value(value: &Value) -> Option<AntigravityToken> {
     })
 }
 
+#[cfg(not(target_os = "macos"))]
 fn first_string(object: &serde_json::Map<String, Value>, keys: &[&str]) -> Option<String> {
     keys.iter()
         .find_map(|key| object.get(*key).and_then(Value::as_str).and_then(non_empty))
         .map(str::to_owned)
 }
 
+#[cfg(not(target_os = "macos"))]
 fn non_empty(value: &str) -> Option<&str> {
     let value = value.trim();
     (!value.is_empty()).then_some(value)
@@ -293,7 +287,7 @@ fn write_private_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "macos")))]
 mod tests {
     use std::fs;
 

@@ -1,41 +1,55 @@
-use reqwest::{blocking::Client, StatusCode};
+use reqwest::blocking::Client;
+#[cfg(any(test, not(target_os = "macos")))]
+use reqwest::StatusCode;
+#[cfg(any(test, not(target_os = "macos")))]
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{discovery::LanguageServer, AntigravityError};
 
 const SERVICE: &str = "exa.language_server_pb.LanguageServerService";
+#[cfg(any(test, not(target_os = "macos")))]
 const CLOUD_BASES: [&str; 2] = [
     "https://daily-cloudcode-pa.googleapis.com",
     "https://cloudcode-pa.googleapis.com",
 ];
+#[cfg(any(test, not(target_os = "macos")))]
 const GOOGLE_TOKEN_URL: &str = "https://oauth2.googleapis.com/token";
+#[cfg(any(test, not(target_os = "macos")))]
 const GOOGLE_CLIENT_ID: &str =
     "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com";
 // Installed-app OAuth clients cannot keep this value confidential. Keep the public Antigravity
 // client value split so repository secret scanners do not mistake it for a deploy-time secret.
+#[cfg(any(test, not(target_os = "macos")))]
 const GOOGLE_CLIENT_SECRET_PARTS: [&str; 2] = ["GOCSPX-", "K58FWR486LdLJ1mLB8sXC4z6qDAf"];
+#[cfg(any(test, not(target_os = "macos")))]
 const DEFAULT_TOKEN_LIFETIME_SECONDS: f64 = 3_600.0;
 
 pub struct AntigravityClient {
     local: Client,
+    #[cfg(any(test, not(target_os = "macos")))]
     remote: Client,
+    #[cfg(any(test, not(target_os = "macos")))]
     cloud_bases: Vec<String>,
+    #[cfg(any(test, not(target_os = "macos")))]
     google_token_url: String,
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 pub enum CloudOutcome {
     Ok(Value),
     AuthFailed,
     Unavailable,
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 #[derive(Clone, Copy)]
 pub enum CloudUserAgent {
     Antigravity,
     Agy,
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 impl CloudUserAgent {
     fn as_str(self) -> &'static str {
         match self {
@@ -45,6 +59,7 @@ impl CloudUserAgent {
     }
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 pub enum RefreshOutcome {
     Refreshed {
         access_token: String,
@@ -54,6 +69,7 @@ pub enum RefreshOutcome {
     Unavailable,
 }
 
+#[cfg(any(test, not(target_os = "macos")))]
 #[derive(Deserialize)]
 struct GoogleTokenResponse {
     access_token: Option<String>,
@@ -61,6 +77,7 @@ struct GoogleTokenResponse {
 }
 
 impl AntigravityClient {
+    #[cfg(any(test, not(target_os = "macos")))]
     pub fn new() -> Result<Self, AntigravityError> {
         Self::with_endpoints(
             CLOUD_BASES
@@ -72,17 +89,21 @@ impl AntigravityClient {
         )
     }
 
+    #[cfg(all(not(test), target_os = "macos"))]
+    pub fn new() -> Result<Self, AntigravityError> {
+        Ok(Self {
+            local: local_client()?,
+        })
+    }
+
+    #[cfg(any(test, not(target_os = "macos")))]
     fn with_endpoints(
         cloud_bases: Vec<String>,
         google_token_url: String,
         remote_timeout: std::time::Duration,
     ) -> Result<Self, AntigravityError> {
         Ok(Self {
-            local: Client::builder()
-                .danger_accept_invalid_certs(true)
-                .timeout(std::time::Duration::from_secs(5))
-                .build()
-                .map_err(|_| AntigravityError::Unavailable)?,
+            local: local_client()?,
             remote: Client::builder()
                 .timeout(remote_timeout)
                 .build()
@@ -137,6 +158,7 @@ impl AntigravityClient {
         None
     }
 
+    #[cfg(any(test, not(target_os = "macos")))]
     pub fn cloud_code(
         &self,
         path: &str,
@@ -177,6 +199,7 @@ impl AntigravityClient {
         CloudOutcome::Unavailable
     }
 
+    #[cfg(any(test, not(target_os = "macos")))]
     pub fn refresh_google_token(&self, refresh_token: &str) -> RefreshOutcome {
         crate::app_info!("auth:antigravity", "token refresh attempt");
         let client_secret = GOOGLE_CLIENT_SECRET_PARTS.concat();
@@ -232,10 +255,20 @@ impl AntigravityClient {
     }
 }
 
+fn local_client() -> Result<Client, AntigravityError> {
+    Client::builder()
+        .no_proxy()
+        .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|_| AntigravityError::Unavailable)
+}
+
 #[cfg(test)]
 mod tests {
     use std::time::Duration;
 
+    use reqwest::blocking::Client;
     use serde_json::json;
 
     use super::{AntigravityClient, CloudOutcome, CloudUserAgent, RefreshOutcome};
@@ -248,6 +281,64 @@ mod tests {
             Duration::from_secs(1),
         )
         .unwrap()
+    }
+
+    fn client_with_proxy(proxy_url: &str, remote_base: &str) -> AntigravityClient {
+        let proxy = reqwest::Proxy::all(proxy_url).unwrap();
+        AntigravityClient {
+            local: Client::builder()
+                .proxy(proxy.clone())
+                .no_proxy()
+                .danger_accept_invalid_certs(true)
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap(),
+            remote: Client::builder()
+                .proxy(proxy)
+                .timeout(Duration::from_secs(1))
+                .build()
+                .unwrap(),
+            cloud_bases: vec![remote_base.to_owned()],
+            google_token_url: format!("{remote_base}/token"),
+        }
+    }
+
+    #[test]
+    fn local_rpc_bypasses_a_configured_http_proxy() {
+        let proxy = test_http::serve_once(502, &[], "proxy should not receive loopback RPC");
+        let rpc = test_http::serve_once(200, &[], r#"{"ok":true}"#);
+        let port = rpc
+            .strip_prefix("http://127.0.0.1:")
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
+        let client = client_with_proxy(&proxy, "http://antigravity.invalid");
+        let result = client.call_language_server(
+            &super::super::discovery::LanguageServer {
+                csrf: "csrf".into(),
+                ports: vec![],
+                extension_port: Some(port),
+            },
+            "RetrieveUserQuotaSummary",
+        );
+
+        assert_eq!(result.unwrap()["ok"], true);
+    }
+
+    #[test]
+    fn remote_client_remains_proxy_capable() {
+        let proxy = test_http::serve_once(200, &[], r#"{"quota":"proxied"}"#);
+        let client = client_with_proxy(&proxy, "http://antigravity.invalid");
+
+        match client.cloud_code(
+            "/quota",
+            "secret-token",
+            json!({}),
+            CloudUserAgent::Antigravity,
+        ) {
+            CloudOutcome::Ok(value) => assert_eq!(value["quota"], "proxied"),
+            _ => panic!("the public client should send its request through the proxy"),
+        }
     }
 
     #[test]
