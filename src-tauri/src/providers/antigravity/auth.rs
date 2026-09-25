@@ -12,7 +12,7 @@ use tempfile::NamedTempFile;
 
 #[cfg(target_os = "macos")]
 use crate::providers::credential_store::generic_password_exists;
-use crate::providers::credential_store::{decode_go_keyring_value, read_generic_password};
+use crate::providers::credential_store::{decode_go_keyring_value, read_external_password};
 
 use super::AntigravityError;
 
@@ -125,7 +125,7 @@ impl AccessTokenCache {
 }
 
 pub fn load_token() -> Result<Option<AntigravityToken>, AntigravityError> {
-    let Some(raw) = read_generic_password("gemini", "antigravity")
+    let Some(raw) = read_external_password("antigravity", "gemini", "antigravity")
         .map_err(|_| AntigravityError::CredentialStoreUnreadable)?
     else {
         return Ok(None);
@@ -138,8 +138,11 @@ pub fn load_token() -> Result<Option<AntigravityToken>, AntigravityError> {
 pub fn has_local_credentials() -> bool {
     #[cfg(target_os = "macos")]
     {
-        generic_password_exists("gemini", "antigravity", std::time::Duration::from_secs(2))
-            == Some(true)
+        // Reading this entry makes macOS ask for Keychain authorization, so it only counts as
+        // a local credential once the user turned the provider on by hand.
+        crate::providers::keychain_access::is_granted("antigravity")
+            && generic_password_exists("gemini", "antigravity", std::time::Duration::from_secs(2))
+                == Some(true)
     }
     #[cfg(not(target_os = "macos"))]
     {

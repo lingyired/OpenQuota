@@ -19,6 +19,15 @@ Sign in with Claude Code by running `claude`. Quota01 reuses the credentials mai
 CLI, including `CLAUDE_CONFIG_DIR` when it is set. Refreshed CLI credentials are saved back to the
 same source when possible.
 
+## Keychain access
+
+Quota01 reads the `Claude Code*-credentials` Keychain entries the CLI maintains and writes refreshed
+credentials back to them. macOS asks for authorization the first time an entry is read, so those
+entries stay untouched until you turn the Claude card on by hand in **Customize → Providers**.
+Enabling one Claude card grants every Claude account card. File-based logins
+(`CLAUDE_CONFIG_DIR/.credentials.json`) keep working automatically, because reading them never
+prompts; a Keychain-only login reports the provider as unknown instead of "not logged in".
+
 ## Multiple accounts
 
 Quota01 discovers separate Claude Code logins that use custom `CLAUDE_CONFIG_DIR` homes and shows

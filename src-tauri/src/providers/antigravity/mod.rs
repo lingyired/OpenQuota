@@ -391,6 +391,10 @@ impl crate::providers::UsageProvider for AntigravityProvider {
         definition()
     }
 
+    fn accesses_system_keychain(&self) -> bool {
+        true
+    }
+
     fn has_local_credentials(&self) -> bool {
         has_refresh_source(auth::has_local_credentials(), || discover().is_some())
     }

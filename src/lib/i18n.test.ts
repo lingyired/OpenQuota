@@ -111,8 +111,65 @@ describe('translation helpers', () => {
       ),
     ).toBe('在自定义中添加 Z.ai API 密钥、设置 ZAI_API_KEY，或配置 ~/.config/quota01/zai.json。');
     expect(tBackend('MiniMax request failed (HTTP 500).')).toBe('MiniMax 请求失败（HTTP 500）。');
-    expect(tBackend('OpenCode local usage data is temporarily unavailable.')).toBe(
-      'OpenCode 本地用量数据暂时不可用。',
+    expect(tBackend('Granted Balance')).toBe('赠送余额');
+    expect(tBackend('Recharged Balance')).toBe('充值余额');
+    expect(tBackend('Coding Plan')).toBe('编程套餐');
+    expect(
+      tBackend('Add a SiliconFlow CN API key in Customize or set SILICONFLOW_CN_API_KEY.'),
+    ).toBe('在自定义中添加 SiliconFlow CN API 密钥，或设置 SILICONFLOW_CN_API_KEY。');
+    expect(tBackend('Add an Infini API key in Customize or set INFINI_API_KEY.')).toBe(
+      '在自定义中添加 Infini API 密钥，或设置 INFINI_API_KEY。',
+    );
+    expect(
+      tBackend(
+        'The SiliconFlow CN API key is invalid. Check it at cloud.siliconflow.cn/account/ak.',
+      ),
+    ).toBe('SiliconFlow CN API 密钥无效。请在 cloud.siliconflow.cn/account/ak 查看。');
+    expect(tBackend('Infini usage data is temporarily unavailable.')).toBe(
+      'Infini 用量数据暂时不可用。',
+    );
+    expect(tBackend('Could not reach Infini. Check your internet connection.')).toBe(
+      '无法访问 Infini。请检查你的网络连接。',
+    );
+    expect(tBackend('Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.')).toBe(
+      '在自定义中添加 OpenCode Go API 密钥，或设置 OPENCODE_GO_API_KEY。',
+    );
+  });
+
+  it('translates the WorkBuddy sign-in and device-code backend messages', async () => {
+    await switchLocale('zh-CN');
+    expect(
+      tBackend(
+        'WorkBuddy returned credentials for an untrusted domain (evil.example). Sign in again.',
+      ),
+    ).toBe('WorkBuddy 返回了不受信任域名（evil.example）的凭据。请重新登录。');
+    expect(tBackend('WorkBuddy returned credentials without a domain. Sign in again.')).toBe(
+      'WorkBuddy 返回的凭据缺少域名。请重新登录。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt is unknown. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试未知。请重新开始。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt is no longer active. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试已不再有效。请重新开始。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt expired. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试已过期。请重新开始。',
+    );
+    expect(tBackend('That provider does not use a device-code sign-in.')).toBe(
+      '该提供方不使用设备码登录。',
+    );
+    expect(tBackend('The sign-in could not be started.')).toBe('无法启动登录。');
+    expect(tBackend('The sign-in status could not be read.')).toBe('无法读取登录状态。');
+    expect(tBackend('Could not reach WorkBuddy.')).toBe('无法访问 WorkBuddy。请检查你的网络连接。');
+    expect(tBackend('That provider does not have a saved connection.')).toBe(
+      '该提供方没有已保存的连接。',
+    );
+    expect(
+      tBackend(
+        'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.',
+      ),
+    ).toBe(
+      'WorkBuddy 会加密保存在本机的登录数据，因此无法直接读取。请在 Quota01 中登录 WorkBuddy 以建立连接；本机若仍有旧版明文登录文件，仍会继续使用。',
     );
   });
 

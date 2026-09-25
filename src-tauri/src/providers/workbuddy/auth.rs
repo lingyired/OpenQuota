@@ -9,6 +9,55 @@ use serde_json::{Map, Value};
 use tempfile::NamedTempFile;
 use thiserror::Error;
 
+use super::session::WorkBuddySession;
+
+/// 登录文件里 accessToken 的候选路径，按优先级排列。加密检测与明文读取共用同一份
+/// 顺序，避免两处不一致导致「明明有明文却被判定为加密」。
+const ACCESS_TOKEN_PATHS: &[&[&str]] = &[
+    &["auth", "accessToken"],
+    &["auth", "access_token"],
+    &["accessToken"],
+    &["access_token"],
+];
+
+/// 其余字段的候选路径同样按优先级排列。集中成常量是为了让 `load_from_path` 只表达
+/// 「读哪些字段」，而不是把一串嵌套数组混进取值逻辑里。
+const REFRESH_TOKEN_PATHS: &[&[&str]] = &[
+    &["auth", "refreshToken"],
+    &["auth", "refresh_token"],
+    &["refreshToken"],
+    &["refresh_token"],
+];
+const TOKEN_TYPE_PATHS: &[&[&str]] = &[
+    &["auth", "tokenType"],
+    &["auth", "token_type"],
+    &["tokenType"],
+    &["token_type"],
+];
+const DOMAIN_PATHS: &[&[&str]] = &[&["domain"], &["auth", "domain"]];
+const UID_PATHS: &[&[&str]] = &[&["uid"], &["account", "uid"], &["account", "id"]];
+const ENTERPRISE_ID_PATHS: &[&[&str]] = &[
+    &["enterpriseId"],
+    &["enterprise_id"],
+    &["auth", "enterpriseId"],
+    &["auth", "enterprise_id"],
+    &["account", "enterpriseId"],
+    &["account", "enterprise_id"],
+];
+const NICKNAME_PATHS: &[&[&str]] = &[
+    &["nickname"],
+    &["name"],
+    &["account", "nickname"],
+    &["account", "label"],
+];
+const EMAIL_PATHS: &[&[&str]] = &[&["email"], &["account", "email"], &["auth", "email"]];
+const EXPIRES_AT_PATHS: &[&[&str]] = &[
+    &["expiresAt"],
+    &["expires_at"],
+    &["auth", "expiresAt"],
+    &["auth", "expires_at"],
+];
+
 #[derive(Debug, Error)]
 pub enum WorkBuddyAuthError {
     #[error("WorkBuddy is not logged in.")]
@@ -17,6 +66,11 @@ pub enum WorkBuddyAuthError {
     Invalid,
     #[error("WorkBuddy credentials could not be read or updated.")]
     Storage,
+    /// WorkBuddy 5.6 起把 token 写成 `{$wbEncrypted, envelope}` 加密信封，本机读不出
+    /// 明文。这不是「未登录」，必须与 `NotLoggedIn` 区分开，否则会把用户引向无用的
+    /// 「重新登录」；真正的出路是在 Quota01 里登录 WorkBuddy（旧版明文登录文件仍照常使用）。
+    #[error("WorkBuddy 5.6 encrypts its local login data, so it cannot be read directly.")]
+    Encrypted,
 }
 
 #[derive(Debug, Clone)]
@@ -37,96 +91,74 @@ pub struct WorkBuddyAuth {
     pub email: Option<String>,
     #[allow(dead_code)]
     pub expires_at: Option<DateTime<Utc>>,
+    /// 这个视图背后是否有真实的登录文件。由 Quota01 会话构造的视图为 false：
+    /// 它只给 client 提供凭据字段，刷新结果必须由 `WorkBuddySessionStore` 写回，
+    /// 所以 `save_tokens` 对它直接失败，而不是靠调用方记得绕开它。
+    file_backed: bool,
 }
 
 impl WorkBuddyAuth {
-    pub fn load() -> Result<Self, WorkBuddyAuthError> {
-        Self::load_from_path(&auth_file_path())
-    }
-
+    /// 从 WorkBuddy 登录文件读取凭据。WorkBuddy 5.6 起把 accessToken 写成
+    /// `{$wbEncrypted, envelope}` 加密信封：这是「读不出来」而不是「没登录」，必须报
+    /// `Encrypted`，否则凭据探测会把 provider 判成 `Absent` 并自动隐藏，用户根本看不到
+    /// 真正的原因。
     pub fn load_from_path(path: &Path) -> Result<Self, WorkBuddyAuthError> {
         let text = fs::read_to_string(path).map_err(|_| WorkBuddyAuthError::NotLoggedIn)?;
         let document: Value =
             serde_json::from_str(&text).map_err(|_| WorkBuddyAuthError::Invalid)?;
-        let access_token = first_string(
-            &document,
-            &[
-                &["auth", "accessToken"],
-                &["auth", "access_token"],
-                &["accessToken"],
-                &["access_token"],
-            ],
-        )
-        .filter(|value| !value.is_empty())
-        .ok_or(WorkBuddyAuthError::NotLoggedIn)?;
+        let Some(access_token) =
+            first_string(&document, ACCESS_TOKEN_PATHS).filter(|value| !value.is_empty())
+        else {
+            return if is_encrypted_envelope(first_value(&document, ACCESS_TOKEN_PATHS)) {
+                Err(WorkBuddyAuthError::Encrypted)
+            } else {
+                Err(WorkBuddyAuthError::NotLoggedIn)
+            };
+        };
         Ok(Self {
             path: path.to_owned(),
-            refresh_token: first_string(
-                &document,
-                &[
-                    &["auth", "refreshToken"],
-                    &["auth", "refresh_token"],
-                    &["refreshToken"],
-                    &["refresh_token"],
-                ],
-            ),
-            token_type: first_string(
-                &document,
-                &[
-                    &["auth", "tokenType"],
-                    &["auth", "token_type"],
-                    &["tokenType"],
-                    &["token_type"],
-                ],
-            )
-            .unwrap_or_else(|| "Bearer".into()),
-            domain: first_string(&document, &[&["domain"], &["auth", "domain"]])
-                .unwrap_or_default(),
-            uid: first_string(
-                &document,
-                &[&["uid"], &["account", "uid"], &["account", "id"]],
-            ),
-            enterprise_id: first_string(
-                &document,
-                &[
-                    &["enterpriseId"],
-                    &["enterprise_id"],
-                    &["auth", "enterpriseId"],
-                    &["auth", "enterprise_id"],
-                    &["account", "enterpriseId"],
-                    &["account", "enterprise_id"],
-                ],
-            ),
-            nickname: first_string(
-                &document,
-                &[
-                    &["nickname"],
-                    &["name"],
-                    &["account", "nickname"],
-                    &["account", "label"],
-                ],
-            ),
-            email: first_string(
-                &document,
-                &[&["email"], &["account", "email"], &["auth", "email"]],
-            ),
-            expires_at: first_value(
-                &document,
-                &[
-                    &["expiresAt"],
-                    &["expires_at"],
-                    &["auth", "expiresAt"],
-                    &["auth", "expires_at"],
-                ],
-            )
-            .and_then(parse_datetime),
-            document,
             access_token,
+            refresh_token: first_string(&document, REFRESH_TOKEN_PATHS),
+            token_type: first_string(&document, TOKEN_TYPE_PATHS)
+                .unwrap_or_else(|| "Bearer".into()),
+            domain: first_string(&document, DOMAIN_PATHS).unwrap_or_default(),
+            uid: first_string(&document, UID_PATHS),
+            enterprise_id: first_string(&document, ENTERPRISE_ID_PATHS),
+            nickname: first_string(&document, NICKNAME_PATHS),
+            email: first_string(&document, EMAIL_PATHS),
+            expires_at: first_value(&document, EXPIRES_AT_PATHS).and_then(parse_datetime),
+            document,
+            file_backed: true,
         })
     }
 
-    pub fn has_local_credentials() -> bool {
-        Self::load().is_ok()
+    /// 把 Quota01 自有会话映射成 client 需要的 `WorkBuddyAuth` 形状，让
+    /// `request_base_url`、`token_type`、`uid`、`enterprise_id` 的语义完全一致。
+    ///
+    /// 视图是只读的：没有真实登录文件，`save_tokens` 一定会失败，会话的刷新结果
+    /// 只能由 `WorkBuddySessionStore::save` 写回 vault。
+    pub(crate) fn from_session(session: &WorkBuddySession) -> Self {
+        Self {
+            path: PathBuf::new(),
+            document: Value::Null,
+            access_token: session.access_token.clone(),
+            refresh_token: session.refresh_token.clone(),
+            token_type: session.token_type.clone(),
+            domain: session.domain.clone(),
+            uid: session.uid.clone(),
+            enterprise_id: session.enterprise_id.clone(),
+            nickname: session.nickname.clone(),
+            email: session.email.clone(),
+            expires_at: session.expires_at.and_then(DateTime::from_timestamp_millis),
+            file_backed: false,
+        }
+    }
+
+    /// 登录文件存在就说明本机登录过 WorkBuddy/CodeBuddy。即使 WorkBuddy 5.6 之后内容
+    /// 读不出来，也必须继续算「有本地凭据」：否则凭据探测会判为 `Absent`、provider 被
+    /// 自动禁用隐藏，用户根本看不到「凭据已加密」这个真正的原因。
+    pub fn has_local_credentials_at(path: &Path) -> bool {
+        path.is_file()
     }
 
     pub fn request_base_url(&self) -> &'static str {
@@ -145,6 +177,11 @@ impl WorkBuddyAuth {
         access_token: String,
         refresh_token: Option<String>,
     ) -> Result<(), WorkBuddyAuthError> {
+        // 会话视图没有可写的登录文件；它的刷新结果属于 vault。
+        // 这里直接拒绝，避免会话凭据被误写进 WorkBuddy 的登录文件。
+        if !self.file_backed {
+            return Err(WorkBuddyAuthError::Storage);
+        }
         let current = Self::load_from_path(&self.path)?;
         if current.access_token != self.access_token || current.document != self.document {
             return Err(WorkBuddyAuthError::Storage);
@@ -199,6 +236,13 @@ fn first_value<'a>(root: &'a Value, paths: &[&[&str]]) -> Option<&'a Value> {
     paths
         .iter()
         .find_map(|path| path.iter().try_fold(root, |value, key| value.get(*key)))
+}
+
+/// WorkBuddy 5.6 的加密信封形态：`{"$wbEncrypted": 1, "envelope": "..."}`。
+fn is_encrypted_envelope(value: Option<&Value>) -> bool {
+    value
+        .and_then(Value::as_object)
+        .is_some_and(|object| object.contains_key("$wbEncrypted"))
 }
 
 fn first_string(root: &Value, paths: &[&[&str]]) -> Option<String> {
@@ -283,5 +327,76 @@ mod tests {
         fs::write(&path, r#"{"accessToken":"token","domain":"evil.example"}"#).unwrap();
         let auth = WorkBuddyAuth::load_from_path(&path).unwrap();
         assert_eq!(auth.request_base_url(), "https://www.codebuddy.cn");
+    }
+
+    /// WorkBuddy 5.6 起把 accessToken 写成 `{$wbEncrypted, envelope}` 加密信封。
+    fn encrypted_auth_document(uid: &str) -> String {
+        format!(
+            r#"{{"account":{{"uid":"{uid}"}},"auth":{{"accessToken":{{"$wbEncrypted":1,"envelope":"ZW5j"}},"tokenType":"Bearer","domain":"www.codebuddy.cn"}}}}"#
+        )
+    }
+
+    #[test]
+    fn an_encrypted_login_file_reports_encryption_instead_of_signing_out() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("workbuddy-desktop.info");
+        fs::write(&path, encrypted_auth_document("uid-1")).unwrap();
+
+        assert!(matches!(
+            WorkBuddyAuth::load_from_path(&path),
+            Err(WorkBuddyAuthError::Encrypted)
+        ));
+    }
+
+    #[test]
+    fn an_encrypted_login_file_still_counts_as_local_credentials() {
+        let dir = tempdir().unwrap();
+        let auth_path = dir.path().join("workbuddy-desktop.info");
+        fs::write(&auth_path, encrypted_auth_document("uid-1")).unwrap();
+
+        assert!(WorkBuddyAuth::has_local_credentials_at(&auth_path));
+        assert!(!WorkBuddyAuth::has_local_credentials_at(
+            &dir.path().join("missing.info")
+        ));
+    }
+
+    fn session() -> WorkBuddySession {
+        WorkBuddySession {
+            access_token: "access-session".into(),
+            refresh_token: Some("refresh-session".into()),
+            token_type: "Bearer".into(),
+            domain: "www.workbuddy.cn".into(),
+            uid: Some("uid-session".into()),
+            nickname: Some("Ling".into()),
+            email: Some("ling@example.com".into()),
+            enterprise_id: Some("ent-session".into()),
+            expires_at: Some(1_800_000_000_000),
+            refresh_expires_at: None,
+        }
+    }
+
+    #[test]
+    fn a_session_view_keeps_the_request_semantics_of_the_login_file() {
+        let view = WorkBuddyAuth::from_session(&session());
+
+        assert_eq!(view.access_token, "access-session");
+        assert_eq!(view.refresh_token.as_deref(), Some("refresh-session"));
+        assert_eq!(view.token_type, "Bearer");
+        assert_eq!(view.uid.as_deref(), Some("uid-session"));
+        assert_eq!(view.enterprise_id.as_deref(), Some("ent-session"));
+        assert_eq!(view.nickname.as_deref(), Some("Ling"));
+        assert_eq!(view.email.as_deref(), Some("ling@example.com"));
+        assert_eq!(view.request_base_url(), "https://www.workbuddy.cn");
+        assert_eq!(view.usage_base_url(), "https://www.workbuddy.cn");
+    }
+
+    #[test]
+    fn a_session_view_refuses_to_write_the_login_file() {
+        let mut view = WorkBuddyAuth::from_session(&session());
+
+        assert!(matches!(
+            view.save_tokens("new-access".into(), Some("new-refresh".into())),
+            Err(WorkBuddyAuthError::Storage)
+        ));
     }
 }

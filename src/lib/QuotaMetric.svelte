@@ -2,7 +2,7 @@
   import { locale } from 'svelte-i18n';
   import { t, tBackend, tBackendStore, tStore } from './i18n';
   import Icon from './Icon.svelte';
-  import { formatAmount } from './metricFormat';
+  import { formatAmount, CREDITS_SYMBOL, isCreditUnit } from './metricFormat';
   import {
     formatLimit,
     formatReset,
@@ -50,6 +50,12 @@
     if (unit === 'tokens') return t('units.tokens');
     return tBackend(unit);
   });
+  // A credit window reads as `✦821 已用`: the marker already says the unit, so
+  // repeating 积分 next to it would only lengthen the row.
+  const creditsWindow = $derived(isCreditUnit(quota.unit));
+  const countReading = $derived((value: number) =>
+    creditsWindow ? `${CREDITS_SYMBOL}${value.toFixed(0)}` : `${value.toFixed(0)} ${countUnit}`,
+  );
   const estimateNote = $derived.by(() => {
     void currentLocale;
     const sourceNote = quota.sourceNote?.trim();
@@ -64,7 +70,7 @@
     if (quota.format === 'count' && quota.usedValue !== null && quota.limitValue !== null) {
       const value =
         usageDisplay === 'left' ? Math.max(0, quota.limitValue - quota.usedValue) : quota.usedValue;
-      return `${value.toFixed(0)} ${countUnit} ${usageDisplay === 'left' ? t('time.left') : t('time.used')}`;
+      return `${countReading(value)} ${usageDisplay === 'left' ? t('time.left') : t('time.used')}`;
     }
     if (quota.format === 'dollars' && quota.usedValue !== null) {
       if (usageDisplay === 'left' && quota.limitValue !== null) {
@@ -82,7 +88,7 @@
     if (quota.format === 'count' && quota.usedValue !== null && quota.limitValue !== null) {
       const opposite =
         usageDisplay === 'left' ? quota.usedValue : Math.max(0, quota.limitValue - quota.usedValue);
-      return `${opposite.toFixed(0)} ${countUnit} ${usageDisplay === 'left' ? t('time.used') : t('time.left')}`;
+      return `${countReading(opposite)} ${usageDisplay === 'left' ? t('time.used') : t('time.left')}`;
     }
     if (quota.format === 'dollars' && quota.usedValue !== null) {
       if (usageDisplay === 'left') return `$${formatAmount(quota.usedValue)} ${t('time.spent')}`;

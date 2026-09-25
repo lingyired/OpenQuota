@@ -187,6 +187,9 @@ impl TraeProvider {
             .and_then(|package| package.expires_at)
             .into_iter()
             .collect();
+        // Every credit reading carries the `credits` unit: it is what turns the
+        // number into a `✦` one in the rail and the menu bar (see
+        // `is_credit_unit` in `tray_presentation.rs`).
         let value_metrics = vec![
             ValueMetric {
                 id: "workCredits".into(),
@@ -194,7 +197,7 @@ impl TraeProvider {
                 values: vec![MetricValue {
                     number: mapped.work_remaining,
                     kind: MetricValueKind::Count,
-                    label: None,
+                    label: Some("credits".into()),
                     estimated: false,
                 }],
                 expiries_at: Vec::new(),
@@ -205,7 +208,7 @@ impl TraeProvider {
                 values: vec![MetricValue {
                     number: mapped.general_remaining,
                     kind: MetricValueKind::Count,
-                    label: None,
+                    label: Some("credits".into()),
                     estimated: false,
                 }],
                 expiries_at: Vec::new(),
@@ -216,7 +219,7 @@ impl TraeProvider {
                 values: vec![MetricValue {
                     number: nearest_number,
                     kind: MetricValueKind::Count,
-                    label: None,
+                    label: Some("credits".into()),
                     estimated: false,
                 }],
                 expiries_at: nearest_expiries,

@@ -160,6 +160,31 @@ fn remove_local_storage_session(
         .map_err(|_| "The provider WebView session could not be removed.".to_owned())
 }
 
+/// 抓取失败时的诊断：记下窗口停在哪一页、两个 web storage 里各有哪些 key 名。
+///
+/// 只记 **key 名**，不记值——值就是凭据本身。URL 也只记 origin + path 和 query 的
+/// **参数名**：登录回跳会把凭据放在 query 里，整条 URL 打进日志就等于泄露凭据。
+async fn log_web_storage_diagnostic(window: &tauri::WebviewWindow) {
+    let script = "(() => { try { return JSON.stringify({ \
+        page: location.origin + location.pathname, \
+        queryKeys: Array.from(new URLSearchParams(location.search).keys()), \
+        sessionKeys: Object.keys(window.sessionStorage), \
+        localKeys: Object.keys(window.localStorage) \
+    }); } catch (_) { return null; } })()";
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    if window
+        .eval_with_callback(script, move |value| {
+            let _ = sender.send(value);
+        })
+        .is_err()
+    {
+        return;
+    }
+    if let Ok(Some(value)) = tokio::time::timeout(Duration::from_secs(3), receiver.recv()).await {
+        crate::app_warn!("auth", "provider sign-in storage diagnostic: {value}");
+    }
+}
+
 fn resolve_provider_link<'a>(
     registry: &'a ProviderRegistry,
     provider_id: &str,
@@ -236,6 +261,7 @@ fn mutate_api_key(
                 Some(
                     ApiKeyStatus::FromEnvironment
                         | ApiKeyStatus::FromConfig
+                        | ApiKeyStatus::FromCliSignIn
                         | ApiKeyStatus::OverrideActive
                 )
             ) {
@@ -266,7 +292,7 @@ fn mutate_api_key(
     })
 }
 
-fn reconcile_provider_credential_state(
+pub(crate) fn reconcile_provider_credential_state(
     app: &AppHandle,
     service: &ProviderService,
     settings: &SettingsService,
@@ -441,7 +467,18 @@ async fn capture_provider_session_inner(
         WebviewCredentialSource::LocalStorage { .. } => login_window.clone(),
     }
     .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
-    let session = read_provider_session(&session_window, &auth).await?;
+    let session = match read_provider_session(&session_window, &auth).await {
+        Ok(session) => session,
+        Err(error) => {
+            // 抓取失败时先把关闭请求放行：否则关闭会被一直拦下、抓取又完成不了，
+            // 用户就被卡在一个关不掉的窗口里。诊断随后记下，最后才报错。
+            if let Some(close_guard) = app.try_state::<ProviderSessionCloseGuard>() {
+                close_guard.mark(&auth.window_label);
+            }
+            log_web_storage_diagnostic(&session_window).await;
+            return Err(error);
+        }
+    };
 
     let credential_guard = settings.lock_credential_mutation().await;
     settings.record_provider_credential_mutation();
@@ -491,6 +528,17 @@ async fn capture_provider_session_inner(
     })
 }
 
+/// 断开连接不再以 WebView 登录为前提：设备码登录把会话存进 Quota01 自己的 vault，
+/// 这类 provider 没有 WebView 可清理（返回 `None`），但照样有连接要断开。
+/// 两者都没有的 provider 才真的没有连接，此时给前端一句统一的说法。
+fn disconnect_webview_auth(runtime: &dyn UsageProvider) -> Result<Option<WebviewAuth>, String> {
+    let auth = runtime.webview_auth();
+    if auth.is_none() && runtime.session_status().is_none() {
+        return Err("That provider does not have a saved connection.".to_owned());
+    }
+    Ok(auth)
+}
+
 #[tauri::command]
 pub async fn delete_provider_session(
     app: AppHandle,
@@ -503,45 +551,46 @@ pub async fn delete_provider_session(
     let runtime = registry
         .runtime(&provider_id)
         .ok_or_else(|| "Unknown provider.".to_owned())?;
-    let auth = runtime
-        .webview_auth()
-        .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
-
-    let login_window = app.get_webview_window(&auth.window_label);
-    match &auth.credential {
-        WebviewCredentialSource::Cookie { name } => {
-            // Read from the same dedicated cookie store used during capture; the
-            // main window is the fallback when the sign-in window has closed.
-            if let Some(cookie_window) = login_window
-                .clone()
-                .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW))
-            {
-                if let Some(cookie) = cookie_window
-                    .cookies()
-                    .map_err(|_| "The provider WebView could not be read.".to_owned())?
-                    .into_iter()
-                    .find(|cookie| cookie.name() == name)
+    // WebView 清理只对真用过 WebView 的 provider 有意义；会话存在 Quota01 自己
+    // vault 里的 provider（设备码登录）从这里直接走后面与凭据来源无关的删除路径。
+    let auth = disconnect_webview_auth(runtime.as_ref())?;
+    if let Some(auth) = auth.as_ref() {
+        let login_window = app.get_webview_window(&auth.window_label);
+        match &auth.credential {
+            WebviewCredentialSource::Cookie { name } => {
+                // Read from the same dedicated cookie store used during capture; the
+                // main window is the fallback when the sign-in window has closed.
+                if let Some(cookie_window) = login_window
+                    .clone()
+                    .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW))
                 {
-                    cookie_window.delete_cookie(cookie).map_err(|_| {
-                        "The provider WebView session could not be removed.".to_owned()
-                    })?;
+                    if let Some(cookie) = cookie_window
+                        .cookies()
+                        .map_err(|_| "The provider WebView could not be read.".to_owned())?
+                        .into_iter()
+                        .find(|cookie| cookie.name() == name)
+                    {
+                        cookie_window.delete_cookie(cookie).map_err(|_| {
+                            "The provider WebView session could not be removed.".to_owned()
+                        })?;
+                    }
+                }
+            }
+            WebviewCredentialSource::LocalStorage { key } => {
+                if let Some(window) = login_window.as_ref() {
+                    remove_local_storage_session(window, key)?;
                 }
             }
         }
-        WebviewCredentialSource::LocalStorage { key } => {
-            if let Some(window) = login_window.as_ref() {
-                remove_local_storage_session(window, key)?;
-            }
-        }
-    }
-    if let Some(window) = login_window {
-        let close_guard = app.try_state::<ProviderSessionCloseGuard>();
-        if let Some(close_guard) = close_guard.as_ref() {
-            close_guard.mark(&auth.window_label);
-        }
-        if window.close().is_err() {
+        if let Some(window) = login_window {
+            let close_guard = app.try_state::<ProviderSessionCloseGuard>();
             if let Some(close_guard) = close_guard.as_ref() {
-                close_guard.unmark(&auth.window_label);
+                close_guard.mark(&auth.window_label);
+            }
+            if window.close().is_err() {
+                if let Some(close_guard) = close_guard.as_ref() {
+                    close_guard.unmark(&auth.window_label);
+                }
             }
         }
     }
@@ -556,7 +605,7 @@ pub async fn delete_provider_session(
 
     let status = runtime
         .session_status()
-        .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?
+        .ok_or_else(|| "That provider does not have a saved connection.".to_owned())?
         .map_err(|error| error.to_string())?;
     let detected = status != ApiKeyStatus::NotSet;
     let command_guard = settings.lock_command_mutation().await;
@@ -747,11 +796,15 @@ mod tests {
             ApiKeyStatus, MetricDefinition, MetricSection, MetricSource, ProviderDefinition,
             ProviderErrorKind, ProviderLink, ProviderSnapshot,
         },
-        providers::{ProviderError, ProviderRegistry, UsageProvider},
+        providers::{
+            test_definition, DeviceCodeStubProvider, ProviderError, ProviderRegistry, StubProvider,
+            UsageProvider, WebviewStubProvider,
+        },
     };
 
     use super::{
-        mutate_api_key, parse_local_storage_session, resolve_provider_link, ApiKeyMutation,
+        disconnect_webview_auth, mutate_api_key, parse_local_storage_session,
+        resolve_provider_link, ApiKeyMutation,
     };
 
     #[test]
@@ -929,5 +982,34 @@ mod tests {
         assert_eq!(applied.state.status, ApiKeyStatus::NotSet);
         assert!(applied.status_uncertain);
         assert!(provider.deleted.load(Ordering::SeqCst));
+    }
+
+    #[test]
+    fn a_stored_session_without_a_webview_can_still_disconnect() {
+        // 设备码登录的 provider（WorkBuddy）没有 WebView：会话在 Quota01 自己的
+        // vault 里，清理 WebView 没意义，但断开连接必须照常走到 delete_session。
+        let runtime = DeviceCodeStubProvider(test_definition("device-code"));
+
+        assert_eq!(disconnect_webview_auth(&runtime), Ok(None));
+    }
+
+    #[test]
+    fn a_webview_provider_keeps_its_cleanup_target() {
+        let runtime = WebviewStubProvider(test_definition("webview"));
+
+        assert_eq!(
+            disconnect_webview_auth(&runtime),
+            Ok(runtime.webview_auth())
+        );
+    }
+
+    #[test]
+    fn a_provider_without_a_webview_or_a_session_has_nothing_to_disconnect() {
+        let runtime = StubProvider(test_definition("plain"));
+
+        assert_eq!(
+            disconnect_webview_auth(&runtime),
+            Err("That provider does not have a saved connection.".to_owned())
+        );
     }
 }

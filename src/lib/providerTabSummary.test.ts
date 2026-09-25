@@ -5,7 +5,14 @@ import type { AppSettings, ProviderLayout, ProviderSnapshot } from './types';
 import { claudeState, codexState, providerCatalogIndex, settingsState } from '../test/appFixtures';
 
 function provider(id: string, metrics: ProviderLayout['metrics']): ProviderLayout {
-  return { id, enabled: true, detected: true, expanded: false, metrics };
+  return {
+    id,
+    enabled: true,
+    detected: true,
+    expanded: false,
+    keychainAccessGranted: false,
+    metrics,
+  };
 }
 
 const usedSettings: AppSettings = { ...settingsState.settings, usageDisplay: 'used' };

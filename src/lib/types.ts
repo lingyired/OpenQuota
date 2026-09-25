@@ -179,7 +179,8 @@ export interface ProviderLink {
   url: string;
 }
 
-export type ApiKeyStatus = 'notSet' | 'fromEnvironment' | 'fromConfig' | 'saved' | 'overrideActive';
+export type ApiKeyStatus =
+  'notSet' | 'fromEnvironment' | 'fromConfig' | 'fromCliSignIn' | 'saved' | 'overrideActive';
 
 export interface ProviderApiKeyState {
   providerId: string;
@@ -188,6 +189,18 @@ export interface ProviderApiKeyState {
 
 export interface ApiKeyMutationOutcome extends ProviderApiKeyState {
   warning?: string;
+}
+
+export interface DeviceCodeChallenge {
+  loginId: string;
+  verificationUri: string;
+  expiresIn: number;
+}
+
+// Session material stays in Rust; this payload never carries it.
+export interface DeviceCodePoll {
+  done: boolean;
+  error?: string;
 }
 
 export interface ProviderDefinition {
@@ -204,6 +217,7 @@ export interface ProviderCatalog {
   providers: ProviderDefinition[];
   apiKeyProviderIds?: string[];
   webviewAuthProviderIds?: string[];
+  deviceCodeSignInProviderIds?: string[];
 }
 
 export interface MetricLayout {
@@ -218,6 +232,12 @@ export interface ProviderLayout {
   enabled: boolean;
   detected: boolean;
   expanded: boolean;
+  /**
+   * Set when the user turns this provider on by hand. Only then may Quota01 read the system
+   * credential store entries that belong to another application, because macOS prompts for
+   * authorization on those reads. Automatic enablement never sets it.
+   */
+  keychainAccessGranted: boolean;
   metrics: MetricLayout[];
 }
 

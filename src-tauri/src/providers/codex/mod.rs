@@ -376,6 +376,10 @@ impl crate::providers::UsageProvider for CodexProvider {
         definition()
     }
 
+    fn accesses_system_keychain(&self) -> bool {
+        true
+    }
+
     fn has_local_credentials(&self) -> bool {
         CodexAuthState::has_local_credentials()
     }

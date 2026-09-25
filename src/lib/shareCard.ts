@@ -1,10 +1,12 @@
 import { t, tBackend } from './i18n';
 import type { ProviderCatalogIndex } from './metrics';
 import {
+  CREDITS_SYMBOL,
   formatAmount,
   formatMetricNumber,
   formatMetricValue,
   formatSpendValue,
+  isCreditUnit,
   totalSpendRingCenter,
 } from './metricFormat';
 import { formatLimit, formatReset, projectPace } from './pacing';
@@ -390,7 +392,9 @@ function quotaShareRow(
         ? Math.max(0, quota.limitValue - quota.usedValue)
         : quota.usedValue;
     const unit = quota.unit?.trim() || t('metric.requests');
-    reading = `${displayed.toFixed(0)} ${unit} ${displayWord}`;
+    reading = isCreditUnit(unit)
+      ? `${CREDITS_SYMBOL}${displayed.toFixed(0)} ${displayWord}`
+      : `${displayed.toFixed(0)} ${unit} ${displayWord}`;
   }
   if (quota.format === 'dollars' && quota.usedValue !== null) {
     const displayed =

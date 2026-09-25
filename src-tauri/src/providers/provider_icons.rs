@@ -22,8 +22,10 @@ const CURSOR: &str = brand_icon!("cursor");
 const DEEPSEEK: &str = brand_icon!("deepseek");
 const ANTIGRAVITY: &str = brand_icon!("antigravity");
 const GROK: &str = brand_icon!("grok");
+const INFINI: &str = brand_icon!("infini");
 const OPENCODE: &str = brand_icon!("opencode");
 const OPENROUTER: &str = brand_icon!("openrouter");
+const SILICONFLOW: &str = brand_icon!("siliconflow");
 const ZAI: &str = brand_icon!("zai");
 const KIMI: &str = brand_icon!("kimi");
 const MINIMAX: &str = brand_icon!("minimax");
@@ -41,6 +43,7 @@ pub(crate) fn provider_icon_svg(provider_id: &str) -> Option<&'static str> {
         "deepseek" => Some(DEEPSEEK),
         "antigravity" => Some(ANTIGRAVITY),
         "grok" => Some(GROK),
+        "infini" => Some(INFINI),
         "opencode" => Some(OPENCODE),
         "openrouter" => Some(OPENROUTER),
         // `provider_family` only strips the `@account` suffix, so mainland-China
@@ -51,6 +54,7 @@ pub(crate) fn provider_icon_svg(provider_id: &str) -> Option<&'static str> {
         "minimax" | "minimax-cn" => Some(MINIMAX),
         "trae-cn" => Some(TRAE),
         "workbuddy" | "workbuddy-cn" => Some(WORKBUDDY),
+        "siliconflow" | "siliconflow-cn" => Some(SILICONFLOW),
         _ => None,
     }
 }

@@ -133,6 +133,7 @@ export const zhTw = {
     enterprise: 'Enterprise',
     ultra: 'Ultra',
     tokenPlan: 'Token Plan',
+    codingPlan: 'Coding Plan',
   },
   settings: {
     title: 'Settings',
@@ -314,6 +315,7 @@ export const zhTw = {
     apiKey: 'API Key',
     fromYourEnvironment: 'From Your Environment',
     fromConfigFile: 'From Config File',
+    fromCliSignIn: 'From a CLI Sign-In',
     savedSecurely: 'Saved securely',
     customKey: 'Custom Key',
     apiKeyCouldNotSave: 'The API key could not be saved.',
@@ -380,6 +382,8 @@ export const zhTw = {
     weekly: 'Weekly',
     monthly: 'Monthly',
     balance: 'Balance',
+    grantedBalance: 'Granted Balance',
+    rechargedBalance: 'Recharged Balance',
     totalSpend: 'Total Spend',
     todaySpend: 'Today Spend',
     extraBalance: 'Extra Balance',
@@ -426,13 +430,6 @@ export const zhTw = {
     sourceFromCodexLogs: 'From your Codex logs (estimated)',
     sourceFromCursorExport: 'From your Cursor usage export',
     sourceFromGrokLogs: 'From your Grok logs (estimated)',
-    sourceFromOpenCodeDb: 'From your OpenCode local database; missing costs use catalog estimates',
-    warnOpenCodeDbUnreadable:
-      'Some OpenCode databases could not be read; available local usage is shown.',
-    warnOpenCodeGoLoginUnreadable:
-      'OpenCode Go login data could not be read; local database usage is still shown.',
-    warnOpenCodeGoSubscriptionRequired:
-      'OpenCode Go subscription required. Local usage is still shown while OpenCode Go quota data is unavailable.',
     warnRefreshLoginNotSaved:
       'The refreshed {provider} login is active for this session but could not be saved.',
     warnClaudeRelogin:
@@ -475,10 +472,26 @@ export const zhTw = {
     addZaiCnApiKey:
       'Add a Z.ai CN API key in Customize, set ZAI_CN_API_KEY, or configure ~/.config/quota01/zai-cn.json.',
     addMiniMaxCnApiKey: 'Add a MiniMax CN API key in Customize or set MINIMAX_CN_API_KEY.',
+    addSiliconFlowApiKey: 'Add a SiliconFlow API key in Customize or set SILICONFLOW_API_KEY.',
+    addSiliconFlowCnApiKey:
+      'Add a SiliconFlow CN API key in Customize or set SILICONFLOW_CN_API_KEY.',
+    addInfiniApiKey: 'Add an Infini API key in Customize or set INFINI_API_KEY.',
+    addOpenCodeGoApiKey: 'Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.',
     noActiveGlmPlanCn:
       'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.',
     noActiveMiniMaxPlanCn:
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
+    workbuddyCredentialsEncrypted:
+      'WorkBuddy 會加密儲存在本機的登入資料，因此無法直接讀取。請在 Quota01 中登入 WorkBuddy 以建立連線；本機若仍有舊版明文登入檔案，仍會繼續使用。',
+    workbuddyUntrustedDomain: 'WorkBuddy 傳回了不受信任網域（{domain}）的憑證。請重新登入。',
+    workbuddyCredentialsWithoutDomain: 'WorkBuddy 傳回的憑證缺少網域。請重新登入。',
+    workbuddySignInAttemptUnknown: '此 WorkBuddy 登入嘗試未知。請重新開始。',
+    workbuddySignInAttemptInactive: '此 WorkBuddy 登入嘗試已不再有效。請重新開始。',
+    workbuddySignInAttemptExpired: '此 WorkBuddy 登入嘗試已過期。請重新開始。',
+    deviceCodeUnsupported: '該提供方不使用裝置碼登入。',
+    signInCouldNotStart: '無法啟動登入。',
+    signInStatusUnreadable: '無法讀取登入狀態。',
+    noSavedConnection: '該提供方沒有已儲存的連線。',
     openCodeGoSubscriptionRequired: 'OpenCode Go subscription required.',
     notLoggedInCursor: 'Not logged in. Sign in via Cursor app or run `agent login`.',
     sessionExpiredCursor: 'Session expired. Sign in via Cursor app or run `agent login`.',
@@ -515,13 +528,6 @@ export const zhTw = {
       'The Claude account changed while Quota01 was running. Restart Quota01 to reconnect it safely.',
     claudeOAuthInvalidUrl: 'Claude OAuth settings contain an invalid URL.',
     claudeAccountSettingsUnavailable: 'Claude account settings could not be loaded.',
-    openCodeNotDetected:
-      'OpenCode was not detected. Sign in to OpenCode Go or use OpenCode locally first.',
-    openCodeLoginUnreadable: 'OpenCode login data could not be read. Sign in to OpenCode Go again.',
-    openCodeGoLoginInvalid:
-      'OpenCode Go login data is invalid or expired. Sign in to OpenCode Go again.',
-    openCodeDataDirUnreadable: 'The OpenCode data directory could not be read.',
-    openCodeLocalUsageUnavailable: 'OpenCode local usage data is temporarily unavailable.',
     cursorEnterpriseUsageUnavailable: 'Enterprise usage data is unavailable. Try again later.',
     cursorTeamRequestBasedUsageUnavailable:
       'Team request-based usage data is unavailable. Try again later.',
@@ -667,6 +673,15 @@ export const zhTw = {
     disconnect: '中斷連線',
     disconnecting: '正在中斷…',
     hint: '請在開啟的視窗中完成登入；關閉視窗後會自動連線。',
+    startSignIn: '登入',
+    waitingForSignIn: '等待授權…',
+    deviceCodeHint: '開啟授權連結並在其中確認登入，Quota01 會自動連線。',
+    fallbackHint:
+      '此處顯示的是 Quota01 自己的登入；本機既有的 WorkBuddy 或 CodeBuddy 登入會繼續作為後備可用。',
+    verificationUri: '授權連結',
+    cancel: '取消',
+    expired: '本次登入嘗試已過期。請重新開始。',
+    signInError: '登入未能完成。請重試。',
     loadError: '無法載入連線狀態。',
     captureError: '登入未能完成。請確認已登入後重試。',
     disconnectError: '無法移除已儲存的連線。',

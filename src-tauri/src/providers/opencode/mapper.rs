@@ -12,7 +12,7 @@ const MONTH_PERIOD_SECONDS: u64 = 30 * 24 * 60 * 60;
 pub(super) fn map_go_usage(response: UsageResponse) -> Result<Vec<QuotaWindow>, OpenCodeError> {
     match response.status.as_u16() {
         200..=299 => {}
-        401 => return Err(OpenCodeError::InvalidAuth),
+        401 => return Err(OpenCodeError::InvalidKey),
         403 if response.body.pointer("/error/type").and_then(Value::as_str)
             == Some("EntitlementError") =>
         {
@@ -145,7 +145,7 @@ mod tests {
         let error = map_go_usage(response).unwrap_err();
         assert_eq!(
             error.to_string(),
-            "OpenCode Go login data is invalid or expired. Sign in to OpenCode Go again."
+            "The OpenCode Go API key is invalid. Check it at opencode.ai."
         );
     }
 

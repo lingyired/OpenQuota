@@ -22,6 +22,13 @@ Quota01 first looks for credentials left by Copilot integrations, then checks Gi
 authentication. Signing in to Copilot in a supported editor is usually enough. You can also run
 `gh auth login`.
 
+## Keychain access
+
+Beyond the editor and `gh` configuration files, Quota01 can read GitHub CLI's `gh:github.com`
+Keychain entry. macOS asks for authorization the first time that entry is read, so Quota01 leaves it
+alone until you turn the Copilot card on by hand in **Customize → Providers**. The configuration-file
+sources keep working automatically, because reading them never prompts.
+
 Organization billing metrics require a GitHub token with access to the relevant organization's
 billing information. These values describe the organization, not an individual seat.
 

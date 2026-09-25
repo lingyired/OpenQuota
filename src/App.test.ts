@@ -105,6 +105,7 @@ function webviewAuthFixture() {
       enabled: true,
       detected: false,
       expanded: false,
+      keychainAccessGranted: false,
       metrics: [
         { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
@@ -120,6 +121,65 @@ function webviewAuthFixture() {
         stale: false,
         error: 'Sign in to TraeWork CN to view usage.',
         errorKind: 'authentication',
+        lastAttemptAt: null,
+      },
+    },
+    lastFullRefreshAt: null,
+  };
+  return { catalog, settings, usage };
+}
+
+function deviceCodeSignInFixture(errorKind: ProviderViewState['errorKind'] = 'authentication') {
+  const catalog: ProviderCatalog = {
+    apiKeyProviderIds: [],
+    webviewAuthProviderIds: [],
+    deviceCodeSignInProviderIds: ['workbuddy-cn'],
+    providers: [
+      {
+        id: 'workbuddy-cn',
+        displayName: 'Workbuddy CN',
+        shortName: 'WB',
+        fallbackEnabled: false,
+        localUsageSourceNote: null,
+        links: [{ label: 'Dashboard', url: 'https://workbuddy.example.test/usage' }],
+        metrics: [
+          {
+            id: 'workbuddy-cn.quota',
+            label: 'Quota',
+            source: { kind: 'quota', sourceId: 'quota', sessionWindow: false },
+            pinnable: true,
+            defaultEnabled: true,
+            defaultSection: 'alwaysVisible',
+            defaultPinned: true,
+            tray: { shortLabel: 'Q', suffix: null },
+          },
+        ],
+      },
+    ],
+  };
+  const settings = structuredClone(settingsState);
+  settings.settings.knownProviderIds = ['workbuddy-cn'];
+  settings.settings.providers = [
+    {
+      id: 'workbuddy-cn',
+      enabled: true,
+      detected: false,
+      expanded: false,
+      keychainAccessGranted: false,
+      metrics: [
+        { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
+      ],
+    },
+  ];
+  const usage: UsageViewState = {
+    providers: {
+      'workbuddy-cn': {
+        snapshot: null,
+        source: 'none',
+        refreshing: false,
+        stale: false,
+        error: 'Sign in to Workbuddy CN to view usage.',
+        errorKind,
         lastAttemptAt: null,
       },
     },
@@ -349,6 +409,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -370,6 +431,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'antigravity.geminiPro',
@@ -444,6 +506,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],
@@ -535,6 +598,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               {
                 id: `${providerId}.session`,
@@ -669,6 +733,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],
@@ -811,6 +876,73 @@ describe('Quota01 dashboard', () => {
       providerId: 'trae-cn',
     });
     expect(within(provider).getByRole('status')).toHaveTextContent('Connected');
+  });
+
+  it('offers device-code sign-in on the card of a provider whose credentials are unusable', async () => {
+    const fixture = deviceCodeSignInFixture();
+    mockInvoke((command: string) => {
+      if (command === 'get_usage_state') return Promise.resolve(fixture.usage);
+      if (command === 'get_app_settings') return Promise.resolve(fixture.settings);
+      if (command === 'save_app_settings') return Promise.resolve(fixture.settings);
+      if (command === 'get_provider_session_state') {
+        return Promise.resolve({ providerId: 'workbuddy-cn', status: 'notSet' });
+      }
+      if (command === 'start_provider_login') {
+        return Promise.resolve({
+          loginId: 'login-1',
+          verificationUri: 'https://example.test/device',
+          expiresIn: 600,
+        });
+      }
+      if (command === 'check_for_updates') {
+        return Promise.resolve({
+          available: false,
+          currentVersion: '0.7.7',
+          version: null,
+          body: null,
+          installable: true,
+          releaseUrl: 'https://github.com/deviffyy/OpenQuota/releases/latest',
+        });
+      }
+      return Promise.resolve();
+    }, fixture.catalog);
+
+    render(App);
+    const provider = await screen.findByRole('group', { name: 'Workbuddy CN provider' });
+
+    await fireEvent.click(within(provider).getByRole('button', { name: 'Start Sign-In' }));
+
+    expect(mocks.invoke).toHaveBeenCalledWith('start_provider_login', {
+      providerId: 'workbuddy-cn',
+    });
+    expect(await within(provider).findByText('https://example.test/device')).toBeInTheDocument();
+  });
+
+  it('keeps device-code sign-in off the card for an error that signing in cannot fix', async () => {
+    const fixture = deviceCodeSignInFixture('network');
+    mockInvoke((command: string) => {
+      if (command === 'get_usage_state') return Promise.resolve(fixture.usage);
+      if (command === 'get_app_settings') return Promise.resolve(fixture.settings);
+      if (command === 'check_for_updates') {
+        return Promise.resolve({
+          available: false,
+          currentVersion: '0.7.7',
+          version: null,
+          body: null,
+          installable: true,
+          releaseUrl: 'https://github.com/deviffyy/OpenQuota/releases/latest',
+        });
+      }
+      return Promise.resolve();
+    }, fixture.catalog);
+
+    render(App);
+    const provider = await screen.findByRole('group', { name: 'Workbuddy CN provider' });
+
+    expect(
+      within(provider).getByRole('button', { name: 'Retry Workbuddy CN' }),
+    ).toBeInTheDocument();
+    expect(within(provider).queryByRole('button', { name: 'Start Sign-In' })).toBeNull();
   });
 
   it('opens Customize and exposes the two-section metric layout', async () => {
@@ -1200,6 +1332,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1288,6 +1421,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1356,6 +1490,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1479,6 +1614,7 @@ describe('Quota01 dashboard', () => {
                 enabled: true,
                 detected: false,
                 expanded: false,
+                keychainAccessGranted: false,
                 metrics: definition.metrics.map((metric) => ({
                   id: metric.id,
                   enabled: metric.defaultEnabled,
@@ -1965,6 +2101,7 @@ describe('Quota01 Windows taskband focus', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            keychainAccessGranted: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],

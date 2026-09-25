@@ -7,7 +7,7 @@ use serde_json::Value;
 
 #[cfg(target_os = "macos")]
 use crate::providers::credential_store::generic_password_exists;
-use crate::providers::credential_store::{read_generic_password, write_generic_password};
+use crate::providers::credential_store::{read_external_password, write_external_password};
 
 use super::CursorError;
 
@@ -49,17 +49,20 @@ impl CursorAuthState {
         }
         #[cfg(target_os = "macos")]
         {
-            keychain_accounts().into_iter().any(|account| {
-                [ACCESS_TOKEN_SERVICE, REFRESH_TOKEN_SERVICE]
-                    .into_iter()
-                    .any(|service| {
-                        generic_password_exists(
-                            service,
-                            &account,
-                            std::time::Duration::from_secs(2),
-                        ) == Some(true)
-                    })
-            })
+            // Reading these entries makes macOS ask for Keychain authorization, so they only
+            // count as local credentials once the user turned the provider on by hand.
+            crate::providers::keychain_access::is_granted("cursor")
+                && keychain_accounts().into_iter().any(|account| {
+                    [ACCESS_TOKEN_SERVICE, REFRESH_TOKEN_SERVICE]
+                        .into_iter()
+                        .any(|service| {
+                            generic_password_exists(
+                                service,
+                                &account,
+                                std::time::Duration::from_secs(2),
+                            ) == Some(true)
+                        })
+                })
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -79,10 +82,13 @@ impl CursorAuthState {
             CursorAuthSource::Sqlite(path) => {
                 write_state_value(path, ACCESS_TOKEN_KEY, &access_token)
             }
-            CursorAuthSource::Keychain { account } => {
-                write_generic_password(ACCESS_TOKEN_SERVICE, account, access_token.as_bytes())
-                    .map_err(|_| CursorError::AuthWrite)
-            }
+            CursorAuthSource::Keychain { account } => write_external_password(
+                "cursor",
+                ACCESS_TOKEN_SERVICE,
+                account,
+                access_token.as_bytes(),
+            )
+            .map_err(|_| CursorError::AuthWrite),
         }?;
         self.access_token = Some(access_token);
         Ok(())
@@ -176,7 +182,7 @@ fn load_keychain_auth() -> Option<CursorAuthState> {
 }
 
 fn read_keychain_value(service: &str, account: &str) -> Option<String> {
-    read_generic_password(service, account)
+    read_external_password("cursor", service, account)
         .ok()
         .flatten()
         .and_then(|bytes| String::from_utf8(bytes).ok())

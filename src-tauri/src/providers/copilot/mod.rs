@@ -304,6 +304,10 @@ impl UsageProvider for CopilotProvider {
         definition()
     }
 
+    fn accesses_system_keychain(&self) -> bool {
+        true
+    }
+
     fn has_local_credentials(&self) -> bool {
         self.auth
             .visit_detection_candidates(|token| {

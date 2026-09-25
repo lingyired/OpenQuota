@@ -374,6 +374,7 @@ mod tests {
             enabled,
             detected: true,
             expanded: false,
+            keychain_access_granted: false,
             metrics: Vec::new(),
         }
     }

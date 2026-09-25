@@ -27,10 +27,7 @@ describe('ValueMetric', () => {
       timeFormat: 'twentyFourHour',
     });
 
-    expect(screen.getByText('$1.2K · 30K credits')).toHaveAttribute(
-      'data-tooltip',
-      '$1,200 · 30,000 credits',
-    );
+    expect(screen.getByText('$1.2K · ✦30K')).toHaveAttribute('data-tooltip', '$1,200 · ✦30,000');
   });
 
   it('marks only value rows that contain an estimated value', () => {

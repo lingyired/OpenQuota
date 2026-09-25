@@ -10,6 +10,8 @@ mod daily_usage;
 pub mod deepseek;
 mod detection;
 pub mod grok;
+pub mod infini;
+pub(crate) mod keychain_access;
 pub mod kimi;
 mod log_usage;
 pub mod minimax;
@@ -19,6 +21,7 @@ mod pi_usage;
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 mod provider_icons;
 mod registry;
+pub mod siliconflow;
 #[cfg(test)]
 pub mod test_http;
 pub mod trae;
@@ -31,8 +34,16 @@ pub(crate) use provider_icons::provider_icon_svg;
 #[cfg(test)]
 pub(crate) use registry::normalize_default_pins;
 pub use registry::ProviderRegistry;
+#[cfg(test)]
+pub(crate) use registry::{
+    test_definition, DeviceCodeStubProvider, StubProvider, WebviewStubProvider,
+    DEVICE_CODE_FAILED_LOGIN_ID, DEVICE_CODE_LOGIN_ID,
+};
 
-use crate::models::{ApiKeyStatus, ProviderDefinition, ProviderErrorKind, ProviderSnapshot};
+use crate::models::{
+    ApiKeyStatus, DeviceCodeChallenge, DeviceCodePoll, ProviderDefinition, ProviderErrorKind,
+    ProviderSnapshot,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebviewCredentialSource {
@@ -45,6 +56,14 @@ pub struct WebviewAuth {
     pub login_url: String,
     pub credential: WebviewCredentialSource,
     pub window_label: String,
+}
+
+/// 设备码登录的描述：`platform` 是申请 state 时上报的产品标识。
+/// 具体流程（申请 state、轮询换 token、取账号资料）留在 provider 内部，
+/// 前端只拿句柄和展示信息，永远碰不到 `state` 或 token。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceCodeAuth {
+    pub platform: String,
 }
 
 pub fn provider_family(provider_id: &str) -> &str {
@@ -154,6 +173,16 @@ pub trait UsageProvider: Send + Sync {
     fn has_local_installation(&self) -> bool {
         false
     }
+    /// Whether this provider can read system credential store entries that belong to another
+    /// application.
+    ///
+    /// macOS prompts for authorization on those reads, so every such read must go through
+    /// `credential_store::read_external_password` (and writes through `write_external_password`),
+    /// which stays inert until the user enables the provider by hand. Detecting existence with
+    /// `generic_password_exists` does not prompt and stays ungated.
+    fn accesses_system_keychain(&self) -> bool {
+        false
+    }
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError>;
 
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
@@ -171,6 +200,32 @@ pub trait UsageProvider: Send + Sync {
 
     fn webview_auth(&self) -> Option<WebviewAuth> {
         None
+    }
+
+    /// 设备码登录的能力声明。`None` 表示这个 provider 不走设备码，
+    /// registry 据此生成 `device_code_sign_in_provider_ids`，前端也据此决定是否显示登录面板。
+    fn device_code_auth(&self) -> Option<DeviceCodeAuth> {
+        None
+    }
+
+    fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorKind::Internal,
+            "That provider does not use a device-code sign-in.",
+        ))
+    }
+
+    /// 轮询只回传「是否完成」和错误文案：会话在 provider 内部落库，
+    /// token 绝不经过这条线进入前端。
+    fn poll_device_code_login(&self, _login_id: &str) -> DeviceCodePoll {
+        DeviceCodePoll {
+            done: true,
+            error: Some("That provider does not use a device-code sign-in.".to_owned()),
+        }
+    }
+
+    fn cancel_device_code_login(&self, _login_id: &str) -> bool {
+        false
     }
 
     fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
@@ -225,8 +280,8 @@ pub trait UsageProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{
-        antigravity, claude, codex, copilot, cursor, deepseek, grok, kimi, minimax, opencode,
-        openrouter, remember_default_account, trae, zai, ProviderError,
+        antigravity, claude, codex, copilot, cursor, deepseek, grok, infini, kimi, minimax,
+        opencode, openrouter, remember_default_account, siliconflow, trae, zai, ProviderError,
     };
     use crate::models::ProviderErrorKind;
     use tempfile::tempdir;
@@ -393,6 +448,39 @@ mod tests {
             [(
                 "Dashboard".into(),
                 "https://platform.deepseek.com/usage".into()
+            )]
+        );
+        assert_eq!(
+            links(siliconflow::definition(siliconflow::Site::Global)),
+            [
+                (
+                    "Dashboard".into(),
+                    "https://cloud.siliconflow.com/account/balance".into()
+                ),
+                (
+                    "API Keys".into(),
+                    "https://cloud.siliconflow.com/account/ak".into()
+                ),
+            ]
+        );
+        assert_eq!(
+            links(siliconflow::definition(siliconflow::Site::Cn)),
+            [
+                (
+                    "Dashboard".into(),
+                    "https://cloud.siliconflow.cn/account/balance".into()
+                ),
+                (
+                    "API Keys".into(),
+                    "https://cloud.siliconflow.cn/account/ak".into()
+                ),
+            ]
+        );
+        assert_eq!(
+            links(infini::definition()),
+            [(
+                "Dashboard".into(),
+                "https://cloud.infini-ai.com/platform/ai".into()
             )]
         );
         assert_eq!(

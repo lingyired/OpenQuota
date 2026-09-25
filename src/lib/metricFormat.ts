@@ -47,6 +47,22 @@ function currencySymbol(code: string) {
     : null;
 }
 
+/** The marker every credit reading carries, in the slot `¥`/`$` occupy for money. */
+export const CREDITS_SYMBOL = '✦';
+
+/**
+ * Units that are points rather than money or a plain count. They are matched by
+ * the unit the backend reports (`credits`, `积分`) so the marker is the same in
+ * every locale — `t('units.credits')` is itself a member of this set, which is
+ * what keeps the English and Chinese packs from disagreeing.
+ */
+const creditUnits = new Set(['credits', 'credit', 'points', 'point', '积分']);
+
+export function isCreditUnit(unit: string | null | undefined) {
+  const trimmed = unit?.trim();
+  return trimmed ? creditUnits.has(trimmed.toLowerCase()) : false;
+}
+
 function fractionDigits(value: number) {
   const magnitude = Math.abs(value);
   if (magnitude === 0 || magnitude >= 0.05) return 1;
@@ -112,15 +128,18 @@ export function formatMetricValue(
   label?: string,
 ) {
   const formatted = formatMetricNumber(value, kind, style);
+  // A credit unit reads as its marker: `✦71.4` says the same thing as
+  // `71.4 credits` without spending width on the word.
+  if (isCreditUnit(label)) return `${CREDITS_SYMBOL}${formatted}`;
   return label ? `${formatted} ${label}` : formatted;
 }
 
 /**
  * Compact variant for the provider rail, where space is measured in a few
  * characters. Percent and dollar readings stay as they are, currency codes
- * collapse to their narrow symbol (`CNY` → `¥`), and word units (`tokens`,
- * `credits`, account names) are dropped because the dashboard card next to the
- * rail repeats the reading with its unit.
+ * collapse to their narrow symbol (`CNY` → `¥`), credit units collapse to `✦`,
+ * and word units (`tokens`, account names) are dropped because the dashboard
+ * card next to the rail repeats the reading with its unit.
  */
 export function formatMetricRailValue(
   value: number,
@@ -128,6 +147,7 @@ export function formatMetricRailValue(
   label?: string | null,
 ) {
   const formatted = formatMetricNumber(value, kind, 'row');
+  if (isCreditUnit(label)) return `${CREDITS_SYMBOL}${formatted}`;
   if (kind === 'currency' && label) {
     const symbol = currencySymbol(label.toUpperCase());
     return symbol ? `${symbol}${formatted}` : `${formatted} ${label}`;
@@ -161,6 +181,7 @@ const railGlyphWidthEm: Record<string, number> = {
   '€': 0.72,
   '£': 0.72,
   '₩': 0.95,
+  '✦': 0.95,
 };
 const RAIL_DIGIT_WIDTH_EM = 0.7;
 const RAIL_LETTER_WIDTH_EM = 0.72;

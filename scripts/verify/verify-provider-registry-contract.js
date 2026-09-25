@@ -22,7 +22,7 @@ const frontendConsumers = [
   'src/lib/shareCard.ts',
 ];
 const providerLiteral =
-  /["'](?:claude|codex|cursor|antigravity|copilot|grok|opencode|openrouter|workbuddy|zai|kimi|minimax|deepseek|trae-cn)["']/;
+  /["'](?:claude|codex|cursor|antigravity|copilot|grok|opencode|openrouter|workbuddy|zai|kimi|minimax|deepseek|trae-cn|siliconflow|siliconflow-cn|infini)["']/;
 
 for (const file of rustConsumers) {
   const source = fs.readFileSync(new URL(file, root), 'utf8').split('#[cfg(test)]')[0];
@@ -96,6 +96,9 @@ const expectedRuntimeOrder = [
   'MiniMaxCnProvider',
   'DeepSeekProvider',
   'TraeProvider',
+  'SiliconFlowProvider',
+  'SiliconFlowCnProvider',
+  'InfiniProvider',
 ];
 if (runtimeOrder.join(',') !== expectedRuntimeOrder.join(',')) {
   throw new Error(

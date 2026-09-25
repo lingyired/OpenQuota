@@ -46,6 +46,7 @@ const settings: AppSettings = {
       enabled: true,
       detected: true,
       expanded: true,
+      keychainAccessGranted: false,
       metrics: [
         { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'codex.weekly', enabled: true, section: 'alwaysVisible', pinned: true },
@@ -57,6 +58,7 @@ const settings: AppSettings = {
       enabled: false,
       detected: true,
       expanded: false,
+      keychainAccessGranted: false,
       metrics: [],
     },
     {
@@ -64,6 +66,7 @@ const settings: AppSettings = {
       enabled: true,
       detected: true,
       expanded: false,
+      keychainAccessGranted: false,
       metrics: [],
     },
   ],

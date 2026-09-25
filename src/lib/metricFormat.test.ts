@@ -36,9 +36,18 @@ describe('shared metric formatting', () => {
   it('reads amounts and credits at one decimal place and drops trailing zeros', () => {
     expect(formatMetricNumber(3.25, 'dollars', 'full')).toBe('$3.3');
     expect(formatMetricNumber(12, 'dollars', 'full')).toBe('$12');
-    expect(formatMetricValue(71.38, 'count', 'row', 'credits')).toBe('71.4 credits');
     expect(formatAmount(71.38)).toBe('71.4');
     expect(formatAmount(2.0)).toBe('2');
+  });
+
+  it('marks credits with ✦ instead of spelling the unit out', () => {
+    expect(formatMetricValue(71.38, 'count', 'row', 'credits')).toBe('✦71.4');
+    expect(formatMetricValue(1019.42, 'count', 'row', 'credits')).toBe('✦1K');
+    expect(formatMetricValue(30_000, 'count', 'full', '积分')).toBe('✦30,000');
+    expect(formatMetricRailValue(821, 'count', 'credits')).toBe('✦821');
+    // A count unit with no marker of its own keeps both its word and its bare rail line.
+    expect(formatMetricValue(71.38, 'count', 'row', 'requests')).toBe('71.4 requests');
+    expect(formatMetricRailValue(71.38, 'count', 'requests')).toBe('71.4');
   });
 
   it('keeps currency codes in rows and narrow symbols in rails', () => {
@@ -65,10 +74,11 @@ describe('provider rail line fitting', () => {
     expect(railLineFontSize('$3.84')).toBe(11);
     expect(railLineFontSize('2.1M')).toBe(11);
     expect(railLineFontSize('¥1.2K')).toBe(11);
+    expect(railLineFontSize('✦821')).toBe(11);
   });
 
   it('shrinks longer readings instead of truncating them', () => {
-    for (const text of ['$999.99', '$3.3 +1', '¥1,234.6']) {
+    for (const text of ['$999.99', '$3.3 +1', '¥1,234.6', '✦1,234.6']) {
       const size = railLineFontSize(text);
       expect(size).toBeLessThan(11);
       expect(size).toBeGreaterThanOrEqual(8.5);

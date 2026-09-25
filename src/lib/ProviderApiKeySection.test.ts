@@ -151,6 +151,50 @@ describe('ProviderApiKeySection', () => {
     );
   });
 
+  it('names a key found in a CLI sign-in and still lets the user override it', async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === 'get_provider_api_key_state') {
+        return Promise.resolve({ providerId: 'opencode', status: 'fromCliSignIn' });
+      }
+      if (command === 'save_provider_api_key') {
+        return Promise.resolve({ providerId: 'opencode', status: 'saved' });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+    render(ProviderApiKeySection, {
+      providerId: 'opencode',
+      providerName: 'OpenCode Go',
+    });
+    await screen.findByRole('region', { name: 'OpenCode Go API Key' });
+
+    // A key detected in another app's credential file is configured, not missing.
+    expect(screen.queryByRole('button', { name: 'Add' })).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByRole('textbox', { name: 'OpenCode Go API key source' })).toHaveValue(
+      'From a CLI Sign-In',
+    );
+    // Nothing is stored by Quota01, so there is nothing to clear yet.
+    expect(screen.queryByRole('button', { name: 'Remove saved API key' })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('OpenCode Go API key')).not.toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Override With a Custom Key' }));
+    const input = screen.getByLabelText('OpenCode Go API key');
+    expect(input).toHaveAttribute('type', 'password');
+    await fireEvent.input(input, { target: { value: 'sk-cp-custom' } });
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('save_provider_api_key', {
+        providerId: 'opencode',
+        apiKey: 'sk-cp-custom',
+      }),
+    );
+    expect(screen.getByRole('textbox', { name: 'OpenCode Go API key source' })).toHaveValue(
+      'Saved securely',
+    );
+    expect(screen.queryByDisplayValue('sk-cp-custom')).not.toBeInTheDocument();
+  });
+
   it('keeps an applied save successful when provider status reconciliation is incomplete', async () => {
     mocks.invoke.mockImplementation((command: string) => {
       if (command === 'get_provider_api_key_state') {

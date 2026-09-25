@@ -11,7 +11,9 @@ use serde_json::Value;
 use tempfile::NamedTempFile;
 
 #[cfg(target_os = "macos")]
-use crate::providers::credential_store::generic_password_exists;
+use crate::providers::credential_store::{
+    generic_password_exists, read_external_password, write_external_password,
+};
 
 use super::CodexError;
 
@@ -41,7 +43,10 @@ impl CodexAuthState {
         }
         #[cfg(target_os = "macos")]
         {
-            generic_password_exists("Codex Auth", "", Duration::from_secs(2)) == Some(true)
+            // Reading this entry makes macOS ask for Keychain authorization, so it only counts
+            // as a local credential once the user turned the provider on by hand.
+            crate::providers::keychain_access::is_granted("codex")
+                && generic_password_exists("Codex Auth", "", Duration::from_secs(2)) == Some(true)
         }
         #[cfg(not(target_os = "macos"))]
         {
@@ -217,9 +222,9 @@ fn save_file_document(path: &Path, document: &Value) -> Result<(), CodexError> {
 
 #[cfg(target_os = "macos")]
 fn keychain_document() -> Option<Value> {
-    use security_framework::passwords::{generic_password, PasswordOptions};
-
-    let bytes = generic_password(PasswordOptions::new_generic_password("Codex Auth", "")).ok()?;
+    let bytes = read_external_password("codex", "Codex Auth", "")
+        .ok()
+        .flatten()?;
     parse_auth_document(std::str::from_utf8(&bytes).ok()?)
 }
 
@@ -266,10 +271,8 @@ fn load_from_keychain() -> Result<CodexAuthState, CodexError> {
 
 #[cfg(target_os = "macos")]
 fn save_keychain_document(document: &Value) -> Result<(), CodexError> {
-    use security_framework::passwords::set_generic_password;
-
     let bytes = serde_json::to_vec(document).map_err(|_| CodexError::AuthWrite)?;
-    set_generic_password("Codex Auth", "", &bytes).map_err(|_| CodexError::AuthWrite)
+    write_external_password("codex", "Codex Auth", "", &bytes).map_err(|_| CodexError::AuthWrite)
 }
 
 pub fn auth_paths() -> Vec<PathBuf> {

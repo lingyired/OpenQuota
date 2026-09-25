@@ -42,6 +42,8 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'This Week': 'metric.thisWeek',
   'This Month': 'metric.thisMonth',
   Balance: 'metric.balance',
+  'Granted Balance': 'metric.grantedBalance',
+  'Recharged Balance': 'metric.rechargedBalance',
   'Total Spend': 'metric.totalSpend',
   'Today Spend': 'metric.todaySpend',
   'Extra Balance': 'metric.extraBalance',
@@ -80,6 +82,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   Enterprise: 'plan.enterprise',
   Ultra: 'plan.ultra',
   'Token Plan': 'plan.tokenPlan',
+  'Coding Plan': 'plan.codingPlan',
   // Notices
   'Live usage paused': 'metric.liveUsagePaused',
   'Ready to retry': 'metric.readyToRetry',
@@ -89,8 +92,6 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'From your Codex logs (estimated)': 'metric.sourceFromCodexLogs',
   'From your Cursor usage export': 'metric.sourceFromCursorExport',
   'From your Grok logs (estimated)': 'metric.sourceFromGrokLogs',
-  'From your OpenCode local database; missing costs use catalog estimates':
-    'metric.sourceFromOpenCodeDb',
   // Provider integration states
   Available: 'providerIntegration.available',
   Unavailable: 'providerIntegration.unavailable',
@@ -111,12 +112,6 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     { provider: 'DeepSeek' },
   ],
   // Warnings
-  'Some OpenCode databases could not be read; available local usage is shown.':
-    'metric.warnOpenCodeDbUnreadable',
-  'OpenCode Go login data could not be read; local database usage is still shown.':
-    'metric.warnOpenCodeGoLoginUnreadable',
-  'OpenCode Go subscription required. Local usage is still shown while OpenCode Go quota data is unavailable.':
-    'metric.warnOpenCodeGoSubscriptionRequired',
   'The refreshed Grok login is active for this session but could not be saved.': [
     'metric.warnRefreshLoginNotSaved',
     { provider: 'Grok' },
@@ -134,6 +129,21 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Claude live usage is rate limited; showing the last successful limits.':
     'metric.warnClaudeRateLimitedShowingStale',
   // Provider errors
+  'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.':
+    'providerError.workbuddyCredentialsEncrypted',
+  'Could not reach WorkBuddy.': ['providerError.couldNotReach', { provider: 'WorkBuddy' }],
+  'WorkBuddy returned credentials without a domain. Sign in again.':
+    'providerError.workbuddyCredentialsWithoutDomain',
+  'This WorkBuddy sign-in attempt is unknown. Start again.':
+    'providerError.workbuddySignInAttemptUnknown',
+  'This WorkBuddy sign-in attempt is no longer active. Start again.':
+    'providerError.workbuddySignInAttemptInactive',
+  'This WorkBuddy sign-in attempt expired. Start again.':
+    'providerError.workbuddySignInAttemptExpired',
+  'That provider does not use a device-code sign-in.': 'providerError.deviceCodeUnsupported',
+  'The sign-in could not be started.': 'providerError.signInCouldNotStart',
+  'The sign-in status could not be read.': 'providerError.signInStatusUnreadable',
+  'That provider does not have a saved connection.': 'providerError.noSavedConnection',
   'Not logged in. Run `codex` to authenticate.': [
     'providerError.notLoggedInRunCmd',
     { cmd: 'codex' },
@@ -154,6 +164,13 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Add a MiniMax API key in Customize or set MINIMAX_API_KEY.': 'providerError.addMiniMaxApiKey',
   'Add a MiniMax CN API key in Customize or set MINIMAX_CN_API_KEY.':
     'providerError.addMiniMaxCnApiKey',
+  'Add a SiliconFlow API key in Customize or set SILICONFLOW_API_KEY.':
+    'providerError.addSiliconFlowApiKey',
+  'Add a SiliconFlow CN API key in Customize or set SILICONFLOW_CN_API_KEY.':
+    'providerError.addSiliconFlowCnApiKey',
+  'Add an Infini API key in Customize or set INFINI_API_KEY.': 'providerError.addInfiniApiKey',
+  'Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.':
+    'providerError.addOpenCodeGoApiKey',
   'Add an OpenRouter API key in Customize to view usage.': 'providerError.addOpenRouterApiKey',
   'The Kimi API key is invalid. Check it in the Kimi Code console.':
     'providerError.apiKeyInvalidInConsole',
@@ -177,8 +194,6 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.apiKeyInvalid',
     { provider: 'Z.ai CN', url: 'open.bigmodel.cn/user-center/apikeys' },
   ],
-  'OpenCode local usage data is temporarily unavailable.':
-    'providerError.openCodeLocalUsageUnavailable',
   'Usage request failed after refresh. Try again.': 'providerError.usageRequestFailedAfterRefresh',
   'Total usage limit missing from API response.': 'providerError.totalUsageLimitMissing',
   'Quota01 cache is unavailable.': 'providerError.cacheUnavailable',
@@ -211,13 +226,6 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.':
     'providerError.noActiveMiniMaxPlanCn',
   'OpenCode Go subscription required.': 'providerError.openCodeGoSubscriptionRequired',
-  'OpenCode was not detected. Sign in to OpenCode Go or use OpenCode locally first.':
-    'providerError.openCodeNotDetected',
-  'OpenCode login data could not be read. Sign in to OpenCode Go again.':
-    'providerError.openCodeLoginUnreadable',
-  'The OpenCode data directory could not be read.': 'providerError.openCodeDataDirUnreadable',
-  'OpenCode Go login data is invalid or expired. Sign in to OpenCode Go again.':
-    'providerError.openCodeGoLoginInvalid',
   'Start Antigravity or run `agy` and try again.': 'providerError.antigravityStartRequired',
   'Antigravity sign-in expired. Open Antigravity or run `agy` to refresh.':
     'providerError.antigravitySignInExpired',
@@ -350,6 +358,11 @@ export interface BackendPattern {
 export const backendPatterns: BackendPattern[] = [
   // Provider errors returned by the Rust providers. Keep the more specific
   // usage/billing variants before the generic request variant.
+  {
+    pattern: /^WorkBuddy returned credentials for an untrusted domain \((.+)\)\. Sign in again\.$/,
+    key: 'providerError.workbuddyUntrustedDomain',
+    params: ['domain'],
+  },
   {
     pattern: /^Could not connect to (.+)\. Check your internet connection\.$/,
     key: 'providerError.couldNotConnect',

@@ -94,6 +94,11 @@ struct SystemCredentials;
 impl CredentialAccess for SystemCredentials {
     #[cfg(target_os = "macos")]
     fn read(&self, service: &str, account: &str) -> Option<Vec<u8>> {
+        // Reading GitHub CLI's keychain entry makes macOS ask for authorization, so it stays
+        // untouched until the user turns this provider on by hand.
+        if !crate::providers::keychain_access::is_granted("copilot") {
+            return None;
+        }
         read_generic_password(service, account).ok().flatten()
     }
 
@@ -101,6 +106,9 @@ impl CredentialAccess for SystemCredentials {
     fn read_service(&self, service: &str) -> Option<Vec<u8>> {
         use security_framework::passwords::{generic_password, PasswordOptions};
 
+        if !crate::providers::keychain_access::is_granted("copilot") {
+            return None;
+        }
         // `PasswordOptions` has no service-only constructor. Its generic-password
         // constructor appends the account constraint last, so removing that one
         // constraint yields the same service-scoped query used by GitHub CLI.

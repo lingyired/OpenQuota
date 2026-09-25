@@ -1,31 +1,42 @@
 mod auth;
 mod client;
+mod login;
+#[cfg(test)]
+mod login_tests;
 mod mapper;
+mod session;
 mod usage;
 
-use std::sync::Arc;
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 
 use chrono::{DateTime, Days, Local, TimeZone, Utc};
 use serde_json::Value;
 use thiserror::Error;
 
 use crate::models::{
-    CreditPackage, MetricDefinition, MetricSection, MetricSource, MetricValue, MetricValueKind,
-    ProviderDefinition, ProviderErrorKind, ProviderLink, ProviderNotice, ProviderNoticeTone,
-    ProviderSnapshot, QuotaWindow, StatusMetric, UsageCompleteness, UsageHistory,
-    UsagePeriodSelection, ValueMetric,
+    ApiKeyStatus, CreditPackage, DeviceCodeChallenge, DeviceCodePoll, MetricDefinition,
+    MetricSection, MetricSource, MetricValue, MetricValueKind, ProviderDefinition,
+    ProviderErrorKind, ProviderLink, ProviderNotice, ProviderNoticeTone, ProviderSnapshot,
+    QuotaWindow, StatusMetric, UsageCompleteness, UsageHistory, UsagePeriodSelection, ValueMetric,
 };
 
 use self::{
     auth::{WorkBuddyAuth, WorkBuddyAuthError},
     client::{EndpointResponse, WorkBuddyClient, WorkBuddyClientError},
+    login::{DeviceCodeLogin, LoginPoll, WorkBuddyLoginError},
     mapper::{map_resources, MappedResources},
+    session::{WorkBuddySession, WorkBuddySessionError, WorkBuddySessionStore},
     usage::{build_history, collect_pages, parse_page, ParsedUsagePage, MAX_PAGES},
 };
-use super::{ProviderError, ProviderRefresh, UsageProvider};
+use super::{DeviceCodeAuth, ProviderError, ProviderRefresh, UsageProvider};
 
 const PROVIDER_ID: &str = "workbuddy-cn";
 const SOURCE_NOTE: &str = "WorkBuddy official usage";
+/// Quota01 自己签约凭据走 CN 站点：设备码流程就是为这个站点实现的。
+const DEVICE_CODE_BASE_URL: &str = "https://www.codebuddy.cn";
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -107,6 +118,8 @@ pub(crate) enum WorkBuddyError {
     InvalidAuth,
     #[error("WorkBuddy credentials could not be read or updated.")]
     CredentialStorage,
+    #[error("WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.")]
+    CredentialsEncrypted,
     #[error("WorkBuddy access token expired and could not be refreshed. Sign in again.")]
     TokenExpired,
     #[error("WorkBuddy token refresh failed. Sign in again.")]
@@ -129,6 +142,17 @@ impl From<WorkBuddyAuthError> for WorkBuddyError {
             WorkBuddyAuthError::NotLoggedIn => Self::NotLoggedIn,
             WorkBuddyAuthError::Invalid => Self::InvalidAuth,
             WorkBuddyAuthError::Storage => Self::CredentialStorage,
+            WorkBuddyAuthError::Encrypted => Self::CredentialsEncrypted,
+        }
+    }
+}
+
+impl From<WorkBuddySessionError> for WorkBuddyError {
+    fn from(error: WorkBuddySessionError) -> Self {
+        match error {
+            // 会话文档损坏等同于登录数据无效：两者都只能靠重新登录解决。
+            WorkBuddySessionError::Malformed => Self::InvalidAuth,
+            WorkBuddySessionError::Storage => Self::CredentialStorage,
         }
     }
 }
@@ -143,6 +167,15 @@ impl From<WorkBuddyClientError> for WorkBuddyError {
     }
 }
 
+impl From<WorkBuddyLoginError> for WorkBuddyError {
+    fn from(error: WorkBuddyLoginError) -> Self {
+        match error {
+            WorkBuddyLoginError::Connection => Self::Connection,
+            WorkBuddyLoginError::InvalidResponse => Self::InvalidResponse,
+        }
+    }
+}
+
 impl From<WorkBuddyError> for ProviderError {
     fn from(error: WorkBuddyError) -> Self {
         let kind = match error {
@@ -152,7 +185,9 @@ impl From<WorkBuddyError> for ProviderError {
             | WorkBuddyError::RefreshFailed
             | WorkBuddyError::RequestFailed(401) => ProviderErrorKind::Authentication,
             WorkBuddyError::RequestFailed(403) => ProviderErrorKind::Permission,
-            WorkBuddyError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            WorkBuddyError::CredentialStorage | WorkBuddyError::CredentialsEncrypted => {
+                ProviderErrorKind::CredentialStorage
+            }
             WorkBuddyError::RequestFailed(429) => ProviderErrorKind::RateLimited,
             WorkBuddyError::Connection => ProviderErrorKind::Network,
             WorkBuddyError::InvalidResponse | WorkBuddyError::NoData => {
@@ -166,44 +201,207 @@ impl From<WorkBuddyError> for ProviderError {
     }
 }
 
+/// 缓存身份必须跟着真正生效的凭据来源走，否则会话与登录文件并存时
+/// 会把两个账号的缓存混在一起。读不到凭据时保持未解析，
+/// 与原实现忽略登录错误的行为一致。
+fn resolve_identity(credential: Result<WorkBuddyCredential, WorkBuddyError>) -> Option<String> {
+    credential.ok().and_then(|credential| {
+        credential
+            .uid()
+            .map(|uid| crate::hashing::sha256_hex(uid.as_bytes()))
+    })
+}
+
+/// 凭据来源与 provider 实例无关，抽成自由函数让 `new` 在构造实例前也能解析缓存身份。
+fn load_credentials_at(
+    sessions: &WorkBuddySessionStore,
+    auth_path: &Path,
+) -> Result<WorkBuddyCredential, WorkBuddyError> {
+    match sessions.load()? {
+        Some(session) => Ok(WorkBuddyCredential::Session(session)),
+        None => Ok(WorkBuddyCredential::AuthFile(
+            WorkBuddyAuth::load_from_path(auth_path)?,
+        )),
+    }
+}
+
 pub struct WorkBuddyProvider {
     client: Arc<WorkBuddyClient>,
     account_identity: Option<String>,
+    /// 凭据来源路径由 provider 持有，测试才能指向临时登录文件而不是用户真实的那份。
+    auth_path: PathBuf,
+    /// Quota01 自己签发的会话。它是首选凭据，刷新结果也只写回这里。
+    sessions: WorkBuddySessionStore,
+    /// 设备码登录状态机：Quota01 自己签发凭据的入口，`state` 只留在它内部。
+    login: DeviceCodeLogin,
+    /// 测试用的临时登录目录，随 provider 一起析构；生产构造下为 None。
+    #[cfg(test)]
+    _auth_dir: Option<tempfile::TempDir>,
+}
+
+/// 凭据来源：Quota01 自己登录得到的会话，或 WorkBuddy 旧版留下的明文登录文件。
+/// 刷新结果只会写回来源本身，两个来源之间绝不交叉落库。
+enum WorkBuddyCredential {
+    /// Quota01 自己登录得到的会话：可以刷新并写回 vault。
+    Session(WorkBuddySession),
+    /// WorkBuddy 老版本留下的明文登录文件：沿用原有的原子写回。
+    AuthFile(WorkBuddyAuth),
+}
+
+impl WorkBuddyCredential {
+    /// client 只认 `&WorkBuddyAuth`：两种来源在这里统一成同一种视图，
+    /// 请求头与 host 选择因此与改动前完全一致。
+    fn view(&self) -> WorkBuddyAuth {
+        match self {
+            Self::Session(session) => WorkBuddyAuth::from_session(session),
+            Self::AuthFile(auth) => auth.clone(),
+        }
+    }
+
+    fn uid(&self) -> Option<&str> {
+        match self {
+            Self::Session(session) => session.uid.as_deref(),
+            Self::AuthFile(auth) => auth.uid.as_deref(),
+        }
+    }
+
+    fn has_refresh_token(&self) -> bool {
+        self.refresh_token()
+            .is_some_and(|token| !token.trim().is_empty())
+    }
+
+    fn refresh_token(&self) -> Option<&str> {
+        match self {
+            Self::Session(session) => session.refresh_token.as_deref(),
+            Self::AuthFile(auth) => auth.refresh_token.as_deref(),
+        }
+    }
+
+    /// 刷新结果只回写到凭据来源本身：会话进 vault，登录文件走原子写回。
+    /// 两条分支互不调用对方的写入口，所以会话凭据不可能被写进登录文件，
+    /// 登录文件凭据也不可能被写进 vault。
+    fn persist_refresh(
+        &mut self,
+        sessions: &WorkBuddySessionStore,
+        access_token: String,
+        refresh_token: Option<String>,
+    ) -> Result<(), WorkBuddyError> {
+        match self {
+            Self::Session(session) => {
+                session.access_token = access_token;
+                if refresh_token.is_some() {
+                    session.refresh_token = refresh_token;
+                }
+                sessions.save(&session.to_json()?)?;
+            }
+            Self::AuthFile(auth) => {
+                if let Err(error) = auth.save_tokens(access_token.clone(), refresh_token.clone()) {
+                    // 登录文件写不进去时仍然采用新 token 完成本次刷新，行为与改动前一致。
+                    auth.access_token = access_token;
+                    if refresh_token.is_some() {
+                        auth.refresh_token = refresh_token;
+                    }
+                    return Err(error.into());
+                }
+            }
+        }
+        Ok(())
+    }
 }
 
 impl WorkBuddyProvider {
     pub fn new() -> Result<Self, WorkBuddyError> {
-        let account_identity = WorkBuddyAuth::load()
-            .ok()
-            .and_then(|auth| auth.uid)
-            .map(|uid| crate::hashing::sha256_hex(uid.as_bytes()));
+        let auth_path = auth::auth_file_path();
+        let sessions = WorkBuddySessionStore::new();
+        let account_identity = resolve_identity(load_credentials_at(&sessions, &auth_path));
         Ok(Self {
             client: Arc::new(WorkBuddyClient::new()?),
             account_identity,
+            auth_path,
+            sessions,
+            login: DeviceCodeLogin::new(DEVICE_CODE_BASE_URL)?,
+            #[cfg(test)]
+            _auth_dir: None,
         })
+    }
+
+    /// 测试构造：会话走内存 vault，登录文件走临时目录，两者都不碰用户真实数据。
+    /// `file_token == Some("ENCRYPTED")` 写成 WorkBuddy 5.6 的加密信封。
+    #[cfg(test)]
+    pub(crate) fn for_test_with_session(
+        session_token: Option<&str>,
+        file_token: Option<&str>,
+    ) -> Self {
+        let dir = tempfile::tempdir().expect("test auth dir");
+        let auth_path = dir.path().join("workbuddy-desktop.info");
+        match file_token {
+            // 哨兵值：auth 层必须把它判成 Encrypted，而不是「未登录」。
+            Some("ENCRYPTED") => std::fs::write(
+                &auth_path,
+                r#"{"account":{"uid":"uid-file"},"auth":{"accessToken":{"$wbEncrypted":1,"envelope":"ZW5j"},"tokenType":"Bearer","domain":"www.codebuddy.cn"}}"#,
+            )
+            .expect("write envelope"),
+            Some(token) => std::fs::write(
+                &auth_path,
+                format!(
+                    r#"{{"auth":{{"accessToken":"{token}","refreshToken":"refresh-file"}},"domain":"www.codebuddy.cn","uid":"uid-file"}}"#
+                ),
+            )
+            .expect("write login file"),
+            None => {}
+        }
+        let sessions = tests::memory_session_store(
+            session_token
+                .map(|token| tests::session_document(token, None))
+                .as_deref(),
+        );
+        let account_identity = resolve_identity(load_credentials_at(&sessions, &auth_path));
+        Self {
+            // 默认指向不可路由的地址：任何忘记覆盖 base URL 的测试都不可能打到真实 WorkBuddy。
+            client: Arc::new(WorkBuddyClient::for_test("http://127.0.0.1:1")),
+            account_identity,
+            auth_path,
+            sessions,
+            // 登录状态机同样指向不可路由地址，测试只能通过 `with_test_base_url` 指到本地 server。
+            login: DeviceCodeLogin::for_test("http://127.0.0.1:1"),
+            _auth_dir: Some(dir),
+        }
+    }
+
+    /// 把请求指向本地测试 server；凭据来源仍由 `for_test_with_session` 决定。
+    #[cfg(test)]
+    pub(crate) fn with_test_base_url(mut self, base_url: &str) -> Self {
+        self.client = Arc::new(WorkBuddyClient::for_test(base_url));
+        // 登录状态机与业务请求必须打到同一台测试 server，否则轮询会打到已关闭的端口。
+        self.login = DeviceCodeLogin::for_test(base_url);
+        self
+    }
+
+    /// 首选 Quota01 自己的会话，其次才是旧版明文登录文件。
+    ///
+    /// 已过期的会话也照常返回：让请求先走 unauthorized→refresh 续期，只有刷新失败
+    /// 才以 `TokenExpired` 收场；在这里按本地时间丢弃会把「可续期的登录」误报成「未登录」。
+    fn load_credentials(&self) -> Result<WorkBuddyCredential, WorkBuddyError> {
+        load_credentials_at(&self.sessions, &self.auth_path)
     }
 
     fn refresh_with_identity(&self) -> Result<(ProviderSnapshot, Option<String>), WorkBuddyError> {
         let now = Local::now();
-        let mut auth = WorkBuddyAuth::load()?;
-        let account_identity = auth
-            .uid
-            .as_deref()
+        let mut credential = self.load_credentials()?;
+        let account_identity = credential
+            .uid()
             .map(|uid| crate::hashing::sha256_hex(uid.as_bytes()));
         let mut warnings = Vec::new();
         let mut refresh_attempted = false;
 
-        let mut resources = self.fetch_resources(&auth, now);
+        let mut resources = self.fetch_resources(&credential.view(), now);
         if resources.iter().any(ResourceOutcome::is_unauthorized) {
-            if auth
-                .refresh_token
-                .as_deref()
-                .is_some_and(|token| !token.trim().is_empty())
-            {
+            if credential.has_refresh_token() {
                 refresh_attempted = true;
-                match self.refresh_auth(&mut auth, &mut warnings) {
+                match self.refresh_auth(&mut credential, &mut warnings) {
                     Ok(()) => {
-                        resources = self.retry_unauthorized_resources(&auth, now, resources);
+                        resources =
+                            self.retry_unauthorized_resources(&credential.view(), now, resources);
                     }
                     Err(error) => warnings.push(error.to_string()),
                 }
@@ -236,9 +434,9 @@ impl WorkBuddyProvider {
             .and_then(|date| date.and_hms_opt(0, 0, 0))
             .and_then(|value| Local.from_local_datetime(&value).single())
             .unwrap_or(now);
-        let usage_attempt = self.fetch_usage_pages(&auth, start, now, Vec::new(), 1);
+        let usage_attempt = self.fetch_usage_pages(&credential.view(), start, now, Vec::new(), 1);
         let (usage, usage_succeeded) = self.finish_usage(
-            &mut auth,
+            &mut credential,
             start,
             now,
             usage_attempt,
@@ -290,25 +488,18 @@ impl WorkBuddyProvider {
 
     fn refresh_auth(
         &self,
-        auth: &mut WorkBuddyAuth,
+        credential: &mut WorkBuddyCredential,
         warnings: &mut Vec<String>,
     ) -> Result<(), WorkBuddyError> {
-        if auth
-            .refresh_token
-            .as_deref()
-            .is_none_or(|token| token.trim().is_empty())
-        {
+        if !credential.has_refresh_token() {
             return Err(WorkBuddyError::TokenExpired);
         }
-        let (access_token, refresh_token) = self.client.refresh_token(auth)?;
-        if let Err(error) = auth.save_tokens(access_token.clone(), refresh_token.clone()) {
+        let (access_token, refresh_token) = self.client.refresh_token(&credential.view())?;
+        if let Err(error) = credential.persist_refresh(&self.sessions, access_token, refresh_token)
+        {
             warnings.push(format!(
                 "WorkBuddy token was refreshed for this session but could not be saved: {error}"
             ));
-            auth.access_token = access_token;
-            if refresh_token.is_some() {
-                auth.refresh_token = refresh_token;
-            }
         }
         Ok(())
     }
@@ -397,7 +588,7 @@ impl WorkBuddyProvider {
 
     fn finish_usage(
         &self,
-        auth: &mut WorkBuddyAuth,
+        credential: &mut WorkBuddyCredential,
         start: DateTime<Local>,
         end: DateTime<Local>,
         attempt: UsageFetchOutcome,
@@ -408,15 +599,12 @@ impl WorkBuddyProvider {
             pages, page_number, ..
         } = attempt
         {
-            if !*refresh_attempted
-                && auth
-                    .refresh_token
-                    .as_deref()
-                    .is_some_and(|token| !token.trim().is_empty())
-            {
+            if !*refresh_attempted && credential.has_refresh_token() {
                 *refresh_attempted = true;
-                match self.refresh_auth(auth, warnings) {
-                    Ok(()) => self.fetch_usage_pages(auth, start, end, pages, page_number),
+                match self.refresh_auth(credential, warnings) {
+                    Ok(()) => {
+                        self.fetch_usage_pages(&credential.view(), start, end, pages, page_number)
+                    }
                     Err(error) => {
                         warnings.push(error.to_string());
                         UsageFetchOutcome::Unauthorized {
@@ -484,7 +672,14 @@ impl UsageProvider for WorkBuddyProvider {
     }
 
     fn has_local_credentials(&self) -> bool {
-        WorkBuddyAuth::has_local_credentials()
+        // 设备码登录不需要机器上装过 WorkBuddy，所以只看登录文件会把「已经用 Quota01
+        // 登录过、但没装 WorkBuddy」的用户判成 Absent，从而自动禁用并隐藏 provider。
+        // 这里沿用 `ApiKeyStore::has_credentials` 的容错：vault 读不出来时按无会话处理。
+        WorkBuddyAuth::has_local_credentials_at(&self.auth_path)
+            || self
+                .sessions
+                .status()
+                .is_ok_and(|status| status != ApiKeyStatus::NotSet)
     }
 
     fn cache_identity(&self) -> super::CacheIdentity<'_> {
@@ -502,6 +697,60 @@ impl UsageProvider for WorkBuddyProvider {
         self.account_identity.as_deref()
     }
 
+    fn device_code_auth(&self) -> Option<DeviceCodeAuth> {
+        Some(DeviceCodeAuth {
+            platform: "workbuddy".into(),
+        })
+    }
+
+    /// 申请 state 的两种失败要分开：连不上是网络问题，响应不可信是服务端问题，
+    /// 前端据此给用户不同的提示。
+    fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
+        self.login.start().map_err(|error| {
+            let kind = match error {
+                WorkBuddyLoginError::Connection => ProviderErrorKind::Network,
+                WorkBuddyLoginError::InvalidResponse => ProviderErrorKind::InvalidResponse,
+            };
+            ProviderError::from_display(kind, error)
+        })
+    }
+
+    /// 轮询结果先在 provider 内部落库，再换成不含凭据的 wire 类型回传。
+    /// 落库失败时这次尝试同样已经结束（done 为 true），但必须把失败报成错误文案，
+    /// 不能让前端以为凭据已经可用。
+    fn poll_device_code_login(&self, login_id: &str) -> DeviceCodePoll {
+        match self.login.poll(login_id) {
+            LoginPoll::Pending => DeviceCodePoll {
+                done: false,
+                error: None,
+            },
+            LoginPoll::Failed(message) => DeviceCodePoll {
+                done: true,
+                error: Some(message),
+            },
+            LoginPoll::Ready(session) => {
+                // 存的是完整会话文档，不是裸 token：store 会按会话文档校验。
+                let saved = session
+                    .to_json()
+                    .and_then(|document| self.sessions.save(&document));
+                match saved {
+                    Ok(()) => DeviceCodePoll {
+                        done: true,
+                        error: None,
+                    },
+                    Err(error) => DeviceCodePoll {
+                        done: true,
+                        error: Some(error.to_string()),
+                    },
+                }
+            }
+        }
+    }
+
+    fn cancel_device_code_login(&self, login_id: &str) -> bool {
+        self.login.cancel(login_id)
+    }
+
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
         WorkBuddyProvider::refresh(self).map_err(ProviderError::from)
     }
@@ -517,6 +766,32 @@ impl UsageProvider for WorkBuddyProvider {
                 identity,
             }),
         })
+    }
+
+    /// 只报告 Quota01 自己签发的会话。旧版明文登录文件是 Quota01 不拥有的凭据，
+    /// 而这个面板的意义正是提供 Quota01 自己的登录入口，所以它不算作一个会话。
+    fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
+        Some(
+            self.sessions
+                .status()
+                .map_err(WorkBuddyError::from)
+                .map_err(ProviderError::from),
+        )
+    }
+
+    fn save_session(&self, value: &str) -> Result<(), ProviderError> {
+        self.sessions
+            .save(value)
+            .map_err(WorkBuddyError::from)
+            .map_err(ProviderError::from)
+    }
+
+    fn delete_session(&self) -> Result<(), ProviderError> {
+        // 只清 vault 里的会话：登录文件属于 WorkBuddy 自己，绝不在这里删除。
+        self.sessions
+            .delete()
+            .map_err(WorkBuddyError::from)
+            .map_err(ProviderError::from)
     }
 }
 
@@ -624,6 +899,7 @@ impl WorkBuddyError {
             Self::NotLoggedIn => Self::NotLoggedIn,
             Self::InvalidAuth => Self::InvalidAuth,
             Self::CredentialStorage => Self::CredentialStorage,
+            Self::CredentialsEncrypted => Self::CredentialsEncrypted,
             Self::TokenExpired => Self::TokenExpired,
             Self::RefreshFailed => Self::RefreshFailed,
             Self::Connection => Self::Connection,
@@ -729,7 +1005,7 @@ fn map_resource_metrics(resources: &MappedResources) -> (Vec<QuotaWindow>, Vec<V
         values: vec![MetricValue {
             number: resources.remaining,
             kind: MetricValueKind::Count,
-            label: None,
+            label: Some("credits".into()),
             estimated: false,
         }],
         expiries_at,
@@ -740,7 +1016,7 @@ fn map_resource_metrics(resources: &MappedResources) -> (Vec<QuotaWindow>, Vec<V
         values: vec![MetricValue {
             number: resources.nearest_expiring_remaining,
             kind: MetricValueKind::Count,
-            label: None,
+            label: Some("credits".into()),
             estimated: false,
         }],
         expiries_at: resources.nearest_expiring_at.into_iter().collect(),
@@ -753,13 +1029,18 @@ mod tests {
     use reqwest::StatusCode;
     use serde_json::json;
 
+    use std::sync::{Arc, Mutex};
+
     use super::{
         classify_endpoint, definition, map_resource_metrics, EndpointResponse, ResourceOutcome,
-        WorkBuddyError,
+        WorkBuddyCredential, WorkBuddyError, WorkBuddyProvider,
     };
-    use crate::models::{MetricSection, MetricSource, ProviderErrorKind};
+    use crate::models::{ApiKeyStatus, MetricSection, MetricSource, ProviderErrorKind};
+    use crate::providers::api_key::{ApiKeyStore, EnvironmentReader, SecretBackend, SecretBytes};
+    use crate::providers::test_http;
     use crate::providers::workbuddy::mapper::{MappedResources, ResourcePackage};
-    use crate::providers::ProviderError;
+    use crate::providers::workbuddy::session::WorkBuddySessionStore;
+    use crate::providers::{ProviderError, UsageProvider};
     use chrono::{TimeZone, Utc};
 
     #[test]
@@ -845,6 +1126,16 @@ mod tests {
     }
 
     #[test]
+    fn encrypted_local_credentials_do_not_masquerade_as_signed_out() {
+        let encrypted = ProviderError::from(WorkBuddyError::CredentialsEncrypted);
+        assert_eq!(encrypted.kind(), ProviderErrorKind::CredentialStorage);
+
+        let message = WorkBuddyError::CredentialsEncrypted.to_string();
+        assert_ne!(message, WorkBuddyError::NotLoggedIn.to_string());
+        assert!(message.contains("5.6"));
+    }
+
+    #[test]
     fn mapped_metrics_are_all_exposed_by_the_definition() {
         let resources = MappedResources {
             packages: Vec::new(),
@@ -894,7 +1185,7 @@ mod tests {
     }
 
     #[test]
-    fn balance_value_omits_the_redundant_credit_unit_label() {
+    fn balance_value_carries_the_credit_unit_the_marker_keys_off() {
         let resources = MappedResources {
             packages: Vec::new(),
             total: 3315.0,
@@ -913,7 +1204,7 @@ mod tests {
             .find(|metric| metric.id == "balance")
             .expect("balance metric");
 
-        assert_eq!(balance.values[0].label, None);
+        assert_eq!(balance.values[0].label.as_deref(), Some("credits"));
     }
 
     #[test]
@@ -959,10 +1250,388 @@ mod tests {
             .expect("nearest expiring metric");
 
         assert_eq!(balance.expiries_at, vec![resources_expiry().unwrap()]);
-        assert_eq!(nearest.values[0].label, None);
+        assert_eq!(nearest.values[0].label.as_deref(), Some("credits"));
     }
 
     fn resources_expiry() -> Option<chrono::DateTime<Utc>> {
         Some(Utc.with_ymd_and_hms(2026, 10, 8, 15, 59, 59).unwrap())
+    }
+
+    struct MemorySecrets(Mutex<Option<Vec<u8>>>);
+
+    impl SecretBackend for MemorySecrets {
+        fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+            Ok(self.0.lock().unwrap().clone().map(SecretBytes::new))
+        }
+
+        fn write(&self, _account: &str, value: &[u8]) -> Result<(), String> {
+            *self.0.lock().unwrap() = Some(value.to_vec());
+            Ok(())
+        }
+
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            *self.0.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    struct EmptyEnvironment;
+
+    impl EnvironmentReader for EmptyEnvironment {
+        fn value(&self, _name: &str) -> Option<String> {
+            None
+        }
+    }
+
+    /// 内存后端，绝不触碰用户真实的凭证 vault（沿用 deepseek / trae 测试的做法）。
+    pub(super) fn memory_session_store(value: Option<&str>) -> WorkBuddySessionStore {
+        let secrets = Arc::new(MemorySecrets(Mutex::new(
+            value.map(|text| text.as_bytes().to_vec()),
+        )));
+        WorkBuddySessionStore::with_store(ApiKeyStore::with_backends(
+            "workbuddy-cn-session",
+            "WORKBUDDY_SESSION",
+            secrets,
+            Arc::new(EmptyEnvironment),
+        ))
+    }
+
+    /// 写入永远失败的 vault：登录成功但会话存不下去时，轮询必须把这件事报回前端，
+    /// 而不是静默当成登录成功。
+    struct FailingSecrets;
+
+    impl SecretBackend for FailingSecrets {
+        fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+            Ok(None)
+        }
+
+        fn write(&self, _account: &str, _value: &[u8]) -> Result<(), String> {
+            Err("vault unavailable".into())
+        }
+
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn failing_session_store() -> WorkBuddySessionStore {
+        WorkBuddySessionStore::with_store(ApiKeyStore::with_backends(
+            "workbuddy-cn-session",
+            "WORKBUDDY_SESSION",
+            Arc::new(FailingSecrets),
+            Arc::new(EmptyEnvironment),
+        ))
+    }
+
+    /// 测试用的会话文档：带 refresh_token，刷新写回才有东西可续。
+    pub(super) fn session_document(access_token: &str, expires_at: Option<i64>) -> String {
+        json!({
+            "access_token": access_token,
+            "refresh_token": "refresh-session",
+            "domain": "www.codebuddy.cn",
+            "uid": "uid-session",
+            "expires_at": expires_at,
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn a_stored_session_wins_over_the_login_file() {
+        let provider = WorkBuddyProvider::for_test_with_session(Some("access-session"), None);
+        match provider.load_credentials().unwrap() {
+            WorkBuddyCredential::Session(session) => {
+                assert_eq!(session.access_token, "access-session")
+            }
+            WorkBuddyCredential::AuthFile(_) => panic!("the stored session must win"),
+        }
+    }
+
+    #[test]
+    fn the_stored_session_wins_even_when_the_login_file_also_exists() {
+        let provider =
+            WorkBuddyProvider::for_test_with_session(Some("access-session"), Some("access-file"));
+        match provider.load_credentials().unwrap() {
+            WorkBuddyCredential::Session(session) => {
+                assert_eq!(session.access_token, "access-session")
+            }
+            WorkBuddyCredential::AuthFile(_) => panic!("the stored session must win"),
+        }
+    }
+
+    #[test]
+    fn the_login_file_is_used_when_no_session_is_stored() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, Some("access-file"));
+        match provider.load_credentials().unwrap() {
+            WorkBuddyCredential::AuthFile(auth) => assert_eq!(auth.access_token, "access-file"),
+            WorkBuddyCredential::Session(_) => panic!("the login file must be the fallback"),
+        }
+    }
+
+    #[test]
+    fn an_encrypted_login_file_without_a_session_reports_encryption() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, Some("ENCRYPTED"));
+        assert!(matches!(
+            provider.load_credentials(),
+            Err(WorkBuddyError::CredentialsEncrypted)
+        ));
+    }
+
+    #[test]
+    fn an_expired_stored_session_is_still_returned_so_refresh_can_renew_it() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+        provider
+            .sessions
+            .save(&session_document("access-expired", Some(1_000)))
+            .unwrap();
+
+        match provider.load_credentials().unwrap() {
+            WorkBuddyCredential::Session(session) => {
+                assert_eq!(session.access_token, "access-expired");
+                assert_eq!(session.expires_at, Some(1_000));
+            }
+            WorkBuddyCredential::AuthFile(_) => {
+                panic!("an expired session must still win so the refresh path can renew it")
+            }
+        }
+    }
+
+    #[test]
+    fn a_refreshed_session_is_written_back_to_the_vault_and_never_to_the_login_file() {
+        let server = test_http::serve_once(
+            200,
+            &[],
+            r#"{"code":0,"data":{"accessToken":"refreshed-access","refreshToken":"refreshed-refresh"}}"#,
+        );
+        let provider = WorkBuddyProvider::for_test_with_session(Some("access-session"), None)
+            .with_test_base_url(&server);
+        let mut credential = provider.load_credentials().unwrap();
+        let mut warnings = Vec::new();
+
+        provider
+            .refresh_auth(&mut credential, &mut warnings)
+            .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+
+        let stored = provider.sessions.load().unwrap().expect("stored session");
+        assert_eq!(stored.access_token, "refreshed-access");
+        assert_eq!(stored.refresh_token.as_deref(), Some("refreshed-refresh"));
+        assert!(
+            !provider.auth_path.exists(),
+            "a Quota01 session must never be written into the WorkBuddy login file"
+        );
+    }
+
+    #[test]
+    fn a_refreshed_login_file_credential_stays_out_of_the_vault() {
+        let server = test_http::serve_once(
+            200,
+            &[],
+            r#"{"code":0,"data":{"accessToken":"refreshed-access","refreshToken":"refreshed-refresh"}}"#,
+        );
+        let provider = WorkBuddyProvider::for_test_with_session(None, Some("access-file"))
+            .with_test_base_url(&server);
+        let mut credential = provider.load_credentials().unwrap();
+        let mut warnings = Vec::new();
+
+        provider
+            .refresh_auth(&mut credential, &mut warnings)
+            .unwrap();
+        assert!(warnings.is_empty(), "{warnings:?}");
+
+        let document: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&provider.auth_path).unwrap()).unwrap();
+        assert_eq!(document["auth"]["accessToken"], "refreshed-access");
+        assert_eq!(document["auth"]["refreshToken"], "refreshed-refresh");
+        assert!(
+            provider.sessions.load().unwrap().is_none(),
+            "a login-file credential must never be written into the vault"
+        );
+    }
+
+    #[test]
+    fn a_stored_session_is_reported_and_cleared_through_the_session_hooks() {
+        let provider = WorkBuddyProvider::for_test_with_session(Some("access-session"), None);
+        assert_eq!(
+            provider.session_status().unwrap().unwrap(),
+            ApiKeyStatus::Saved
+        );
+
+        provider.delete_session().unwrap();
+        assert_eq!(
+            provider.session_status().unwrap().unwrap(),
+            ApiKeyStatus::NotSet
+        );
+    }
+
+    #[test]
+    fn a_provider_without_a_login_file_still_counts_as_having_local_credentials() {
+        let with_session = WorkBuddyProvider::for_test_with_session(Some("access-session"), None);
+        assert!(with_session.has_local_credentials());
+
+        let neither = WorkBuddyProvider::for_test_with_session(None, None);
+        assert!(!neither.has_local_credentials());
+    }
+
+    #[test]
+    fn device_code_auth_reports_the_workbuddy_platform() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+
+        let auth = provider
+            .device_code_auth()
+            .expect("WorkBuddy signs in with a device code");
+
+        assert_eq!(auth.platform, "workbuddy");
+    }
+
+    #[test]
+    fn starting_a_device_code_login_returns_the_challenge_from_the_test_server() {
+        let server = test_http::serve_once(
+            200,
+            &[],
+            &json!({"code": 0, "data": {"state": "st-1", "authUrl": "https://example.test/auth"}})
+                .to_string(),
+        );
+        let provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+
+        let challenge = provider
+            .start_device_code_login()
+            .expect("the test server issues a state");
+
+        assert_eq!(challenge.verification_uri, "https://example.test/auth");
+        assert!(!challenge.login_id.is_empty());
+    }
+
+    #[test]
+    fn a_device_code_login_that_cannot_reach_workbuddy_maps_to_a_network_error() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+
+        let error = provider
+            .start_device_code_login()
+            .expect_err("no server is reachable");
+
+        assert_eq!(error.kind(), ProviderErrorKind::Network);
+    }
+
+    #[test]
+    fn cancelling_a_device_code_login_reports_whether_it_was_active() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+        let login_id = provider.login.register_for_test("st-1");
+
+        assert!(provider.cancel_device_code_login(&login_id));
+        assert!(!provider.cancel_device_code_login(&login_id));
+    }
+
+    #[test]
+    fn a_pending_device_code_poll_reports_not_done_and_stores_nothing() {
+        let server = test_http::serve_once(
+            200,
+            &[],
+            &json!({"code": 12153, "msg": "pending"}).to_string(),
+        );
+        let provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+        let login_id = provider.login.register_for_test("st-1");
+
+        let poll = provider.poll_device_code_login(&login_id);
+
+        assert!(!poll.done);
+        assert_eq!(poll.error, None);
+        assert!(provider.sessions.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn an_unknown_device_code_login_reports_done_with_a_message() {
+        let provider = WorkBuddyProvider::for_test_with_session(None, None);
+
+        let poll = provider.poll_device_code_login("missing");
+
+        assert!(poll.done);
+        let message = poll.error.expect("a failed attempt carries a message");
+        assert!(!message.is_empty());
+        assert!(provider.sessions.load().unwrap().is_none());
+    }
+
+    #[test]
+    fn a_ready_device_code_poll_persists_the_session_and_never_returns_it() {
+        let server = test_http::serve_sequence(&[
+            (
+                200,
+                &json!({
+                    "code": 0,
+                    "data": {
+                        "accessToken": "access-1",
+                        "refreshToken": "refresh-1",
+                        "domain": "www.codebuddy.cn"
+                    }
+                })
+                .to_string(),
+            ),
+            (
+                200,
+                &json!({
+                    "code": 0,
+                    "data": {"uid": "uid-1", "nickname": "Ling"}
+                })
+                .to_string(),
+            ),
+        ]);
+        let provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+        let login_id = provider.login.register_for_test("st-1");
+
+        let poll = provider.poll_device_code_login(&login_id);
+
+        assert!(poll.done);
+        assert_eq!(poll.error, None);
+        let stored = provider
+            .sessions
+            .load()
+            .unwrap()
+            .expect("a ready poll must persist the session");
+        assert_eq!(stored.access_token, "access-1");
+        assert_eq!(stored.refresh_token.as_deref(), Some("refresh-1"));
+        assert_eq!(stored.uid.as_deref(), Some("uid-1"));
+    }
+
+    #[test]
+    fn a_session_that_cannot_be_persisted_is_reported_as_an_error() {
+        let server = test_http::serve_sequence(&[
+            (
+                200,
+                &json!({
+                    "code": 0,
+                    "data": {"accessToken": "access-1", "domain": "www.codebuddy.cn"}
+                })
+                .to_string(),
+            ),
+            (
+                200,
+                &json!({"code": 0, "data": {"uid": "uid-1"}}).to_string(),
+            ),
+        ]);
+        let mut provider =
+            WorkBuddyProvider::for_test_with_session(None, None).with_test_base_url(&server);
+        provider.sessions = failing_session_store();
+        let login_id = provider.login.register_for_test("st-1");
+
+        let poll = provider.poll_device_code_login(&login_id);
+
+        assert!(poll.done);
+        assert!(
+            poll.error.is_some(),
+            "a persistence failure must never be swallowed"
+        );
+    }
+
+    #[test]
+    fn cache_identity_prefers_the_session_and_falls_back_to_the_login_file() {
+        let session_only = WorkBuddyProvider::for_test_with_session(Some("access-session"), None);
+        let file_only = WorkBuddyProvider::for_test_with_session(None, Some("access-file"));
+        let both =
+            WorkBuddyProvider::for_test_with_session(Some("access-session"), Some("access-file"));
+
+        assert_ne!(session_only.cache_identity(), file_only.cache_identity());
+        assert_eq!(both.cache_identity(), session_only.cache_identity());
     }
 }

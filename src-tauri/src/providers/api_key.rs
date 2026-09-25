@@ -1,4 +1,9 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Once},
+};
 
 use crate::models::ApiKeyStatus;
 use zeroize::Zeroizing;
@@ -63,6 +68,68 @@ impl SecretBackend for VaultSecretBackend {
     }
 }
 
+/// 完全绕开系统凭据库的后端：读一律「没有」，写/删一律明确报错。
+///
+/// 用于测试与无头场景（见 [`keychain_disabled`]）：这些场景下凭据只应来自环境变量或
+/// 配置文件，而本地未签名的构建每次重建都会让钥匙串访问许可失效，于是每个条目都会
+/// 弹一次系统授权框。明确报错好过偷偷弹窗——用户能看懂发生了什么。
+struct DisabledSecrets;
+
+impl SecretBackend for DisabledSecrets {
+    fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+        Ok(None)
+    }
+
+    fn exists(&self, _account: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+
+    fn write(&self, _account: &str, _value: &[u8]) -> Result<(), String> {
+        Err(KEYCHAIN_DISABLED_MESSAGE.to_owned())
+    }
+
+    fn delete(&self, _account: &str) -> Result<(), String> {
+        Err(KEYCHAIN_DISABLED_MESSAGE.to_owned())
+    }
+}
+
+const KEYCHAIN_ENVIRONMENT: &str = "QUOTA01_NO_KEYCHAIN";
+const KEYCHAIN_SENTINEL: &str = "~/.config/quota01/no-keychain";
+const KEYCHAIN_DISABLED_MESSAGE: &str = "The system credential store is switched off (no-keychain); supply the credential through an environment variable or the provider's config file instead.";
+
+/// 系统凭据库是否被整体停用：设了 `QUOTA01_NO_KEYCHAIN`，或存在 `~/.config/quota01/no-keychain`。
+///
+/// 存在这两个开关之一时，所有 provider 都只从环境变量/配置文件取凭据，绝不读取或写入
+/// 系统钥匙串，因此本地重建不会再触发授权弹窗。
+pub fn keychain_disabled() -> bool {
+    keychain_disabled_by(
+        std::env::var_os(KEYCHAIN_ENVIRONMENT).as_deref(),
+        &expand_home(KEYCHAIN_SENTINEL),
+    )
+}
+
+/// 判定与真实 IO 分开，好把「什么算停用」钉在测试里。
+fn keychain_disabled_by(flag: Option<&OsStr>, sentinel: &Path) -> bool {
+    if flag.is_some_and(|value| !value.is_empty() && value != "0") {
+        return true;
+    }
+    sentinel.is_file()
+}
+
+fn process_secrets() -> Arc<dyn SecretBackend> {
+    if !keychain_disabled() {
+        return Arc::new(VaultSecretBackend);
+    }
+    static ANNOUNCED: Once = Once::new();
+    ANNOUNCED.call_once(|| {
+        crate::app_info!(
+            "auth",
+            "system credential store is off ({KEYCHAIN_ENVIRONMENT} or {KEYCHAIN_SENTINEL}); credentials come from environment variables and config files only"
+        );
+    });
+    Arc::new(DisabledSecrets)
+}
+
 pub trait EnvironmentReader: Send + Sync {
     fn value(&self, name: &str) -> Option<String>;
 }
@@ -100,6 +167,10 @@ pub struct ApiKeyStore {
     legacy_provider_ids: Vec<String>,
     environment_names: Vec<String>,
     config_paths: Vec<String>,
+    /// 配置文件是否按「整份文档」读取。默认是「一个 key」的语义：从 JSON 里挑
+    /// `apiKey` 一类的字段。WorkBuddy 的凭据是一份会话文档，形状对不上，所以要能
+    /// 把整份文件当凭据，而不是被 `key_from_config` 挑字段挑没了。
+    config_documents: bool,
     secrets: Arc<dyn SecretBackend>,
     environment: Arc<dyn EnvironmentReader>,
     config_files: Arc<dyn ConfigFileReader>,
@@ -134,10 +205,20 @@ impl ApiKeyStore {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect(),
-            secrets: Arc::new(VaultSecretBackend),
+            config_documents: false,
+            secrets: process_secrets(),
             environment: Arc::new(ProcessEnvironment),
             config_files: Arc::new(ProcessConfigFiles),
         }
+    }
+
+    /// 配置文件按整份文档读取，而不是从里面挑一个字段。
+    ///
+    /// 用于凭据本身就是一份文档的 provider：WorkBuddy 的会话是 JSON 文档，
+    /// 被 `key_from_config` 当成 key 信封去挑字段只会挑成空。
+    pub fn with_config_documents(mut self) -> Self {
+        self.config_documents = true;
+        self
     }
 
     #[cfg(test)]
@@ -152,6 +233,7 @@ impl ApiKeyStore {
             legacy_provider_ids: Vec::new(),
             environment_names: vec![environment_name.to_owned()],
             config_paths: Vec::new(),
+            config_documents: false,
             secrets,
             environment,
             config_files: Arc::new(ProcessConfigFiles),
@@ -187,6 +269,7 @@ impl ApiKeyStore {
                 .iter()
                 .map(|value| (*value).to_owned())
                 .collect(),
+            config_documents: false,
             secrets,
             environment,
             config_files,
@@ -286,9 +369,13 @@ impl ApiKeyStore {
 
     fn config_key(&self) -> Option<SecretString> {
         self.config_paths.iter().find_map(|path| {
-            self.config_files
-                .read(path)
-                .and_then(|value| key_from_config(value.as_slice()))
+            self.config_files.read(path).and_then(|value| {
+                if self.config_documents {
+                    document_from_config(value.as_slice())
+                } else {
+                    key_from_config(value.as_slice())
+                }
+            })
         })
     }
 
@@ -331,6 +418,12 @@ fn key_from_config(bytes: &[u8]) -> Option<SecretString> {
     non_empty(text.to_owned())
 }
 
+/// 文档式配置来源：整份文件就是凭据，原样取出（保留它的 JSON 结构）。
+fn document_from_config(bytes: &[u8]) -> Option<SecretString> {
+    let text = std::str::from_utf8(bytes).ok()?.trim();
+    non_empty(text.to_owned())
+}
+
 fn expand_home(path: &str) -> PathBuf {
     let Some(relative) = path.strip_prefix("~/").or_else(|| path.strip_prefix("~\\")) else {
         return PathBuf::from(path);
@@ -365,9 +458,10 @@ mod tests {
     use crate::models::ApiKeyStatus;
 
     use super::{
-        key_from_config, ApiKeyStore, ConfigFileReader, EnvironmentReader, SecretBackend,
-        SecretBytes,
+        key_from_config, keychain_disabled_by, ApiKeyStore, ConfigFileReader, DisabledSecrets,
+        EnvironmentReader, SecretBackend, SecretBytes,
     };
+    use std::ffi::OsStr;
 
     #[derive(Default)]
     struct MemorySecrets(Mutex<HashMap<String, Vec<u8>>>);
@@ -548,6 +642,77 @@ mod tests {
 
         assert!(store.has_credentials());
         assert_eq!(store.status().unwrap(), ApiKeyStatus::Saved);
+    }
+
+    #[test]
+    fn the_keychain_switch_follows_the_environment_and_the_sentinel_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let sentinel = directory.path().join("no-keychain");
+
+        assert!(!keychain_disabled_by(None, &sentinel));
+        assert!(!keychain_disabled_by(Some(OsStr::new("0")), &sentinel));
+        assert!(keychain_disabled_by(Some(OsStr::new("1")), &sentinel));
+
+        std::fs::write(&sentinel, b"").unwrap();
+        assert!(keychain_disabled_by(None, &sentinel));
+    }
+
+    #[test]
+    fn a_disabled_keychain_supplies_nothing_and_refuses_writes() {
+        let store = ApiKeyStore::with_source_backends(
+            "provider",
+            &[],
+            &[],
+            Arc::new(DisabledSecrets),
+            Arc::new(MemoryEnvironment(HashMap::new())),
+            Arc::new(MemoryConfigFiles(HashMap::new())),
+        );
+
+        assert!(!store.has_credentials());
+        assert!(store.load().unwrap().is_none());
+        assert!(
+            store.save("secret").is_err(),
+            "a switched-off keychain must say so instead of silently dropping the secret"
+        );
+    }
+
+    #[test]
+    fn a_document_config_source_keeps_the_whole_file() {
+        // 文档式来源（WorkBuddy 的会话）不能被「挑字段」的语义吃掉：
+        // 同一份内容按 key 语义会取不到任何字段。
+        let document = r#"{"access_token":"access-1","domain":"www.codebuddy.cn"}"#;
+        let config_files = Arc::new(MemoryConfigFiles(HashMap::from([(
+            "~/workbuddy.json".into(),
+            document.as_bytes().to_vec(),
+        )])));
+
+        let as_key = ApiKeyStore::with_source_backends(
+            "workbuddy-cn-session",
+            &[],
+            &["~/workbuddy.json"],
+            Arc::new(MemorySecrets::default()),
+            Arc::new(MemoryEnvironment(HashMap::new())),
+            config_files.clone(),
+        );
+        assert!(as_key.load().unwrap().is_none());
+
+        let as_document = ApiKeyStore::with_source_backends(
+            "workbuddy-cn-session",
+            &[],
+            &["~/workbuddy.json"],
+            Arc::new(MemorySecrets::default()),
+            Arc::new(MemoryEnvironment(HashMap::new())),
+            config_files,
+        )
+        .with_config_documents();
+        assert_eq!(
+            as_document
+                .load()
+                .unwrap()
+                .as_ref()
+                .map(|value| value.as_str()),
+            Some(document)
+        );
     }
 
     #[test]

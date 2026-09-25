@@ -35,6 +35,7 @@ use crate::{
 use std::{
     collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
+    time::{Duration, Instant},
 };
 #[cfg(target_os = "macos")]
 use tauri::{AppHandle, Emitter, EventId, Listener, Manager};
@@ -139,6 +140,9 @@ pub(crate) struct MenubarState {
     click_listeners: Mutex<HashMap<String, EventId>>,
     menu_listeners: Mutex<HashMap<String, EventId>>,
     remove_listeners: Mutex<HashMap<String, EventId>>,
+    /// 被系统确认摘掉的实例（用户 ⌘ 拖出栏）：id -> (摘掉时刻, 本会话已放回次数)。
+    /// 冷却 + 次数上限兜住「放回去 → 又被摘掉」的死循环（系统把项永久隐藏时会发生）。
+    removed: Mutex<HashMap<String, (Instant, u32)>>,
     /// 已附加的右键菜单签名，语言 / provider 名变化时才重建。
     menu_signatures: Mutex<HashMap<String, String>>,
     /// 是否已关闭插件的自动 popup（由本模块自己打开主窗口）。
@@ -154,6 +158,7 @@ impl Default for MenubarState {
             click_listeners: Mutex::new(HashMap::new()),
             menu_listeners: Mutex::new(HashMap::new()),
             remove_listeners: Mutex::new(HashMap::new()),
+            removed: Mutex::new(HashMap::new()),
             menu_signatures: Mutex::new(HashMap::new()),
             global: Mutex::new(false),
         }
@@ -181,7 +186,9 @@ impl MenubarState {
         let mut created = self.created.lock().unwrap_or_else(|e| e.into_inner());
         match created.get(id) {
             None => {
-                let _ = mb.create(id.to_string());
+                // 这几步此前全是 `let _ =`：状态栏项出问题时无法区分「没建出来」还是
+                // 「建了但不可见」，而这正是排查过不去的坎。把创建与可见性结果记下来。
+                let created = mb.create(id.to_string());
                 let _ = mb.set_text(id.to_string(), config.text.0.clone(), config.text.1.clone());
                 let _ = mb.set_line_visible(
                     id.to_string(),
@@ -198,7 +205,25 @@ impl MenubarState {
                 let _ = mb.set_font_sizes(id.to_string(), config.top_size, config.bottom_size);
                 let _ = mb.set_alignment(id.to_string(), config.top_align, config.bottom_align);
                 let _ = mb.set_tooltip(id.to_string(), config.tooltip.clone());
-                let _ = mb.set_visible(id.to_string(), config.visible);
+                let visible = mb.set_visible(id.to_string(), config.visible);
+                crate::app_info!(
+                    "menubar",
+                    "menu bar instance {id}: create={created:?} set_visible({})={visible:?} is_visible={:?}",
+                    config.visible,
+                    mb.is_visible(id.to_string())
+                );
+                // 平台的可见性要等主线程应用完才生效，紧接着读到的可能是旧值；
+                // 再看一眼稳定后的值，才能区分「没生效」和「根本没显示」。
+                let probe_app = app.clone();
+                let probe_id = id.to_string();
+                std::thread::spawn(move || {
+                    std::thread::sleep(std::time::Duration::from_secs(3));
+                    crate::app_info!(
+                        "menubar",
+                        "menu bar instance {probe_id}: settled is_visible={:?}",
+                        probe_app.multiline_menubar().is_visible(probe_id.clone())
+                    );
+                });
             }
             Some(previous) => {
                 if previous.text != config.text {
@@ -248,6 +273,50 @@ impl MenubarState {
             }
         }
         created.insert(id.to_string(), config);
+        drop(created);
+        self.restore_removed(app, id);
+    }
+
+    /// 用户在菜单栏里把项拖出栏后由系统摘掉，这里在下一次对账时把它放回去。
+    /// 不先销毁再从零重建：那会让图标消失一次、菜单栏回流（用户看到的是
+    /// 「旁边那个图标跟着挪」），还会丢掉系统记忆的位置。冷却 5s + 每条实例
+    /// 本会话最多放回 3 次，兜住系统把项永久隐藏时的「放回去 → 又被摘掉」循环。
+    #[cfg(target_os = "macos")]
+    fn restore_removed(&self, app: &AppHandle, id: &str) {
+        const COOLDOWN: Duration = Duration::from_secs(5);
+        const MAX_ATTEMPTS: u32 = 3;
+        let mut removed = self.removed.lock().unwrap_or_else(|e| e.into_inner());
+        let Some((at, attempts)) = removed.get(id).copied() else {
+            return;
+        };
+        if at.elapsed() < COOLDOWN {
+            return;
+        }
+        if attempts >= MAX_ATTEMPTS {
+            // 只在刚触顶时报一次，之后安静 —— 否则每次对账都会刷一遍日志。
+            if attempts == MAX_ATTEMPTS {
+                removed.insert(id.to_string(), (Instant::now(), attempts + 1));
+                drop(removed);
+                crate::app_warn!(
+                    "menubar",
+                    "menu bar instance {id} was removed {MAX_ATTEMPTS} times and stays hidden; \
+                     re-enable it in System Settings > Control Center > menu bar items"
+                );
+            }
+            return;
+        }
+        removed.insert(id.to_string(), (Instant::now(), attempts + 1));
+        drop(removed);
+        match app.multiline_menubar().set_visible(id.to_string(), true) {
+            Ok(()) => crate::app_info!(
+                "menubar",
+                "menu bar instance {id} was restored after being removed"
+            ),
+            Err(error) => crate::app_warn!(
+                "menubar",
+                "menu bar instance {id} could not be restored: {error}"
+            ),
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -480,16 +549,19 @@ impl MenubarState {
         let listener_app = app.clone();
         let listener_id = app.listen(event, move |_event| {
             let menubar = listener_app.state::<MenubarState>();
-            // 只清状态，不把 provider 标记为停用：下次 refresh 对账会重建。
-            let _ = listener_app.multiline_menubar().remove(owner_id.clone());
-            menubar
-                .created
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&owner_id);
-            crate::app_info!(
+            // 只记账，不销毁。早先这里会 `remove()` + 从 `created` 里删掉，
+            // 于是下一次对账从零重建：图标先消失一次、菜单栏回流（用户看到的
+            // 是「旁边那个图标跟着挪」），还会丢掉系统记忆的位置。现在把
+            // 「放回去」交给下一次对账统一处理（见 `restore_removed`）。
+            // 插件侧已用延迟复查过滤瞬时误报，能走到这里的都是确认过的。
+            let mut removed = menubar.removed.lock().unwrap_or_else(|e| e.into_inner());
+            let attempts = removed.get(&owner_id).map_or(0, |(_, n)| *n);
+            removed.insert(owner_id.clone(), (Instant::now(), attempts));
+            drop(removed);
+            crate::app_warn!(
                 "menubar",
-                "menu bar instance {owner_id} was removed by the user"
+                "menu bar instance {owner_id} was confirmed removed by the user; \
+                 it will be restored on the next reconcile"
             );
         });
         registered.insert(instance_id.to_string(), listener_id);
