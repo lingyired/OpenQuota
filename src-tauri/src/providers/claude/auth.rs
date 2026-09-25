@@ -332,7 +332,7 @@ fn load_candidates_with_environment(
     load_candidates_from_path(scope, &credential_path(scope), environment_token)
 }
 
-fn load_candidates_from_path(
+pub(super) fn load_candidates_from_path(
     scope: &ClaudeCredentialScope,
     path: &Path,
     environment_token: Option<String>,

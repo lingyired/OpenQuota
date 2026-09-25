@@ -762,7 +762,10 @@ mod tests {
 
     use super::{
         accounts::{self, ClaudeAccount, ClaudeAccountDiscovery},
-        auth::{ClaudeCredentialScope, ClaudeOAuthConfig},
+        auth::{
+            load_candidates_from_path, ClaudeCredentialGeneration, ClaudeCredentialScope,
+            ClaudeOAuthConfig,
+        },
         client::ClaudeClient,
         definition, definition_for, missing_cli_credential_error, rate_limit_notice,
         runtime_configs, ClaudeError, ClaudeProvider, ClaudeRuntimeConfig,
@@ -826,6 +829,85 @@ mod tests {
             missing_cli_credential_error(&ClaudeCredentialScope::Standard, false),
             ClaudeError::NotLoggedIn
         ));
+    }
+
+    #[test]
+    fn environment_token_does_not_send_a_refresh_request() {
+        let directory = tempdir().unwrap();
+        let credentials_path = directory.path().join(".credentials.json");
+        let original = br#"{"claudeAiOauth":{"accessToken":"file-token","refreshToken":"file-refresh","expiresAt":1,"scopes":["user:profile"]}}"#;
+        fs::write(&credentials_path, original).unwrap();
+        let scope = ClaudeCredentialScope::Standard;
+        let candidates =
+            load_candidates_from_path(&scope, &credentials_path, Some("environment-token".into()));
+        let mut environment = candidates
+            .iter()
+            .find(|candidate| candidate.access_token() == Some("environment-token"))
+            .unwrap()
+            .clone();
+        assert!(environment.needs_refresh(Utc::now().timestamp_millis()));
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let refresh_url = format!("http://{}/token", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let request_counter = thread::spawn(move || {
+            let deadline = std::time::Instant::now() + StdDuration::from_millis(500);
+            loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut request = [0_u8; 1024];
+                        let _ = stream.read(&mut request);
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            )
+                            .unwrap();
+                        return 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            return 0;
+                        }
+                        thread::sleep(StdDuration::from_millis(5));
+                    }
+                    Err(error) => panic!("refresh listener failed: {error}"),
+                }
+            }
+        });
+
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
+        let provider = ClaudeProvider::new_scoped(
+            ClaudeRuntimeConfig {
+                definition: definition(),
+                credential_scope: scope.clone(),
+                account_identity: None,
+                log_roots: Vec::new(),
+                include_standard_logs: false,
+                include_pi: false,
+            },
+            storage,
+            pricing.clone(),
+            ClaudeClient::new().unwrap(),
+        );
+        let config = ClaudeOAuthConfig {
+            usage_url: format!("{refresh_url}/usage"),
+            refresh_url,
+            client_id: "test-client".into(),
+        };
+
+        let result = provider.refresh_candidate(
+            &mut environment,
+            &config,
+            Utc::now(),
+            &pricing.current(),
+            &mut ClaudeCredentialGeneration::from_candidates(&candidates),
+        );
+        let requests = request_counter.join().unwrap();
+
+        assert_eq!(requests, 0);
+        assert!(result.is_ok());
+        assert_eq!(fs::read(credentials_path).unwrap(), original);
     }
 
     #[test]
