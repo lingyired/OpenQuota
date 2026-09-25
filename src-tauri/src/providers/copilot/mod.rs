@@ -107,9 +107,23 @@ pub(crate) fn definition() -> ProviderDefinition {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(super) enum CopilotError {
-    #[error("Sign in to GitHub Copilot in your editor, or run `gh auth login`, and try again.")]
+    #[cfg_attr(
+        target_os = "macos",
+        error("Sign in to GitHub Copilot in your editor or configure an oauth_token in gh hosts.yml, then try again.")
+    )]
+    #[cfg_attr(
+        not(target_os = "macos"),
+        error("Sign in to GitHub Copilot in your editor, or run `gh auth login`, and try again.")
+    )]
     NotLoggedIn,
-    #[error("Your GitHub token is invalid or expired. Run `gh auth login` and try again.")]
+    #[cfg_attr(
+        target_os = "macos",
+        error("Your GitHub token is invalid or expired. Sign in again in your editor or update gh hosts.yml.")
+    )]
+    #[cfg_attr(
+        not(target_os = "macos"),
+        error("Your GitHub token is invalid or expired. Run `gh auth login` and try again.")
+    )]
     InvalidToken,
     #[error("Could not reach GitHub. Check your internet connection.")]
     ConnectionFailed,
@@ -729,6 +743,9 @@ mod tests {
         .refresh()
         .unwrap_err();
         assert_eq!(missing.kind(), ProviderErrorKind::Authentication);
+        #[cfg(target_os = "macos")]
+        assert!(missing.to_string().contains("hosts.yml"));
+        #[cfg(not(target_os = "macos"))]
         assert!(missing.to_string().contains("gh auth login"));
 
         for status in [401, 403] {
@@ -910,8 +927,8 @@ mod tests {
     }
 
     #[test]
-    fn github_cli_only_credentials_are_ignored_by_detection_but_used_by_refresh() {
-        let server = usage_sequence_server(vec![(200, paid_body())]);
+    fn direct_hosts_yaml_token_is_detected_and_used_by_refresh() {
+        let server = usage_sequence_server(vec![(200, paid_body()), (200, paid_body())]);
         let provider = CopilotProvider::with_dependencies(
             CopilotAuthStore::for_test_gh_token("gh-token"),
             CopilotClient::for_test(
@@ -922,7 +939,7 @@ mod tests {
             ),
         );
 
-        assert!(!provider.has_local_credentials());
+        assert!(provider.has_local_credentials());
         assert!(provider.refresh().is_ok());
         server.finish();
     }
