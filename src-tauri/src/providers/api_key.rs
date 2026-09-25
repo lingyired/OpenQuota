@@ -1,4 +1,9 @@
-use std::{fs, path::PathBuf, sync::Arc};
+use std::{
+    ffi::OsStr,
+    fs,
+    path::{Path, PathBuf},
+    sync::{Arc, Once},
+};
 
 use crate::models::ApiKeyStatus;
 use zeroize::Zeroizing;
@@ -61,6 +66,68 @@ impl SecretBackend for VaultSecretBackend {
     fn delete(&self, account: &str) -> Result<(), String> {
         credential_vault::delete(account)
     }
+}
+
+/// 完全绕开系统凭据库的后端：读一律「没有」，写/删一律明确报错。
+///
+/// 用于测试与无头场景（见 [`keychain_disabled`]）：这些场景下凭据只应来自环境变量或
+/// 配置文件，而本地未签名的构建每次重建都会让钥匙串访问许可失效，于是每个条目都会
+/// 弹一次系统授权框。明确报错好过偷偷弹窗——用户能看懂发生了什么。
+struct DisabledSecrets;
+
+impl SecretBackend for DisabledSecrets {
+    fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+        Ok(None)
+    }
+
+    fn exists(&self, _account: &str) -> Result<bool, String> {
+        Ok(false)
+    }
+
+    fn write(&self, _account: &str, _value: &[u8]) -> Result<(), String> {
+        Err(KEYCHAIN_DISABLED_MESSAGE.to_owned())
+    }
+
+    fn delete(&self, _account: &str) -> Result<(), String> {
+        Err(KEYCHAIN_DISABLED_MESSAGE.to_owned())
+    }
+}
+
+const KEYCHAIN_ENVIRONMENT: &str = "QUOTA01_NO_KEYCHAIN";
+const KEYCHAIN_SENTINEL: &str = "~/.config/quota01/no-keychain";
+const KEYCHAIN_DISABLED_MESSAGE: &str = "The system credential store is switched off (no-keychain); supply the credential through an environment variable or the provider's config file instead.";
+
+/// 系统凭据库是否被整体停用：设了 `QUOTA01_NO_KEYCHAIN`，或存在 `~/.config/quota01/no-keychain`。
+///
+/// 存在这两个开关之一时，所有 provider 都只从环境变量/配置文件取凭据，绝不读取或写入
+/// 系统钥匙串，因此本地重建不会再触发授权弹窗。
+pub fn keychain_disabled() -> bool {
+    keychain_disabled_by(
+        std::env::var_os(KEYCHAIN_ENVIRONMENT).as_deref(),
+        &expand_home(KEYCHAIN_SENTINEL),
+    )
+}
+
+/// 判定与真实 IO 分开，好把「什么算停用」钉在测试里。
+fn keychain_disabled_by(flag: Option<&OsStr>, sentinel: &Path) -> bool {
+    if flag.is_some_and(|value| !value.is_empty() && value != "0") {
+        return true;
+    }
+    sentinel.is_file()
+}
+
+fn process_secrets() -> Arc<dyn SecretBackend> {
+    if !keychain_disabled() {
+        return Arc::new(VaultSecretBackend);
+    }
+    static ANNOUNCED: Once = Once::new();
+    ANNOUNCED.call_once(|| {
+        crate::app_info!(
+            "auth",
+            "system credential store is off ({KEYCHAIN_ENVIRONMENT} or {KEYCHAIN_SENTINEL}); credentials come from environment variables and config files only"
+        );
+    });
+    Arc::new(DisabledSecrets)
 }
 
 pub trait EnvironmentReader: Send + Sync {
@@ -139,7 +206,7 @@ impl ApiKeyStore {
                 .map(|value| (*value).to_owned())
                 .collect(),
             config_documents: false,
-            secrets: Arc::new(VaultSecretBackend),
+            secrets: process_secrets(),
             environment: Arc::new(ProcessEnvironment),
             config_files: Arc::new(ProcessConfigFiles),
         }
@@ -391,9 +458,10 @@ mod tests {
     use crate::models::ApiKeyStatus;
 
     use super::{
-        key_from_config, ApiKeyStore, ConfigFileReader, EnvironmentReader, SecretBackend,
-        SecretBytes,
+        key_from_config, keychain_disabled_by, ApiKeyStore, ConfigFileReader, DisabledSecrets,
+        EnvironmentReader, SecretBackend, SecretBytes,
     };
+    use std::ffi::OsStr;
 
     #[derive(Default)]
     struct MemorySecrets(Mutex<HashMap<String, Vec<u8>>>);
@@ -574,6 +642,38 @@ mod tests {
 
         assert!(store.has_credentials());
         assert_eq!(store.status().unwrap(), ApiKeyStatus::Saved);
+    }
+
+    #[test]
+    fn the_keychain_switch_follows_the_environment_and_the_sentinel_file() {
+        let directory = tempfile::tempdir().unwrap();
+        let sentinel = directory.path().join("no-keychain");
+
+        assert!(!keychain_disabled_by(None, &sentinel));
+        assert!(!keychain_disabled_by(Some(OsStr::new("0")), &sentinel));
+        assert!(keychain_disabled_by(Some(OsStr::new("1")), &sentinel));
+
+        std::fs::write(&sentinel, b"").unwrap();
+        assert!(keychain_disabled_by(None, &sentinel));
+    }
+
+    #[test]
+    fn a_disabled_keychain_supplies_nothing_and_refuses_writes() {
+        let store = ApiKeyStore::with_source_backends(
+            "provider",
+            &[],
+            &[],
+            Arc::new(DisabledSecrets),
+            Arc::new(MemoryEnvironment(HashMap::new())),
+            Arc::new(MemoryConfigFiles(HashMap::new())),
+        );
+
+        assert!(!store.has_credentials());
+        assert!(store.load().unwrap().is_none());
+        assert!(
+            store.save("secret").is_err(),
+            "a switched-off keychain must say so instead of silently dropping the secret"
+        );
     }
 
     #[test]
