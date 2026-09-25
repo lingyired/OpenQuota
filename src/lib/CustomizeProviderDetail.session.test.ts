@@ -9,7 +9,8 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 
 const catalogData: ProviderCatalog = {
-  webviewAuthProviderIds: ['trae-cn', 'deepseek', 'workbuddy-cn'],
+  webviewAuthProviderIds: ['trae-cn', 'deepseek'],
+  deviceCodeSignInProviderIds: ['workbuddy-cn'],
   providers: [
     {
       id: 'trae-cn',
@@ -218,7 +219,7 @@ describe('CustomizeProviderDetail session authentication', () => {
     });
   });
 
-  it('renders the WebView session controls for WorkBuddy instead of API-key controls', async () => {
+  it('renders the device-code sign-in panel when the provider declares that capability', async () => {
     render(CustomizeProviderDetail, {
       settings,
       providerId: 'workbuddy-cn',
@@ -231,11 +232,10 @@ describe('CustomizeProviderDetail session authentication', () => {
       reducedMotion: true,
     });
 
-    // WorkBuddy 复用 Trae 那套 webview 登录：Open Sign-In → 关窗抓取 → Connected。
     expect(
       await screen.findByRole('region', { name: 'Workbuddy CN Connection' }),
     ).toBeInTheDocument();
-    expect(await screen.findByRole('button', { name: 'Open Sign-In' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
     expect(mocks.invoke).toHaveBeenCalledWith('get_provider_session_state', {
       providerId: 'workbuddy-cn',
     });

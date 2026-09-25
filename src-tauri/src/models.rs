@@ -654,6 +654,8 @@ pub struct ProviderCatalog {
     pub api_key_provider_ids: Vec<String>,
     #[serde(default)]
     pub webview_auth_provider_ids: Vec<String>,
+    #[serde(default)]
+    pub device_code_sign_in_provider_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -991,6 +993,29 @@ pub struct SettingsViewState {
     pub integration_error: Option<String>,
     pub tray_available: bool,
     pub platform_summary: Option<String>,
+}
+
+/// 设备码登录的开始结果：只带前端展示所必需的信息。
+///
+/// `login_id` 是 Quota01 自己生成的句柄，与服务器下发的 `state` 分开保存，
+/// 前端因此永远拿不到可以直接换 token 的 `state`。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceCodeChallenge {
+    pub login_id: String,
+    pub verification_uri: String,
+    pub expires_in: u64,
+}
+
+/// 设备码登录的轮询结果，会原样发给前端。
+///
+/// 这里刻意不放会话：token 只在 Rust 内部流转，绝不经过前端。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DeviceCodePoll {
+    pub done: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 #[cfg(test)]

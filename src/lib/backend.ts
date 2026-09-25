@@ -4,6 +4,8 @@ import type {
   ApiKeyMutationOutcome,
   AppSettings,
   BootstrapState,
+  DeviceCodeChallenge,
+  DeviceCodePoll,
   ProviderApiKeyState,
   ResetClaimOutcome,
   SettingsViewState,
@@ -67,6 +69,18 @@ export function captureProviderSession(providerId: string) {
 
 export function deleteProviderSession(providerId: string) {
   return invoke<ProviderApiKeyState>('delete_provider_session', { providerId });
+}
+
+export function startProviderLogin(providerId: string) {
+  return invoke<DeviceCodeChallenge>('start_provider_login', { providerId });
+}
+
+export function pollProviderLogin(providerId: string, loginId: string) {
+  return invoke<DeviceCodePoll>('poll_provider_login', { providerId, loginId });
+}
+
+export function cancelProviderLogin(providerId: string, loginId: string) {
+  return invoke<boolean>('cancel_provider_login', { providerId, loginId });
 }
 
 export interface ProviderSessionWindowClosed {

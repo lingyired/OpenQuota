@@ -36,37 +36,19 @@ pub(crate) use registry::normalize_default_pins;
 pub use registry::ProviderRegistry;
 #[cfg(test)]
 pub(crate) use registry::{
-    test_definition, SessionOnlyStubProvider, StubProvider, WebviewStubProvider,
+    test_definition, DeviceCodeStubProvider, StubProvider, WebviewStubProvider,
+    DEVICE_CODE_FAILED_LOGIN_ID, DEVICE_CODE_LOGIN_ID,
 };
 
-use crate::models::{ApiKeyStatus, ProviderDefinition, ProviderErrorKind, ProviderSnapshot};
+use crate::models::{
+    ApiKeyStatus, DeviceCodeChallenge, DeviceCodePoll, ProviderDefinition, ProviderErrorKind,
+    ProviderSnapshot,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum WebviewCredentialSource {
-    Cookie {
-        name: String,
-    },
-    LocalStorage {
-        key: String,
-    },
-    /// 登录页把凭据放在 `sessionStorage` 里（CodeBuddy 的 usercenter 用
-    /// `growth-center-token`）。它随窗口一起销毁，必须在关窗前读走。
-    SessionStorage {
-        key: String,
-    },
-}
-
-impl WebviewCredentialSource {
-    /// 该来源是否只能在登录窗口还活着时读取。
-    ///
-    /// `sessionStorage` 是窗口级的，窗口一关就没了，所以关闭请求必须先被拦下、
-    /// 等抓取完成再真正关闭。cookie 存在 webview 的 cookie jar 里，关窗后仍可读。
-    pub fn requires_capture_before_close(&self) -> bool {
-        matches!(
-            self,
-            Self::LocalStorage { .. } | Self::SessionStorage { .. }
-        )
-    }
+    Cookie { name: String },
+    LocalStorage { key: String },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,6 +56,14 @@ pub struct WebviewAuth {
     pub login_url: String,
     pub credential: WebviewCredentialSource,
     pub window_label: String,
+}
+
+/// 设备码登录的描述：`platform` 是申请 state 时上报的产品标识。
+/// 具体流程（申请 state、轮询换 token、取账号资料）留在 provider 内部，
+/// 前端只拿句柄和展示信息，永远碰不到 `state` 或 token。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeviceCodeAuth {
+    pub platform: String,
 }
 
 pub fn provider_family(provider_id: &str) -> &str {
@@ -212,6 +202,32 @@ pub trait UsageProvider: Send + Sync {
         None
     }
 
+    /// 设备码登录的能力声明。`None` 表示这个 provider 不走设备码，
+    /// registry 据此生成 `device_code_sign_in_provider_ids`，前端也据此决定是否显示登录面板。
+    fn device_code_auth(&self) -> Option<DeviceCodeAuth> {
+        None
+    }
+
+    fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
+        Err(ProviderError::new(
+            ProviderErrorKind::Internal,
+            "That provider does not use a device-code sign-in.",
+        ))
+    }
+
+    /// 轮询只回传「是否完成」和错误文案：会话在 provider 内部落库，
+    /// token 绝不经过这条线进入前端。
+    fn poll_device_code_login(&self, _login_id: &str) -> DeviceCodePoll {
+        DeviceCodePoll {
+            done: true,
+            error: Some("That provider does not use a device-code sign-in.".to_owned()),
+        }
+    }
+
+    fn cancel_device_code_login(&self, _login_id: &str) -> bool {
+        false
+    }
+
     fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
         None
     }
@@ -266,7 +282,6 @@ mod tests {
     use super::{
         antigravity, claude, codex, copilot, cursor, deepseek, grok, infini, kimi, minimax,
         opencode, openrouter, remember_default_account, siliconflow, trae, zai, ProviderError,
-        WebviewCredentialSource,
     };
     use crate::models::ProviderErrorKind;
     use tempfile::tempdir;
@@ -474,20 +489,6 @@ mod tests {
                 "Dashboard".into(),
                 "https://www.trae.cn/account-setting#usage".into()
             )]
-        );
-    }
-
-    #[test]
-    fn session_storage_must_be_captured_before_the_sign_in_window_closes() {
-        // sessionStorage 随窗口一起销毁，所以「关窗前先抓取」这条守卫必须覆盖它，
-        // 否则关窗那一刻凭据已经不存在了；cookie 存在 webview 的 cookie jar 里，
-        // 关窗后仍可读。
-        assert!(WebviewCredentialSource::SessionStorage { key: "t".into() }
-            .requires_capture_before_close());
-        assert!(WebviewCredentialSource::LocalStorage { key: "t".into() }
-            .requires_capture_before_close());
-        assert!(
-            !WebviewCredentialSource::Cookie { name: "c".into() }.requires_capture_before_close()
         );
     }
 }

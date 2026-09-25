@@ -483,6 +483,17 @@ export const ja = {
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
     workbuddyCredentialsEncrypted:
       'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.',
+    workbuddyUntrustedDomain:
+      'WorkBuddy returned credentials for an untrusted domain ({domain}). Sign in again.',
+    workbuddyCredentialsWithoutDomain:
+      'WorkBuddy returned credentials without a domain. Sign in again.',
+    workbuddySignInAttemptUnknown: 'This WorkBuddy sign-in attempt is unknown. Start again.',
+    workbuddySignInAttemptInactive:
+      'This WorkBuddy sign-in attempt is no longer active. Start again.',
+    workbuddySignInAttemptExpired: 'This WorkBuddy sign-in attempt expired. Start again.',
+    deviceCodeUnsupported: 'That provider does not use a device-code sign-in.',
+    signInCouldNotStart: 'The sign-in could not be started.',
+    signInStatusUnreadable: 'The sign-in status could not be read.',
     noSavedConnection: 'That provider does not have a saved connection.',
     openCodeGoSubscriptionRequired: 'OpenCode Go subscription required.',
     notLoggedInCursor: 'Not logged in. Sign in via Cursor app or run `agent login`.',
@@ -665,6 +676,16 @@ export const ja = {
     disconnect: 'Disconnect',
     disconnecting: 'Disconnecting…',
     hint: 'Sign in in the window that opens. Quota01 will connect automatically when you close it.',
+    startSignIn: 'Start Sign-In',
+    waitingForSignIn: 'Waiting for confirmation…',
+    deviceCodeHint:
+      'Open the authorization link and confirm the sign-in there. This panel shows the sign-in Quota01 owns; an existing local WorkBuddy or CodeBuddy login keeps working as a fallback.',
+    fallbackHint:
+      'This status shows the sign-in Quota01 owns. An existing local WorkBuddy or CodeBuddy login keeps working as a fallback.',
+    verificationUri: 'Authorization link',
+    cancel: 'Cancel',
+    expired: 'This sign-in attempt expired. Start again.',
+    signInError: 'The sign-in could not be completed. Try again.',
     loadError: 'Connection status could not be loaded.',
     captureError: 'The sign-in could not be completed. Make sure you are signed in and try again.',
     disconnectError: 'The saved connection could not be removed.',

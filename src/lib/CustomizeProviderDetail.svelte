@@ -17,6 +17,7 @@
   } from './types';
   import Icon from './Icon.svelte';
   import ProviderApiKeySection from './ProviderApiKeySection.svelte';
+  import ProviderDeviceCodeLogin from './ProviderDeviceCodeLogin.svelte';
   import ProviderSessionSection from './ProviderSessionSection.svelte';
   import ProviderNameSection from './ProviderNameSection.svelte';
   import { reorderFlip } from './motion';
@@ -441,7 +442,20 @@
         </div>
       </div>
     {/if}
-    {#if catalog.supportsWebviewAuth(provider.id)}
+    {#if catalog.supportsDeviceCodeSignIn(provider.id)}
+      <section
+        class="session-section"
+        aria-label={`${providerDisplayName(provider.id)} ${$tStore('providerSession.title')}`}
+      >
+        <h2>{$tStore('providerSession.title')}</h2>
+        <div class="session-card">
+          <ProviderDeviceCodeLogin
+            providerId={provider.id}
+            providerName={providerDisplayName(provider.id)}
+          />
+        </div>
+      </section>
+    {:else if catalog.supportsWebviewAuth(provider.id)}
       <ProviderSessionSection
         providerId={provider.id}
         providerName={providerDisplayName(provider.id)}

@@ -112,34 +112,14 @@ fn envelope_value(value: &serde_json::Value) -> Option<String> {
     }
 }
 
-/// 登录页可能把凭据放进哪种 web storage。两者读法一致，只是对象不同；
-/// `sessionStorage` 随窗口销毁，所以它必须在关窗前抓取（见
-/// `WebviewCredentialSource::requires_capture_before_close`）。
-#[derive(Clone, Copy)]
-enum WebStorage {
-    Local,
-    Session,
-}
-
-impl WebStorage {
-    fn object(self) -> &'static str {
-        match self {
-            Self::Local => "localStorage",
-            Self::Session => "sessionStorage",
-        }
-    }
-}
-
-async fn read_web_storage_session(
+async fn read_local_storage_session(
     window: &tauri::WebviewWindow,
-    storage: WebStorage,
     storage_key: &str,
 ) -> Result<Zeroizing<String>, String> {
     let key = serde_json::to_string(storage_key)
         .map_err(|_| "The provider sign-in could not be read.".to_owned())?;
-    let object = storage.object();
     let script = format!(
-        "(() => {{ try {{ return window.{object}.getItem({key}); }} catch (_) {{ return null; }} }})()"
+        "(() => {{ try {{ return window.localStorage.getItem({key}); }} catch (_) {{ return null; }} }})()"
     );
     let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
     window
@@ -162,25 +142,20 @@ async fn read_provider_session(
     match &auth.credential {
         WebviewCredentialSource::Cookie { name } => read_cookie_session(window, name),
         WebviewCredentialSource::LocalStorage { key } => {
-            read_web_storage_session(window, WebStorage::Local, key).await
-        }
-        WebviewCredentialSource::SessionStorage { key } => {
-            read_web_storage_session(window, WebStorage::Session, key).await
+            read_local_storage_session(window, key).await
         }
     }
 }
 
-fn remove_web_storage_session(
+fn remove_local_storage_session(
     window: &tauri::WebviewWindow,
-    storage: WebStorage,
     storage_key: &str,
 ) -> Result<(), String> {
     let key = serde_json::to_string(storage_key)
         .map_err(|_| "The provider WebView session could not be removed.".to_owned())?;
-    let object = storage.object();
     window
         .eval(format!(
-            "try {{ window.{object}.removeItem({key}); }} catch (_) {{}}"
+            "try {{ window.localStorage.removeItem({key}); }} catch (_) {{}}"
         ))
         .map_err(|_| "The provider WebView session could not be removed.".to_owned())
 }
@@ -410,7 +385,10 @@ pub fn open_provider_webview_login(
     let event_credential = auth.credential.clone();
     window.on_window_event(move |event| match event {
         WindowEvent::CloseRequested { api, .. }
-            if event_credential.requires_capture_before_close() =>
+            if matches!(
+                &event_credential,
+                WebviewCredentialSource::LocalStorage { .. }
+            ) =>
         {
             let Some(close_guard) = event_app.try_state::<ProviderSessionCloseGuard>() else {
                 return;
@@ -486,8 +464,7 @@ async fn capture_provider_session_inner(
         WebviewCredentialSource::Cookie { .. } => login_window
             .clone()
             .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW)),
-        WebviewCredentialSource::LocalStorage { .. }
-        | WebviewCredentialSource::SessionStorage { .. } => login_window.clone(),
+        WebviewCredentialSource::LocalStorage { .. } => login_window.clone(),
     }
     .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
     let session = match read_provider_session(&session_window, &auth).await {
@@ -601,12 +578,7 @@ pub async fn delete_provider_session(
             }
             WebviewCredentialSource::LocalStorage { key } => {
                 if let Some(window) = login_window.as_ref() {
-                    remove_web_storage_session(window, WebStorage::Local, key)?;
-                }
-            }
-            WebviewCredentialSource::SessionStorage { key } => {
-                if let Some(window) = login_window.as_ref() {
-                    remove_web_storage_session(window, WebStorage::Session, key)?;
+                    remove_local_storage_session(window, key)?;
                 }
             }
         }
@@ -825,8 +797,8 @@ mod tests {
             ProviderErrorKind, ProviderLink, ProviderSnapshot,
         },
         providers::{
-            test_definition, ProviderError, ProviderRegistry, SessionOnlyStubProvider,
-            StubProvider, UsageProvider, WebviewStubProvider,
+            test_definition, DeviceCodeStubProvider, ProviderError, ProviderRegistry, StubProvider,
+            UsageProvider, WebviewStubProvider,
         },
     };
 
@@ -1014,9 +986,9 @@ mod tests {
 
     #[test]
     fn a_stored_session_without_a_webview_can_still_disconnect() {
-        // 会话存在 Quota01 自己的 vault 里（WorkBuddy 就是这种形状）：清理 WebView
-        // 没意义，但断开连接必须照常走到 delete_session。
-        let runtime = SessionOnlyStubProvider(test_definition("session-only"));
+        // 设备码登录的 provider（WorkBuddy）没有 WebView：会话在 Quota01 自己的
+        // vault 里，清理 WebView 没意义，但断开连接必须照常走到 delete_session。
+        let runtime = DeviceCodeStubProvider(test_definition("device-code"));
 
         assert_eq!(disconnect_webview_auth(&runtime), Ok(None));
     }

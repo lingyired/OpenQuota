@@ -136,8 +136,31 @@ describe('translation helpers', () => {
     );
   });
 
-  it('translates the remaining WorkBuddy backend messages', async () => {
+  it('translates the WorkBuddy sign-in and device-code backend messages', async () => {
     await switchLocale('zh-CN');
+    expect(
+      tBackend(
+        'WorkBuddy returned credentials for an untrusted domain (evil.example). Sign in again.',
+      ),
+    ).toBe('WorkBuddy 返回了不受信任域名（evil.example）的凭据。请重新登录。');
+    expect(tBackend('WorkBuddy returned credentials without a domain. Sign in again.')).toBe(
+      'WorkBuddy 返回的凭据缺少域名。请重新登录。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt is unknown. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试未知。请重新开始。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt is no longer active. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试已不再有效。请重新开始。',
+    );
+    expect(tBackend('This WorkBuddy sign-in attempt expired. Start again.')).toBe(
+      '此 WorkBuddy 登录尝试已过期。请重新开始。',
+    );
+    expect(tBackend('That provider does not use a device-code sign-in.')).toBe(
+      '该提供方不使用设备码登录。',
+    );
+    expect(tBackend('The sign-in could not be started.')).toBe('无法启动登录。');
+    expect(tBackend('The sign-in status could not be read.')).toBe('无法读取登录状态。');
+    expect(tBackend('Could not reach WorkBuddy.')).toBe('无法访问 WorkBuddy。请检查你的网络连接。');
     expect(tBackend('That provider does not have a saved connection.')).toBe(
       '该提供方没有已保存的连接。',
     );
