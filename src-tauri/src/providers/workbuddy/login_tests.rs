@@ -363,6 +363,38 @@ fn the_profile_request_carries_the_bearer_token_and_the_domain() {
     );
 }
 
+/// 客户端不跟随重定向：换 token 的请求带着服务端 state，取资料的请求还带着刚签发的
+/// bearer token，一个 3xx 就足以把凭据转发到域名白名单从未批准的主机。
+/// 重定向目标是一台「只要被访问就返回一份可用 token」的服务器：
+/// 一旦客户端跟随重定向，这次轮询会变成 Ready，而不是停留在 Pending。
+#[test]
+fn a_redirect_response_is_not_followed() {
+    let target = test_http::serve_once(
+        200,
+        &[],
+        &json!({
+            "code": 0,
+            "data": {"accessToken": "leaked", "domain": "www.codebuddy.cn"}
+        })
+        .to_string(),
+    );
+    let server = test_http::serve_once(
+        302,
+        &[(
+            "Location",
+            &format!("{target}/v2/plugin/auth/token?state=st-1"),
+        )],
+        "",
+    );
+    let login = DeviceCodeLogin::for_test(&server);
+    let login_id = login.register_for_test("st-1");
+
+    assert!(
+        matches!(login.poll(&login_id), LoginPoll::Pending),
+        "a redirect must be a plain non-success response, never a followed request"
+    );
+}
+
 #[test]
 fn polling_a_response_without_a_token_stays_pending() {
     let server = test_http::serve_once(

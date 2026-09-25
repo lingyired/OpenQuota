@@ -177,6 +177,24 @@ mod tests {
         }
     }
 
+    /// 一个永远失败的 vault 后端：`save` 的失败路径正是登录成功后落库时决定
+    /// 「已连接」还是「失败」的地方，必须在 store 这一层被钉住。
+    struct FailingSecrets;
+
+    impl SecretBackend for FailingSecrets {
+        fn read(&self, _account: &str) -> Result<Option<SecretBytes>, String> {
+            Err("The system credential store is unavailable.".to_owned())
+        }
+
+        fn write(&self, _account: &str, _value: &[u8]) -> Result<(), String> {
+            Err("The system credential store is unavailable.".to_owned())
+        }
+
+        fn delete(&self, _account: &str) -> Result<(), String> {
+            Err("The system credential store is unavailable.".to_owned())
+        }
+    }
+
     /// 内存后端，绝不触碰用户真实的加密 vault（沿用 deepseek / trae 测试的做法）。
     fn store(value: Option<&str>) -> WorkBuddySessionStore {
         let secrets = std::sync::Arc::new(MemorySecrets(std::sync::Mutex::new(
@@ -188,6 +206,52 @@ mod tests {
             secrets,
             std::sync::Arc::new(EmptyEnvironment),
         ))
+    }
+
+    /// 校验发生在写入之前：被 `from_json` 拒绝的文档必须原样退回，
+    /// 不能以任何形式落到 vault 里（否则一次被拒绝的保存会污染已存会话的状态）。
+    #[test]
+    fn a_rejected_save_leaves_the_vault_untouched() {
+        for document in [r#"{"access_token":"  "}"#, r#"{"refresh_token":"r"}"#] {
+            let subject = store(None);
+
+            assert!(matches!(
+                subject.save(document),
+                Err(WorkBuddySessionError::Malformed)
+            ));
+            assert_eq!(subject.status().unwrap(), ApiKeyStatus::NotSet);
+            assert_eq!(subject.load().unwrap(), None);
+        }
+    }
+
+    /// vault 的读 / 写 / 删失败一律映射成 `Storage`，而不是 `Malformed`：
+    /// 两者在界面上是「凭据存储不可用」与「登录数据无效」两种不同的出路。
+    #[test]
+    fn a_vault_failure_maps_to_storage_at_the_store_level() {
+        let subject = WorkBuddySessionStore::with_store(ApiKeyStore::with_backends(
+            VAULT_ACCOUNT,
+            "WORKBUDDY_SESSION",
+            std::sync::Arc::new(FailingSecrets),
+            std::sync::Arc::new(EmptyEnvironment),
+        ));
+        let document = session().to_json().unwrap();
+
+        assert!(matches!(
+            subject.save(&document),
+            Err(WorkBuddySessionError::Storage)
+        ));
+        assert!(matches!(
+            subject.load(),
+            Err(WorkBuddySessionError::Storage)
+        ));
+        assert!(matches!(
+            subject.status(),
+            Err(WorkBuddySessionError::Storage)
+        ));
+        assert!(matches!(
+            subject.delete(),
+            Err(WorkBuddySessionError::Storage)
+        ));
     }
 
     #[test]

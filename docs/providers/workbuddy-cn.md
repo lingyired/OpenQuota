@@ -38,6 +38,10 @@ still reads that file when it exists and Quota01 has no session of its own, so a
 keeps working without any action. WorkBuddy 5.6 and later write the tokens into that file as an
 encrypted envelope instead, which Quota01 cannot read; for those releases, sign in from Quota01.
 
+The sign-in panel reports only the session Quota01 itself holds. While the local login file is the
+source that is supplying data, the cards keep showing usage, but the panel reads as not connected
+and offers **Start Sign-In**; signing in from Quota01 moves the account onto Quota01's own session.
+
 ## Troubleshooting
 
 - **Not logged in** — choose **Start Sign-In** on the WorkBuddy card and confirm the sign-in in

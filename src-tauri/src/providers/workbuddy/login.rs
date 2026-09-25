@@ -66,6 +66,11 @@ impl DeviceCodeLogin {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
+            // 绝不跟随重定向：取资料的请求带着刚签发的 bearer token，换 token 的请求带着
+            // 服务端 state，而 3xx 的 Location 指向哪台主机由响应决定。跟随它等于把凭据交给
+            // 域名白名单从未批准的目的地；不跟随则 3xx 只是一个普通的不成功响应，
+            // poll 保持 Pending、start 报失败。
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent(USER_AGENT)
             .build()
             .map_err(|_| WorkBuddyLoginError::Connection)?;

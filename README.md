@@ -67,7 +67,8 @@ systems for China and the rest of the world, both are listed as separate provide
 - **[TraeWork CN](docs/providers/trae-work-cn.md)** — available Trae credits through secure WebView sign-in
 - **[Workbuddy CN](docs/providers/workbuddy-cn.md)** — credit packages, available credits, and usage
   history through browser sign-in in Quota01 (no API key), with the local WorkBuddy or CodeBuddy
-  login as a fallback
+  login as a fallback; that fallback keeps the cards working, while the sign-in panel reports only
+  the session Quota01 itself holds
 - **[Z.ai CN](docs/providers/zai-cn.md)** — GLM Coding Plan session, weekly, and web-search quotas on
   `open.bigmodel.cn` (API key)
 

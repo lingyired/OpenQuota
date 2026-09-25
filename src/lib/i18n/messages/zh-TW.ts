@@ -675,7 +675,8 @@ export const zhTw = {
     hint: '請在開啟的視窗中完成登入；關閉視窗後會自動連線。',
     startSignIn: '登入',
     waitingForSignIn: '等待授權…',
-    deviceCodeHint: '開啟授權連結並在其中確認登入，Quota01 會自動連線。',
+    deviceCodeHint:
+      '開啟授權連結並在其中確認登入，Quota01 會自動連線。此處顯示的是 Quota01 自己的登入；本機既有的 WorkBuddy 或 CodeBuddy 登入會繼續作為後備可用。',
     verificationUri: '授權連結',
     cancel: '取消',
     expired: '本次登入嘗試已過期。請重新開始。',

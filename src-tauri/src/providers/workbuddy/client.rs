@@ -130,6 +130,10 @@ impl WorkBuddyClient {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
+            // 每个 billing / usage 请求都带着 bearer token，绝不跟随重定向：
+            // 3xx 的 Location 由响应指定，跟随它会把凭据转发到凭据所属域名之外的主机。
+            // 不跟随则 3xx 只是 `is_success` 会拒绝的普通响应。
+            .redirect(reqwest::redirect::Policy::none())
             .user_agent(USER_AGENT)
             .build()
             .map_err(|_| WorkBuddyClientError::Connection)?;
@@ -449,5 +453,37 @@ mod tests {
         let client = WorkBuddyClient::for_test(&server);
         let response = client.fetch_resource_summary(&auth, Local::now()).unwrap();
         assert!(response.is_success());
+    }
+
+    /// 每个 billing / usage 请求都带着 bearer token，所以 3xx 绝不能被跟随：
+    /// 重定向目标只要被访问就会返回一份成功响应，跟随了就说明凭据被转发到了
+    /// 域名白名单之外的地址。
+    #[test]
+    fn a_redirect_response_is_not_followed() {
+        let target = test_http::serve_once(200, &[], r#"{"code":0,"data":{"Packages":[]}}"#);
+        let server = test_http::serve_once(
+            302,
+            &[(
+                "Location",
+                &format!("{target}/billing/meter/get-user-resource-summary"),
+            )],
+            r#"{"code":0,"data":{}}"#,
+        );
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("auth.info"),
+            r#"{"auth":{"accessToken":"token"},"domain":"www.codebuddy.cn","uid":"u"}"#,
+        )
+        .unwrap();
+        let auth = WorkBuddyAuth::load_from_path(&dir.path().join("auth.info")).unwrap();
+        let client = WorkBuddyClient::for_test(&server);
+
+        let response = client.fetch_resource_summary(&auth, Local::now()).unwrap();
+        assert_eq!(
+            response.status,
+            StatusCode::FOUND,
+            "the redirect itself must come back as the response, not its target"
+        );
+        assert!(!response.is_success());
     }
 }
