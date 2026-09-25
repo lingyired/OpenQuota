@@ -15,9 +15,12 @@ use rand::{rng, RngCore};
 use serde::{Deserialize, Serialize};
 use zeroize::Zeroizing;
 
-use super::credential_store::{read_owned_password, write_owned_password};
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+use super::credential_store::{delete_owned_password, read_owned_password, write_owned_password};
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 const VAULT_KEY_SERVICE: &str = "com.lingyi.quota01.credentials";
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 const VAULT_KEY_ACCOUNT: &str = "vault-key";
 const VAULT_AAD: &[u8] = b"Quota01 credential vault v1";
 const VAULT_VERSION: u8 = 1;
@@ -48,6 +51,10 @@ pub fn delete(account: &str) -> Result<(), String> {
     global()?.delete(account)
 }
 
+pub fn reset() -> Result<(), String> {
+    global()?.reset()
+}
+
 fn global() -> Result<&'static Arc<CredentialVault>, String> {
     VAULT
         .get()
@@ -57,10 +64,13 @@ fn global() -> Result<&'static Arc<CredentialVault>, String> {
 trait VaultKeyStore: Send + Sync {
     fn read(&self) -> Result<Option<Vec<u8>>, String>;
     fn write(&self, value: &[u8]) -> Result<(), String>;
+    fn delete(&self) -> Result<(), String>;
 }
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 struct SystemVaultKeyStore;
 
+#[cfg(any(target_os = "windows", target_os = "linux"))]
 impl VaultKeyStore for SystemVaultKeyStore {
     fn read(&self) -> Result<Option<Vec<u8>>, String> {
         read_owned_password(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
@@ -68,6 +78,120 @@ impl VaultKeyStore for SystemVaultKeyStore {
 
     fn write(&self, value: &[u8]) -> Result<(), String> {
         write_owned_password(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT, value)
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        delete_owned_password(VAULT_KEY_SERVICE, VAULT_KEY_ACCOUNT)
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+struct FileVaultKeyStore {
+    key_path: PathBuf,
+    directory: PathBuf,
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl FileVaultKeyStore {
+    fn new(directory: PathBuf) -> Self {
+        Self {
+            key_path: directory.join("credentials.key"),
+            directory,
+        }
+    }
+
+    fn ensure_directory(&self) -> Result<(), String> {
+        fs::create_dir_all(&self.directory)
+            .map_err(|_| "The credential vault directory could not be created.".to_owned())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&self.directory, fs::Permissions::from_mode(0o700)).map_err(
+                |_| "The credential vault directory permissions could not be set.".to_owned(),
+            )?;
+        }
+        Ok(())
+    }
+
+    fn read_validated(&self) -> Result<Option<Vec<u8>>, String> {
+        let metadata = match fs::symlink_metadata(&self.key_path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err("The credential vault key could not be read.".to_owned()),
+        };
+        if !metadata.file_type().is_file() {
+            return Err("The credential vault key is not a regular file.".to_owned());
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if metadata.permissions().mode() & 0o777 != 0o600 {
+                return Err("The credential vault key permissions are invalid.".to_owned());
+            }
+        }
+        let value = fs::read(&self.key_path)
+            .map_err(|_| "The credential vault key could not be read.".to_owned())?;
+        if value.len() != KEY_LEN {
+            return Err("The credential vault key is invalid.".to_owned());
+        }
+        Ok(Some(value))
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+impl VaultKeyStore for FileVaultKeyStore {
+    fn read(&self) -> Result<Option<Vec<u8>>, String> {
+        self.read_validated()
+    }
+
+    fn write(&self, value: &[u8]) -> Result<(), String> {
+        if value.len() != KEY_LEN {
+            return Err("The credential vault key is invalid.".to_owned());
+        }
+        self.ensure_directory()?;
+        if self.read_validated()?.is_some() {
+            return Err("The credential vault key already exists.".to_owned());
+        }
+        let mut temporary = tempfile::NamedTempFile::new_in(&self.directory)
+            .map_err(|_| "The credential vault key could not be written.".to_owned())?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            temporary
+                .as_file()
+                .set_permissions(fs::Permissions::from_mode(0o600))
+                .map_err(|_| "The credential vault key permissions could not be set.".to_owned())?;
+        }
+        temporary
+            .write_all(value)
+            .map_err(|_| "The credential vault key could not be written.".to_owned())?;
+        temporary
+            .as_file()
+            .sync_all()
+            .map_err(|_| "The credential vault key could not be synced.".to_owned())?;
+        match temporary.persist_noclobber(&self.key_path) {
+            Ok(file) => {
+                file.sync_all()
+                    .map_err(|_| "The credential vault key could not be synced.".to_owned())?;
+                if let Ok(directory) = fs::File::open(&self.directory) {
+                    let _ = directory.sync_all();
+                }
+                Ok(())
+            }
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => self
+                .read_validated()?
+                .map(|_| ())
+                .ok_or_else(|| "The credential vault key could not be created.".to_owned()),
+            Err(_) => Err("The credential vault key could not be created.".to_owned()),
+        }
+    }
+
+    fn delete(&self) -> Result<(), String> {
+        match fs::remove_file(&self.key_path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err("The credential vault key could not be removed.".to_owned()),
+        }
     }
 }
 
@@ -94,7 +218,15 @@ struct EncryptedVault {
 
 impl CredentialVault {
     fn new(path: PathBuf) -> Self {
-        Self::with_backends(path, Arc::new(SystemVaultKeyStore))
+        #[cfg(target_os = "macos")]
+        let key_store: Arc<dyn VaultKeyStore> = Arc::new(FileVaultKeyStore::new(
+            path.parent()
+                .unwrap_or_else(|| Path::new("."))
+                .to_path_buf(),
+        ));
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        let key_store: Arc<dyn VaultKeyStore> = Arc::new(SystemVaultKeyStore);
+        Self::with_backends(path, key_store)
     }
 
     fn with_backends(path: PathBuf, key_store: Arc<dyn VaultKeyStore>) -> Self {
@@ -168,24 +300,42 @@ impl CredentialVault {
         Ok(())
     }
 
+    fn reset(&self) -> Result<(), String> {
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "The credential vault is unavailable.".to_owned())?;
+        match fs::remove_file(&self.path) {
+            Ok(()) => (),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => (),
+            Err(_) => return Err("The credential vault could not be reset.".to_owned()),
+        }
+        self.key_store.delete()?;
+        *state = VaultState::default();
+        Ok(())
+    }
+
     fn ensure_loaded(&self, state: &mut VaultState) -> Result<(), String> {
         if state.loaded {
             return Ok(());
         }
 
-        let key = match self.key_store.read()? {
-            Some(key) if key.len() == KEY_LEN => Zeroizing::new(key),
-            Some(_) => return Err("The credential vault key is invalid.".to_owned()),
-            None if self.path.exists() => {
-                return Err("The credential vault key is unavailable.".to_owned());
-            }
-            None => {
-                let mut key = Zeroizing::new(vec![0_u8; KEY_LEN]);
-                rng().fill_bytes(key.as_mut_slice());
-                self.key_store.write(key.as_slice())?;
-                key
-            }
-        };
+        let key =
+            match self.key_store.read()? {
+                Some(key) if key.len() == KEY_LEN => Zeroizing::new(key),
+                Some(_) => return Err("The credential vault key is invalid.".to_owned()),
+                None if self.path.exists() => {
+                    return Err("The credential vault key is unavailable.".to_owned());
+                }
+                None => {
+                    let mut key = Zeroizing::new(vec![0_u8; KEY_LEN]);
+                    rng().fill_bytes(key.as_mut_slice());
+                    self.key_store.write(key.as_slice())?;
+                    Zeroizing::new(self.key_store.read()?.ok_or_else(|| {
+                        "The credential vault key could not be created.".to_owned()
+                    })?)
+                }
+            };
 
         let entries = if self.path.exists() {
             self.decrypt(&key)?
@@ -321,7 +471,7 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{CredentialVault, VaultKeyStore};
+    use super::{CredentialVault, FileVaultKeyStore, VaultKeyStore, KEY_LEN};
 
     #[derive(Default)]
     struct MemoryKeyStore {
@@ -338,9 +488,88 @@ mod tests {
 
         fn write(&self, value: &[u8]) -> Result<(), String> {
             self.writes.fetch_add(1, Ordering::SeqCst);
-            *self.value.lock().unwrap() = Some(value.to_vec());
+            *self.value.lock().unwrap() = Some(vec![0x42; value.len()]);
             Ok(())
         }
+
+        fn delete(&self) -> Result<(), String> {
+            *self.value.lock().unwrap() = None;
+            Ok(())
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_key_store_creates_private_directory_and_stable_32_byte_key() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let store = FileVaultKeyStore::new(app_data.clone());
+
+        assert_eq!(store.read().unwrap(), None);
+        let key = vec![0x5a; KEY_LEN];
+        store.write(&key).unwrap();
+
+        let key_path = app_data.join("credentials.key");
+        assert_eq!(fs::read(&key_path).unwrap(), key);
+        assert_eq!(store.read().unwrap().unwrap().len(), 32);
+        assert_eq!(
+            fs::metadata(&key_path).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+        assert_eq!(
+            fs::metadata(&app_data).unwrap().permissions().mode() & 0o777,
+            0o700
+        );
+        assert_eq!(store.read().unwrap(), Some(key));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_key_store_rejects_tampered_permissions_without_overwriting_key() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let store = FileVaultKeyStore::new(directory.path().join("app-data"));
+        store.write(&vec![0x31; KEY_LEN]).unwrap();
+        let key_path = directory.path().join("app-data/credentials.key");
+        fs::set_permissions(&key_path, fs::Permissions::from_mode(0o640)).unwrap();
+
+        assert!(store.read().is_err());
+        assert_eq!(fs::read(&key_path).unwrap(), vec![0x31; KEY_LEN]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_key_store_rejects_wrong_length_and_symlink_key_files() {
+        use std::os::unix::fs::symlink;
+
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let store = FileVaultKeyStore::new(app_data.clone());
+        fs::create_dir_all(&app_data).unwrap();
+        fs::write(app_data.join("credentials.key"), b"short").unwrap();
+        assert!(store.read().is_err());
+
+        fs::remove_file(app_data.join("credentials.key")).unwrap();
+        let target = directory.path().join("target");
+        fs::write(&target, vec![0x11; KEY_LEN]).unwrap();
+        symlink(&target, app_data.join("credentials.key")).unwrap();
+        assert!(store.read().is_err());
+    }
+
+    #[test]
+    fn existing_vault_without_key_fails_without_changing_encrypted_bytes() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("credentials.vault");
+        let original = b"existing encrypted bytes";
+        fs::write(&path, original).unwrap();
+        let vault =
+            CredentialVault::with_backends(path.clone(), Arc::new(MemoryKeyStore::default()));
+
+        assert!(vault.read_bytes("trae-cn").is_err());
+        assert_eq!(fs::read(&path).unwrap(), original);
     }
 
     #[test]
@@ -363,7 +592,7 @@ mod tests {
             vault.read_bytes("trae-cn").unwrap().unwrap(),
             b"updated-session"
         );
-        assert_eq!(keys.reads.load(Ordering::SeqCst), 1);
+        assert_eq!(keys.reads.load(Ordering::SeqCst), 2);
         assert_eq!(keys.writes.load(Ordering::SeqCst), 1);
     }
 
@@ -378,7 +607,7 @@ mod tests {
 
         assert!(!vault.contains("trae-cn").unwrap());
         assert!(vault.read_bytes("trae-cn").unwrap().is_none());
-        assert_eq!(keys.reads.load(Ordering::SeqCst), 1);
+        assert_eq!(keys.reads.load(Ordering::SeqCst), 2);
         assert_eq!(keys.writes.load(Ordering::SeqCst), 1);
     }
 
@@ -397,5 +626,44 @@ mod tests {
 
         let reopened = CredentialVault::with_backends(path, keys);
         assert!(reopened.read_bytes("deepseek").is_err());
+    }
+
+    #[test]
+    fn repeated_initialization_reads_the_same_file_key_and_data() {
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let path = app_data.join("credentials.vault");
+        let first = CredentialVault::with_backends(
+            path.clone(),
+            Arc::new(FileVaultKeyStore::new(app_data.clone())),
+        );
+        first.write("trae-cn", b"session").unwrap();
+        let key_before = fs::read(app_data.join("credentials.key")).unwrap();
+
+        let reopened = CredentialVault::with_backends(
+            path,
+            Arc::new(FileVaultKeyStore::new(app_data.clone())),
+        );
+        assert_eq!(reopened.read_bytes("trae-cn").unwrap().unwrap(), b"session");
+        assert_eq!(
+            fs::read(app_data.join("credentials.key")).unwrap(),
+            key_before
+        );
+    }
+
+    #[test]
+    fn reset_removes_vault_and_key_then_initializes_empty_vault() {
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let path = app_data.join("credentials.vault");
+        let keys = Arc::new(MemoryKeyStore::default());
+        let vault = CredentialVault::with_backends(path.clone(), keys.clone());
+        vault.write("trae-cn", b"session").unwrap();
+
+        vault.reset().unwrap();
+        assert!(!path.exists());
+        assert!(keys.value.lock().unwrap().is_none());
+        assert!(!vault.contains("trae-cn").unwrap());
+        assert!(path.exists());
     }
 }
