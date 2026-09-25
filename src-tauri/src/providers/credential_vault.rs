@@ -109,6 +109,16 @@ impl FileVaultKeyStore {
             fs::set_permissions(&self.directory, fs::Permissions::from_mode(0o700)).map_err(
                 |_| "The credential vault directory permissions could not be set.".to_owned(),
             )?;
+            let permissions = fs::symlink_metadata(&self.directory)
+                .map_err(|_| {
+                    "The credential vault directory permissions could not be verified.".to_owned()
+                })?
+                .permissions()
+                .mode()
+                & 0o7777;
+            if permissions != 0o700 {
+                return Err("The credential vault directory permissions are invalid.".to_owned());
+            }
         }
         Ok(())
     }
@@ -539,6 +549,26 @@ mod tests {
 
         assert!(store.read().is_err());
         assert_eq!(fs::read(&key_path).unwrap(), vec![0x31; KEY_LEN]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn file_key_store_sets_and_verifies_exact_directory_mode() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        fs::create_dir(&app_data).unwrap();
+        fs::set_permissions(&app_data, fs::Permissions::from_mode(0o755)).unwrap();
+
+        FileVaultKeyStore::new(app_data.clone())
+            .ensure_directory()
+            .unwrap();
+
+        assert_eq!(
+            fs::symlink_metadata(app_data).unwrap().permissions().mode() & 0o7777,
+            0o700
+        );
     }
 
     #[cfg(unix)]

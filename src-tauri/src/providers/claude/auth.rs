@@ -322,7 +322,26 @@ fn has_desktop_app_material_at(home: &Path) -> bool {
 }
 
 pub(super) fn load_candidates(scope: &ClaudeCredentialScope) -> Vec<ClaudeCredential> {
-    load_candidates_with_environment(scope, env_text("CLAUDE_CODE_OAUTH_TOKEN"))
+    load_candidates_checked(scope).unwrap_or_default()
+}
+
+pub(super) fn load_candidates_checked(
+    scope: &ClaudeCredentialScope,
+) -> Result<Vec<ClaudeCredential>, ClaudeError> {
+    #[cfg(not(target_os = "macos"))]
+    {
+        return Ok(load_candidates_from_path(
+            scope,
+            &credential_path(scope),
+            env_text("CLAUDE_CODE_OAUTH_TOKEN"),
+        ));
+    }
+    #[cfg(target_os = "macos")]
+    load_candidates_from_path_checked(
+        scope,
+        &credential_path(scope),
+        env_text("CLAUDE_CODE_OAUTH_TOKEN"),
+    )
 }
 
 fn load_candidates_with_environment(
@@ -360,7 +379,50 @@ pub(super) fn load_candidates_from_path(
             }
         }
     }
+    append_environment_candidate(scope, stored, environment_token)
+}
 
+#[cfg(target_os = "macos")]
+pub(super) fn load_candidates_from_path_checked(
+    scope: &ClaudeCredentialScope,
+    path: &Path,
+    environment_token: Option<String>,
+) -> Result<Vec<ClaudeCredential>, ClaudeError> {
+    let mut source_error = None;
+    let file = match fs::read(path) {
+        Ok(bytes) => match parse_candidate(&bytes, CredentialSource::File(path.into()), false) {
+            Some(credential) => Some(credential),
+            None => {
+                if parse_credentials(&bytes).is_some() {
+                    None
+                } else {
+                    source_error = Some(ClaudeError::InvalidResponse);
+                    None
+                }
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(_) => {
+            source_error = Some(ClaudeError::CredentialRead);
+            None
+        }
+    };
+    let mut stored = Vec::new();
+    if let Some(credential) = file {
+        stored.push(credential);
+    }
+    let candidates = append_environment_candidate(scope, stored, environment_token);
+    if !candidates.is_empty() {
+        return Ok(candidates);
+    }
+    Err(source_error.unwrap_or(ClaudeError::NotLoggedIn))
+}
+
+fn append_environment_candidate(
+    scope: &ClaudeCredentialScope,
+    stored: Vec<ClaudeCredential>,
+    environment_token: Option<String>,
+) -> Vec<ClaudeCredential> {
     if !matches!(scope, ClaudeCredentialScope::Standard) {
         return stored;
     }
@@ -574,9 +636,10 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        has_desktop_app_material_at, load_candidates_from_path, load_candidates_with_environment,
-        parse_credentials, write_private_file_atomic, ClaudeCredential, ClaudeCredentialGeneration,
-        ClaudeCredentialScope, ClaudeCredentialsFile, ClaudeOAuth, CredentialSource,
+        has_desktop_app_material_at, load_candidates_from_path, load_candidates_from_path_checked,
+        load_candidates_with_environment, parse_credentials, write_private_file_atomic,
+        ClaudeCredential, ClaudeCredentialGeneration, ClaudeCredentialScope, ClaudeCredentialsFile,
+        ClaudeOAuth, CredentialSource,
     };
     use crate::providers::claude::ClaudeError;
 
@@ -623,6 +686,34 @@ mod tests {
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].access_token(), Some("first-token"));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_claude_loader_distinguishes_missing_unreadable_and_malformed_files() {
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing-credentials.json");
+        let unreadable = directory.path().join("directory-credentials.json");
+        fs::create_dir(&unreadable).unwrap();
+        let malformed = directory.path().join("malformed-credentials.json");
+        fs::write(&malformed, b"not json").unwrap();
+        let scope = ClaudeCredentialScope::ConfigDir {
+            path: directory.path().to_path_buf(),
+            credential_store_literal: String::new(),
+        };
+
+        assert!(matches!(
+            load_candidates_from_path_checked(&scope, &missing, None),
+            Err(ClaudeError::NotLoggedIn)
+        ));
+        assert!(matches!(
+            load_candidates_from_path_checked(&scope, &unreadable, None),
+            Err(ClaudeError::CredentialRead)
+        ));
+        assert!(matches!(
+            load_candidates_from_path_checked(&scope, &malformed, None),
+            Err(ClaudeError::InvalidResponse)
+        ));
     }
 
     #[test]

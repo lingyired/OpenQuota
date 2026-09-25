@@ -41,21 +41,27 @@ impl CursorAuthState {
     }
 
     pub(super) fn load_from_database_paths(paths: &[PathBuf]) -> Result<Option<Self>, CursorError> {
-        let sqlite = sqlite_auth_from_paths(paths);
         #[cfg(target_os = "macos")]
-        return Ok(sqlite.map(|(state, _)| state));
+        return sqlite_auth_from_paths_macos(paths);
         #[cfg(not(target_os = "macos"))]
-        Ok(select_auth_state(sqlite, load_keychain_auth()))
+        {
+            let sqlite = sqlite_auth_from_paths(paths);
+            Ok(select_auth_state(sqlite, load_keychain_auth()))
+        }
     }
 
     pub fn has_local_credentials() -> bool {
-        if has_sqlite_auth(&state_database_paths()) {
-            return true;
+        #[cfg(target_os = "macos")]
+        {
+            return Self::load().is_ok_and(|state| state.is_some());
         }
         #[cfg(not(target_os = "macos"))]
-        return load_keychain_auth().is_some();
-        #[cfg(target_os = "macos")]
-        false
+        {
+            if has_sqlite_auth(&state_database_paths()) {
+                return true;
+            }
+            load_keychain_auth().is_some()
+        }
     }
 
     pub fn needs_refresh(&self, now: DateTime<Utc>) -> bool {
@@ -133,6 +139,96 @@ fn load_sqlite_auth(path: &Path) -> Option<(CursorAuthState, Option<String>)> {
         },
         membership,
     ))
+}
+
+#[cfg(target_os = "macos")]
+fn sqlite_auth_from_paths_macos(paths: &[PathBuf]) -> Result<Option<CursorAuthState>, CursorError> {
+    let mut unreadable = false;
+    let mut malformed = false;
+    for path in paths {
+        match load_sqlite_auth_macos(path) {
+            Ok(Some((state, _membership))) => return Ok(Some(state)),
+            Ok(None) => (),
+            Err(CursorError::CredentialRead) => unreadable = true,
+            Err(_) => malformed = true,
+        }
+    }
+    if malformed {
+        return Err(CursorError::InvalidResponse);
+    }
+    if unreadable {
+        return Err(CursorError::CredentialRead);
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "macos")]
+fn load_sqlite_auth_macos(
+    path: &Path,
+) -> Result<Option<(CursorAuthState, Option<String>)>, CursorError> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(CursorError::CredentialRead),
+    };
+    if !metadata.is_file() {
+        return Err(CursorError::CredentialRead);
+    }
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(classify_sqlite_read_error)?;
+    let access_token = read_state_value_from_connection(&connection, ACCESS_TOKEN_KEY)?;
+    let refresh_token = read_state_value_from_connection(&connection, REFRESH_TOKEN_KEY)?;
+    let membership = read_state_value_from_connection(&connection, MEMBERSHIP_TYPE_KEY)?
+        .map(|value| value.to_ascii_lowercase());
+    if access_token.is_none() && refresh_token.is_none() {
+        return Ok(None);
+    }
+    Ok(Some((
+        CursorAuthState {
+            access_token,
+            refresh_token,
+            source: CursorAuthSource::Sqlite(path.to_path_buf()),
+        },
+        membership,
+    )))
+}
+
+#[cfg(target_os = "macos")]
+fn read_state_value_from_connection(
+    connection: &Connection,
+    key: &str,
+) -> Result<Option<String>, CursorError> {
+    connection
+        .query_row(
+            "SELECT value FROM ItemTable WHERE key = ?1 LIMIT 1",
+            [key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map(|value| value.and_then(non_empty))
+        .map_err(classify_sqlite_read_error)
+}
+
+#[cfg(target_os = "macos")]
+fn classify_sqlite_read_error(error: rusqlite::Error) -> CursorError {
+    use rusqlite::ffi::ErrorCode;
+    match error {
+        rusqlite::Error::SqliteFailure(error, _)
+            if matches!(
+                error.code,
+                ErrorCode::PermissionDenied
+                    | ErrorCode::ReadOnly
+                    | ErrorCode::SystemIoFailure
+                    | ErrorCode::CannotOpen
+            ) =>
+        {
+            CursorError::CredentialRead
+        }
+        _ => CursorError::InvalidResponse,
+    }
 }
 
 fn read_state_value(path: &Path, key: &str) -> Option<String> {
@@ -323,6 +419,30 @@ mod tests {
         }
         assert!(matches!(selected.source, CursorAuthSource::Sqlite(source) if source == path));
         assert!(!has_sqlite_auth(&[]));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_sqlite_loader_distinguishes_missing_unreadable_and_malformed_databases() {
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing.vscdb");
+        let unreadable = directory.path().join("directory.vscdb");
+        std::fs::create_dir(&unreadable).unwrap();
+        let malformed = directory.path().join("malformed.vscdb");
+        std::fs::write(&malformed, b"not a sqlite database").unwrap();
+
+        assert_eq!(
+            CursorAuthState::load_from_database_paths(&[missing]).unwrap(),
+            None
+        );
+        assert!(matches!(
+            CursorAuthState::load_from_database_paths(&[unreadable]),
+            Err(CursorError::CredentialRead)
+        ));
+        assert!(matches!(
+            CursorAuthState::load_from_database_paths(&[malformed]),
+            Err(CursorError::InvalidResponse)
+        ));
     }
 
     #[cfg(not(target_os = "macos"))]

@@ -137,6 +137,8 @@ pub enum CursorError {
     TokenExpired,
     #[error("The refreshed Cursor login could not be saved.")]
     AuthWrite,
+    #[error("Cursor credentials could not be read from the local database.")]
+    CredentialRead,
     #[error("Could not connect to Cursor. Check your internet connection.")]
     ConnectionFailed,
     #[error("Cursor returned an invalid usage response.")]
@@ -515,6 +517,7 @@ fn provider_error(error: CursorError) -> crate::providers::ProviderError {
         CursorError::NotLoggedIn => Kind::CredentialsUnavailable,
         CursorError::SessionExpired | CursorError::TokenExpired => Kind::Authentication,
         CursorError::AuthWrite => Kind::CredentialStorage,
+        CursorError::CredentialRead => Kind::CredentialStorage,
         CursorError::RequestFailed(429) => Kind::RateLimited,
         CursorError::ConnectionFailed
         | CursorError::RequestFailed(_)
@@ -564,6 +567,10 @@ mod tests {
         );
         assert_eq!(
             provider_error(CursorError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(CursorError::CredentialRead).kind(),
             Kind::CredentialStorage
         );
     }

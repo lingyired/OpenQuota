@@ -141,6 +141,8 @@ pub enum CodexError {
     TokenExpired,
     #[error("Codex auth data is invalid. Run `codex` to sign in again.")]
     InvalidAuth,
+    #[error("Codex credentials could not be read from the local auth file.")]
+    CredentialRead,
     #[error("The Codex account changed while usage was refreshing. Refresh again.")]
     AccountChanged,
     #[error("Refreshed Codex credentials could not be saved.")]
@@ -372,6 +374,7 @@ fn provider_error(error: CodexError) -> crate::providers::ProviderError {
         CodexError::InvalidAuth => Kind::InvalidResponse,
         CodexError::ApiKeyOnly => Kind::Permission,
         CodexError::AuthWrite => Kind::CredentialStorage,
+        CodexError::CredentialRead => Kind::CredentialStorage,
         CodexError::RequestFailed(429) => Kind::RateLimited,
         CodexError::RequestFailed(_) | CodexError::ConnectionFailed => Kind::Network,
         CodexError::InvalidResponse => Kind::InvalidResponse,
@@ -455,6 +458,10 @@ mod account_tests {
         );
         assert_eq!(
             provider_error(CodexError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(CodexError::CredentialRead).kind(),
             Kind::CredentialStorage
         );
     }

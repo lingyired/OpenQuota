@@ -125,8 +125,8 @@ fn definition_for(id: &str, display_name: &str, fallback_enabled: bool) -> Provi
 
 use self::{
     auth::{
-        load_candidates, oauth_config, ClaudeCredential, ClaudeCredentialGeneration,
-        ClaudeCredentialScope,
+        load_candidates, load_candidates_checked, oauth_config, ClaudeCredential,
+        ClaudeCredentialGeneration, ClaudeCredentialScope,
     },
     client::ClaudeClient,
     local_usage::scan_local_usage,
@@ -150,6 +150,8 @@ pub enum ClaudeError {
     InvalidOAuthUrl,
     #[error("Refreshed Claude credentials could not be saved.")]
     AuthWrite,
+    #[error("Claude credentials could not be read from the local credentials file.")]
+    CredentialRead,
     #[error("Claude login changed during refresh. Refresh again.")]
     CredentialsChanged,
     #[error("The Claude account changed while Quota01 was running. Restart Quota01 to reconnect it safely.")]
@@ -326,7 +328,16 @@ impl ClaudeProvider {
         config: &auth::ClaudeOAuthConfig,
     ) -> Result<ProviderSnapshot, ClaudeError> {
         self.ensure_account_identity_current()?;
-        let candidates = load_candidates(&self.credential_scope);
+        let candidates = match load_candidates_checked(&self.credential_scope) {
+            Ok(candidates) => candidates,
+            Err(ClaudeError::NotLoggedIn) => {
+                return Err(missing_cli_credential_error(
+                    &self.credential_scope,
+                    auth::has_desktop_app_data(),
+                ));
+            }
+            Err(error) => return Err(error),
+        };
         if candidates.is_empty() {
             crate::app_info!("auth:claude", "no reusable CLI credentials found");
             return Err(missing_cli_credential_error(
@@ -731,6 +742,7 @@ fn provider_error(error: ClaudeError) -> crate::providers::ProviderError {
         | ClaudeError::AccountChanged => Kind::Authentication,
         ClaudeError::InvalidOAuthUrl | ClaudeError::InvalidResponse => Kind::InvalidResponse,
         ClaudeError::AuthWrite => Kind::CredentialStorage,
+        ClaudeError::CredentialRead => Kind::CredentialStorage,
         ClaudeError::RequestFailed(429) => Kind::RateLimited,
         ClaudeError::RequestFailed(_) | ClaudeError::ConnectionFailed => Kind::Network,
         ClaudeError::LocalUsage => Kind::LocalData,
@@ -785,6 +797,14 @@ mod tests {
         assert_eq!(
             provider_error(ClaudeError::TokenExpired).kind(),
             Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(ClaudeError::CredentialRead).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(ClaudeError::InvalidResponse).kind(),
+            Kind::InvalidResponse
         );
     }
 

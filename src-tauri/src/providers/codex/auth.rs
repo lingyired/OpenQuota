@@ -31,6 +31,11 @@ enum AuthSource {
 
 impl CodexAuthState {
     pub fn has_local_credentials() -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            return Self::load_candidates_from_paths(&auth_paths()).is_ok();
+        }
+        #[cfg(not(target_os = "macos"))]
         Self::has_file_credentials_from_paths(&auth_paths())
     }
 
@@ -43,13 +48,20 @@ impl CodexAuthState {
     }
 
     pub(super) fn load_candidates_from_paths(paths: &[PathBuf]) -> Result<Vec<Self>, CodexError> {
-        let (candidates, api_key_only) = load_file_candidates_from_paths(paths);
-        if !candidates.is_empty() {
-            Ok(candidates)
-        } else if api_key_only {
-            Err(CodexError::ApiKeyOnly)
-        } else {
-            Err(CodexError::NotLoggedIn)
+        #[cfg(target_os = "macos")]
+        {
+            return load_macos_file_candidates_from_paths(paths);
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let (candidates, api_key_only) = load_file_candidates_from_paths(paths);
+            if !candidates.is_empty() {
+                Ok(candidates)
+            } else if api_key_only {
+                Err(CodexError::ApiKeyOnly)
+            } else {
+                Err(CodexError::NotLoggedIn)
+            }
         }
     }
 
@@ -175,6 +187,63 @@ fn load_file_candidates_from_paths(paths: &[PathBuf]) -> (Vec<CodexAuthState>, b
             .is_some_and(|value| !value.is_empty());
     }
     (candidates, api_key_only)
+}
+
+#[cfg(target_os = "macos")]
+fn load_macos_file_candidates_from_paths(
+    paths: &[PathBuf],
+) -> Result<Vec<CodexAuthState>, CodexError> {
+    let mut candidates = Vec::new();
+    let mut api_key_only = false;
+    let mut unreadable = false;
+    let mut malformed = false;
+    for path in paths {
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                unreadable = true;
+                continue;
+            }
+        };
+        let Some(document) = parse_auth_document(&text) else {
+            malformed = true;
+            continue;
+        };
+        let access_token = document
+            .pointer("/tokens/access_token")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        if let Some(access_token) = access_token {
+            candidates.push(CodexAuthState {
+                source: AuthSource::File(path.clone()),
+                refresh_token: string_at(&document, "/tokens/refresh_token"),
+                account_id: string_at(&document, "/tokens/account_id"),
+                last_refresh: string_at(&document, "/last_refresh"),
+                document,
+                access_token,
+            });
+        } else {
+            api_key_only |= document
+                .get("OPENAI_API_KEY")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty());
+        }
+    }
+    if !candidates.is_empty() {
+        return Ok(candidates);
+    }
+    if api_key_only {
+        return Err(CodexError::ApiKeyOnly);
+    }
+    if malformed {
+        return Err(CodexError::InvalidAuth);
+    }
+    if unreadable {
+        return Err(CodexError::CredentialRead);
+    }
+    Err(CodexError::NotLoggedIn)
 }
 
 fn load_from_path(path: &Path) -> Result<CodexAuthState, CodexError> {
@@ -351,6 +420,30 @@ mod tests {
         assert!(matches!(
             CodexAuthState::load_candidates_from_paths(&[]),
             Err(CodexError::NotLoggedIn)
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_auth_loader_distinguishes_missing_unreadable_and_malformed_files() {
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing-auth.json");
+        let unreadable = directory.path().join("directory-auth.json");
+        fs::create_dir(&unreadable).unwrap();
+        let malformed = directory.path().join("malformed-auth.json");
+        fs::write(&malformed, b"not json").unwrap();
+
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[missing]),
+            Err(CodexError::NotLoggedIn)
+        ));
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[unreadable]),
+            Err(CodexError::CredentialRead)
+        ));
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[malformed]),
+            Err(CodexError::InvalidAuth)
         ));
     }
 
