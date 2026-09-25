@@ -836,7 +836,7 @@ github.com:
         let error = provider.refresh().unwrap_err();
         assert_eq!(
             error.kind(),
-            crate::models::ProviderErrorKind::Authentication
+            crate::models::ProviderErrorKind::CredentialsUnavailable
         );
         assert_eq!(*gh.calls.lock().unwrap(), 0);
         assert_eq!(*vault.calls.lock().unwrap(), 0);

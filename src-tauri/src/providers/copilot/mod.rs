@@ -138,9 +138,8 @@ pub(super) enum CopilotError {
 impl From<CopilotError> for ProviderError {
     fn from(error: CopilotError) -> Self {
         let kind = match error {
-            CopilotError::NotLoggedIn | CopilotError::InvalidToken => {
-                ProviderErrorKind::Authentication
-            }
+            CopilotError::NotLoggedIn => ProviderErrorKind::CredentialsUnavailable,
+            CopilotError::InvalidToken => ProviderErrorKind::Authentication,
             CopilotError::ConnectionFailed => ProviderErrorKind::Network,
             CopilotError::RequestFailed(429) => ProviderErrorKind::RateLimited,
             CopilotError::RequestFailed(401 | 403) => ProviderErrorKind::Authentication,
@@ -399,9 +398,9 @@ mod tests {
     };
 
     #[test]
-    fn missing_local_token_has_an_authentication_category() {
+    fn missing_local_token_has_a_credentials_unavailable_category() {
         let error = crate::providers::ProviderError::from(CopilotError::NotLoggedIn);
-        assert_eq!(error.kind(), ProviderErrorKind::Authentication);
+        assert_eq!(error.kind(), ProviderErrorKind::CredentialsUnavailable);
     }
 
     struct Route {
@@ -748,7 +747,7 @@ mod tests {
         )
         .refresh()
         .unwrap_err();
-        assert_eq!(missing.kind(), ProviderErrorKind::Authentication);
+        assert_eq!(missing.kind(), ProviderErrorKind::CredentialsUnavailable);
         #[cfg(target_os = "macos")]
         assert!(missing.to_string().contains("hosts.yml"));
         #[cfg(not(target_os = "macos"))]
@@ -928,7 +927,7 @@ mod tests {
         assert!(!missing.has_local_credentials());
         assert_eq!(
             missing.refresh().unwrap_err().kind(),
-            ProviderErrorKind::Authentication
+            ProviderErrorKind::CredentialsUnavailable
         );
     }
 
