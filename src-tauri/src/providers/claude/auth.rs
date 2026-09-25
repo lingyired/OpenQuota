@@ -8,12 +8,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tempfile::NamedTempFile;
 
-#[cfg(target_os = "macos")]
-use crate::providers::credential_store::generic_password_exists;
-use crate::{
-    hashing::sha256_hex,
-    providers::credential_store::{read_external_password, write_external_password},
-};
+#[cfg(not(target_os = "macos"))]
+use crate::hashing::sha256_hex;
+#[cfg(not(target_os = "macos"))]
+use crate::providers::credential_store::{read_external_password, write_external_password};
 
 use super::ClaudeError;
 
@@ -42,7 +40,11 @@ struct ClaudeCredentialsFile {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum CredentialSource {
     File(PathBuf),
-    Keychain { service: String, account: String },
+    #[cfg(not(target_os = "macos"))]
+    ExternalStore {
+        service: String,
+        account: String,
+    },
     Environment,
 }
 
@@ -65,7 +67,7 @@ pub(super) enum ClaudeCredentialScope {
     Standard,
     ConfigDir {
         path: PathBuf,
-        keychain_literal: String,
+        credential_store_literal: String,
     },
 }
 
@@ -193,7 +195,8 @@ impl ClaudeCredential {
                 write_private_file_atomic(path, &bytes)?;
                 Ok(true)
             }
-            CredentialSource::Keychain { service, account } => {
+            #[cfg(not(target_os = "macos"))]
+            CredentialSource::ExternalStore { service, account } => {
                 write_external_password("claude", service, account, &bytes)
                     .map_err(|_| ClaudeError::AuthWrite)?;
                 Ok(true)
@@ -281,37 +284,6 @@ pub struct ClaudeOAuthConfig {
     pub client_id: String,
 }
 
-pub(super) fn has_local_credentials(scope: &ClaudeCredentialScope) -> bool {
-    #[cfg(target_os = "macos")]
-    {
-        let path = credential_path(scope);
-        if fs::read(path)
-            .ok()
-            .is_some_and(|bytes| credentials_have_access_token(&bytes))
-        {
-            return true;
-        }
-        if matches!(scope, ClaudeCredentialScope::Standard)
-            && env_text("CLAUDE_CODE_OAUTH_TOKEN").is_some()
-        {
-            return true;
-        }
-        // Reading this entry makes macOS ask for Keychain authorization, so it only counts as
-        // a local credential once the user turned the provider on by hand.
-        crate::providers::keychain_access::is_granted("claude")
-            && keychain_candidates(scope)
-                .into_iter()
-                .any(|(service, account)| {
-                    generic_password_exists(&service, &account, std::time::Duration::from_secs(2))
-                        == Some(true)
-                })
-    }
-    #[cfg(not(target_os = "macos"))]
-    {
-        !load_candidates(scope).is_empty()
-    }
-}
-
 pub fn has_desktop_app_data() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -357,44 +329,35 @@ fn load_candidates_with_environment(
     scope: &ClaudeCredentialScope,
     environment_token: Option<String>,
 ) -> Vec<ClaudeCredential> {
-    let file = {
-        let path = credential_path(scope);
-        fs::read(&path)
-            .ok()
-            .and_then(|bytes| parse_candidate(&bytes, CredentialSource::File(path), false))
-    };
-    let load_keychain = || {
-        let mut candidate = None;
-        for (service, account) in keychain_candidates(scope) {
+    load_candidates_from_path(scope, &credential_path(scope), environment_token)
+}
+
+fn load_candidates_from_path(
+    scope: &ClaudeCredentialScope,
+    path: &Path,
+    environment_token: Option<String>,
+) -> Vec<ClaudeCredential> {
+    let file = fs::read(path)
+        .ok()
+        .and_then(|bytes| parse_candidate(&bytes, CredentialSource::File(path.into()), false));
+    let mut stored = Vec::new();
+    if let Some(credential) = file {
+        stored.push(credential);
+    }
+    #[cfg(not(target_os = "macos"))]
+    if stored.is_empty() {
+        for (service, account) in external_store_candidates(scope) {
             let Ok(Some(bytes)) = read_external_password("claude", &service, &account) else {
                 continue;
             };
             if let Some(credential) = parse_candidate(
                 &bytes,
-                CredentialSource::Keychain { service, account },
+                CredentialSource::ExternalStore { service, account },
                 false,
             ) {
-                candidate = Some(credential);
+                stored.push(credential);
                 break;
             }
-        }
-        candidate
-    };
-
-    let mut stored = Vec::new();
-    #[cfg(target_os = "macos")]
-    if let Some(credential) = load_keychain() {
-        stored.push(credential);
-    }
-    #[cfg(not(target_os = "macos"))]
-    let needs_keychain_fallback = file.is_none();
-    if let Some(credential) = file {
-        stored.push(credential);
-    }
-    #[cfg(not(target_os = "macos"))]
-    if needs_keychain_fallback {
-        if let Some(credential) = load_keychain() {
-            stored.push(credential);
         }
     }
 
@@ -427,6 +390,56 @@ fn load_candidates_with_environment(
     } else {
         live.into_iter().chain(Some(environment)).collect()
     }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn external_store_candidates(scope: &ClaudeCredentialScope) -> Vec<(String, String)> {
+    let suffix = resolved_oauth_settings().3;
+    let service = format!("Claude Code{suffix}-credentials");
+    let services = match scope {
+        ClaudeCredentialScope::Standard => {
+            if let Some(config_dir) = env_text("CLAUDE_CONFIG_DIR") {
+                vec![scoped_credential_store_service_name(&config_dir), service]
+            } else {
+                vec![service]
+            }
+        }
+        ClaudeCredentialScope::ConfigDir {
+            credential_store_literal,
+            ..
+        } => vec![scoped_credential_store_service_name(
+            credential_store_literal,
+        )],
+    };
+    let accounts = external_store_accounts();
+    services
+        .into_iter()
+        .flat_map(|service| {
+            accounts
+                .iter()
+                .cloned()
+                .map(move |account| (service.clone(), account))
+        })
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(super) fn scoped_credential_store_service_name(config_dir_literal: &str) -> String {
+    let suffix = resolved_oauth_settings().3;
+    let service = format!("Claude Code{suffix}-credentials");
+    let normalized = config_dir_literal.replace('\\', "/");
+    let hash = sha256_hex(normalized.as_bytes());
+    format!("{service}-{}", &hash[..8])
+}
+
+#[cfg(not(target_os = "macos"))]
+fn external_store_accounts() -> Vec<String> {
+    let user = env_text("USER")
+        .or_else(|| env_text("USERNAME"))
+        .unwrap_or_default();
+    let mut accounts = vec![user, String::new()];
+    accounts.dedup();
+    accounts
 }
 
 pub fn oauth_config() -> Result<ClaudeOAuthConfig, ClaudeError> {
@@ -531,50 +544,6 @@ pub fn claude_home() -> PathBuf {
         .unwrap_or_else(|| home_directory().join(".claude"))
 }
 
-fn keychain_candidates(scope: &ClaudeCredentialScope) -> Vec<(String, String)> {
-    let suffix = resolved_oauth_settings().3;
-    let service = format!("Claude Code{suffix}-credentials");
-    let services = match scope {
-        ClaudeCredentialScope::Standard => {
-            if let Some(config_dir) = env_text("CLAUDE_CONFIG_DIR") {
-                vec![scoped_keychain_service_name(&config_dir), service]
-            } else {
-                vec![service]
-            }
-        }
-        ClaudeCredentialScope::ConfigDir {
-            keychain_literal, ..
-        } => vec![scoped_keychain_service_name(keychain_literal)],
-    };
-    let accounts = keychain_accounts();
-    services
-        .into_iter()
-        .flat_map(|service| {
-            accounts
-                .iter()
-                .cloned()
-                .map(move |account| (service.clone(), account))
-        })
-        .collect()
-}
-
-pub(super) fn scoped_keychain_service_name(config_dir_literal: &str) -> String {
-    let suffix = resolved_oauth_settings().3;
-    let service = format!("Claude Code{suffix}-credentials");
-    let normalized = config_dir_literal.replace('\\', "/");
-    let hash = sha256_hex(normalized.as_bytes());
-    format!("{service}-{}", &hash[..8])
-}
-
-pub(super) fn keychain_accounts() -> Vec<String> {
-    let user = env_text("USER")
-        .or_else(|| env_text("USERNAME"))
-        .unwrap_or_default();
-    let mut accounts = vec![user, String::new()];
-    accounts.dedup();
-    accounts
-}
-
 fn env_text(name: &str) -> Option<String> {
     crate::provider_environment::value(name)
 }
@@ -605,8 +574,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        has_desktop_app_material_at, load_candidates_with_environment, parse_credentials,
-        write_private_file_atomic, ClaudeCredential, ClaudeCredentialGeneration,
+        has_desktop_app_material_at, load_candidates_from_path, load_candidates_with_environment,
+        parse_credentials, write_private_file_atomic, ClaudeCredential, ClaudeCredentialGeneration,
         ClaudeCredentialScope, ClaudeCredentialsFile, ClaudeOAuth, CredentialSource,
     };
     use crate::providers::claude::ClaudeError;
@@ -647,13 +616,100 @@ mod tests {
         let candidates = load_candidates_with_environment(
             &ClaudeCredentialScope::ConfigDir {
                 path: first.clone(),
-                keychain_literal: first.to_string_lossy().into_owned(),
+                credential_store_literal: first.to_string_lossy().into_owned(),
             },
             Some("ambient-token".into()),
         );
 
         assert_eq!(candidates.len(), 1);
         assert_eq!(candidates[0].access_token(), Some("first-token"));
+    }
+
+    #[test]
+    fn file_credentials_are_loaded_and_refresh_writeback_replaces_the_file() {
+        let directory = tempdir().unwrap();
+        let root = directory.path().join("claude");
+        fs::create_dir_all(&root).unwrap();
+        let path = root.join(".credentials.json");
+        fs::write(
+            &path,
+            br#"{"claudeAiOauth":{"accessToken":"old-access","refreshToken":"old-refresh"}}"#,
+        )
+        .unwrap();
+        let scope = ClaudeCredentialScope::ConfigDir {
+            path: root,
+            credential_store_literal: String::new(),
+        };
+        let mut credential = load_candidates_with_environment(&scope, None)
+            .into_iter()
+            .next()
+            .unwrap();
+        let generation = ClaudeCredentialGeneration::from_candidates(&[credential.clone()]);
+
+        assert!(credential
+            .update_and_save(
+                "new-access".into(),
+                Some("new-refresh".into()),
+                Some(3600.0),
+                Utc::now().timestamp_millis(),
+                &generation,
+                &scope,
+            )
+            .unwrap());
+
+        let saved = fs::read_to_string(path).unwrap();
+        assert!(saved.contains("new-access"));
+        assert!(saved.contains("new-refresh"));
+        assert!(!saved.contains("old-access"));
+    }
+
+    #[test]
+    fn environment_token_is_inference_only_and_never_persisted() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join(".credentials.json");
+        fs::write(
+            &path,
+            br#"{"claudeAiOauth":{"accessToken":"file-token","refreshToken":"file-refresh","expiresAt":1,"scopes":["user:profile"]}}"#,
+        )
+        .unwrap();
+        let scope = ClaudeCredentialScope::Standard;
+        let candidate = load_candidates_from_path(&scope, &path, Some("ambient-token".into()))
+            .into_iter()
+            .find(|candidate| candidate.inference_only)
+            .unwrap();
+        let generation = ClaudeCredentialGeneration::from_candidates(&[candidate.clone()]);
+        let before = fs::read(&path).unwrap();
+
+        assert!(candidate.inference_only);
+        assert_eq!(candidate.access_token(), Some("ambient-token"));
+        assert!(!candidate.has_profile_scope());
+        assert!(candidate.needs_refresh(Utc::now().timestamp_millis()));
+        assert!(!candidate
+            .clone()
+            .update_and_save(
+                "refreshed-token".into(),
+                Some("rotated-refresh".into()),
+                Some(3600.0),
+                Utc::now().timestamp_millis(),
+                &generation,
+                &scope,
+            )
+            .unwrap());
+        assert_eq!(fs::read(path).unwrap(), before);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn macos_ignores_keychain_only_credentials() {
+        let directory = tempdir().unwrap();
+        let scope = ClaudeCredentialScope::ConfigDir {
+            path: directory.path().to_path_buf(),
+            credential_store_literal: directory.path().to_string_lossy().into_owned(),
+        };
+
+        let candidates = load_candidates_with_environment(&scope, None);
+
+        assert!(candidates.is_empty());
     }
 
     #[test]
@@ -758,33 +814,30 @@ mod tests {
             "access-a",
             "refresh-a",
         );
-        let keychain = credential(
-            CredentialSource::Keychain {
-                service: "service".into(),
-                account: "account".into(),
-            },
+        let second_file = credential(
+            CredentialSource::File("other-credentials.json".into()),
             "access-b",
             "refresh-b",
         );
         let original =
-            ClaudeCredentialGeneration::from_candidates(&[file.clone(), keychain.clone()]);
+            ClaudeCredentialGeneration::from_candidates(&[file.clone(), second_file.clone()]);
 
         assert_ne!(
             original,
-            ClaudeCredentialGeneration::from_candidates(&[keychain.clone(), file.clone()])
+            ClaudeCredentialGeneration::from_candidates(&[second_file.clone(), file.clone()])
         );
         let mut metadata_changed = file.clone();
         metadata_changed.oauth.rate_limit_tier = Some("tier-b".into());
         assert_ne!(
             original,
-            ClaudeCredentialGeneration::from_candidates(&[metadata_changed, keychain.clone()])
+            ClaudeCredentialGeneration::from_candidates(&[metadata_changed, second_file.clone(),])
         );
         let mut rotated = file;
         rotated.oauth.access_token = Some("rotated".into());
         let replaced = original.replacing(&rotated).unwrap();
         assert_eq!(
             replaced,
-            ClaudeCredentialGeneration::from_candidates(&[rotated, keychain])
+            ClaudeCredentialGeneration::from_candidates(&[rotated, second_file])
         );
     }
 

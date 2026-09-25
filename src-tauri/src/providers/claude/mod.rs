@@ -329,15 +329,10 @@ impl ClaudeProvider {
         let candidates = load_candidates(&self.credential_scope);
         if candidates.is_empty() {
             crate::app_info!("auth:claude", "no reusable CLI credentials found");
-            return Err(
-                if matches!(self.credential_scope, ClaudeCredentialScope::Standard)
-                    && auth::has_desktop_app_data()
-                {
-                    ClaudeError::DesktopAppOnly
-                } else {
-                    ClaudeError::NotLoggedIn
-                },
-            );
+            return Err(missing_cli_credential_error(
+                &self.credential_scope,
+                auth::has_desktop_app_data(),
+            ));
         }
         crate::app_debug!(
             "auth:claude",
@@ -685,13 +680,24 @@ fn plan_name(credential: &ClaudeCredential) -> Option<String> {
     })
 }
 
+fn missing_cli_credential_error(
+    scope: &ClaudeCredentialScope,
+    desktop_app_data: bool,
+) -> ClaudeError {
+    if matches!(scope, ClaudeCredentialScope::Standard) && desktop_app_data {
+        ClaudeError::DesktopAppOnly
+    } else {
+        ClaudeError::NotLoggedIn
+    }
+}
+
 impl crate::providers::UsageProvider for ClaudeProvider {
     fn definition(&self) -> ProviderDefinition {
         self.definition.clone()
     }
 
     fn has_local_credentials(&self) -> bool {
-        auth::has_local_credentials(&self.credential_scope)
+        !load_candidates(&self.credential_scope).is_empty()
     }
 
     fn cache_identity(&self) -> crate::providers::CacheIdentity<'_> {
@@ -758,8 +764,8 @@ mod tests {
         accounts::{self, ClaudeAccount, ClaudeAccountDiscovery},
         auth::{ClaudeCredentialScope, ClaudeOAuthConfig},
         client::ClaudeClient,
-        definition, definition_for, rate_limit_notice, runtime_configs, ClaudeError,
-        ClaudeProvider, ClaudeRuntimeConfig,
+        definition, definition_for, missing_cli_credential_error, rate_limit_notice,
+        runtime_configs, ClaudeError, ClaudeProvider, ClaudeRuntimeConfig,
     };
 
     fn credential_json(access: &str, refresh: &str, plan: &str) -> String {
@@ -801,6 +807,28 @@ mod tests {
     }
 
     #[test]
+    fn desktop_only_data_reports_the_dedicated_unsupported_error() {
+        assert!(matches!(
+            missing_cli_credential_error(&ClaudeCredentialScope::Standard, true),
+            ClaudeError::DesktopAppOnly
+        ));
+        assert!(matches!(
+            missing_cli_credential_error(
+                &ClaudeCredentialScope::ConfigDir {
+                    path: "account".into(),
+                    credential_store_literal: "account".into(),
+                },
+                true,
+            ),
+            ClaudeError::NotLoggedIn
+        ));
+        assert!(matches!(
+            missing_cli_credential_error(&ClaudeCredentialScope::Standard, false),
+            ClaudeError::NotLoggedIn
+        ));
+    }
+
+    #[test]
     fn bare_account_in_a_config_dir_replaces_the_empty_default_placeholder() {
         let configs = runtime_configs(ClaudeAccountDiscovery {
             default_account: None,
@@ -811,7 +839,7 @@ mod tests {
                 identity: "identity-a".into(),
                 credential_scope: ClaudeCredentialScope::ConfigDir {
                     path: "account-a".into(),
-                    keychain_literal: "account-a".into(),
+                    credential_store_literal: "account-a".into(),
                 },
                 log_roots: vec!["account-a".into()],
             }],
@@ -845,7 +873,7 @@ mod tests {
                 identity: "identity-a".into(),
                 credential_scope: ClaudeCredentialScope::ConfigDir {
                     path: "account-a".into(),
-                    keychain_literal: "account-a".into(),
+                    credential_store_literal: "account-a".into(),
                 },
                 log_roots: vec!["account-a".into()],
             }],
@@ -956,7 +984,7 @@ mod tests {
         let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
         let credential_scope = ClaudeCredentialScope::ConfigDir {
             path: account_root.clone(),
-            keychain_literal: account_root.to_string_lossy().into_owned(),
+            credential_store_literal: account_root.to_string_lossy().into_owned(),
         };
         let provider = Arc::new(ClaudeProvider::new_scoped(
             ClaudeRuntimeConfig {
