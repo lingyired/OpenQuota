@@ -48,8 +48,10 @@
   // `session_status()` reports only Quota01's own vault session, so a user whose
   // data comes from the legacy local WorkBuddy/CodeBuddy login sees "Not
   // connected". The idle state is therefore where the fallback needs explaining;
-  // the authorizing state carries its own hint.
-  const showFallbackHint = $derived(!authorizing && !connected);
+  // the authorizing state carries its own hint. While the status is still being
+  // read the label reads "Checking…", so the idle explanation has to wait too —
+  // otherwise the two lines contradict each other on a slow credential read.
+  const showFallbackHint = $derived(!authorizing && !connected && !loading);
 
   function errorMessage(cause: unknown, fallback: string) {
     if (typeof cause === 'string') return cause;
@@ -243,6 +245,7 @@
   {/if}
   {#if authorizing && challenge}
     <p class="session-hint">{$tStore('providerSession.deviceCodeHint')}</p>
+    <p class="session-hint">{$tStore('providerSession.fallbackHint')}</p>
     <p class="session-uri">
       <span class="session-uri-label">{$tStore('providerSession.verificationUri')}</span>
       <code>{challenge.verificationUri}</code>

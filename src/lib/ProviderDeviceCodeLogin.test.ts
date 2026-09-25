@@ -101,18 +101,43 @@ describe('ProviderDeviceCodeLogin', () => {
     ).toBeInTheDocument();
   });
 
-  it('swaps the idle clarification for the attempt hint while authorizing', async () => {
+  it('keeps the idle clarification hidden while the session state is still loading', async () => {
+    // 读取状态要等一次（可能很慢的）凭据库往返。这期间状态显示的是“检查中”，
+    // 若同时渲染“尚未连接”的解释，两句话就自相矛盾了。
+    let release: (value: unknown) => void = () => {};
+    mockCommands({
+      get_provider_session_state: () =>
+        new Promise((resolve) => {
+          release = resolve;
+        }),
+    });
+
+    renderPanel();
+    await flush();
+
+    expect(screen.getByText('Checking…')).toBeInTheDocument();
+    expect(screen.queryByText(idleFallbackHint)).not.toBeInTheDocument();
+
+    release({ providerId: 'workbuddy-cn', status: 'notSet' });
+    await flush();
+
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
+    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
+  });
+
+  it('shows the attempt instruction plus the shared clarification while authorizing', async () => {
     renderPanel();
     await flush();
     expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
 
     await startSignIn();
 
-    // The authorizing state keeps its own hint and does not stack the idle copy.
-    expect(screen.queryByText(idleFallbackHint)).not.toBeInTheDocument();
+    // The authorizing state adds its own instruction on top of the shared
+    // clarification, which itself lives in exactly one dictionary entry.
     expect(
-      screen.getByText(/Open the authorization link and confirm the sign-in there\./),
+      screen.getByText('Open the authorization link and confirm the sign-in there.'),
     ).toBeInTheDocument();
+    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
   });
 
   it('hides the fallback clarification once a session is connected', async () => {

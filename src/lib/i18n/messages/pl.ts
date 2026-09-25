@@ -678,8 +678,7 @@ export const pl = {
     hint: 'Sign in in the window that opens. Quota01 will connect automatically when you close it.',
     startSignIn: 'Start Sign-In',
     waitingForSignIn: 'Waiting for confirmation…',
-    deviceCodeHint:
-      'Open the authorization link and confirm the sign-in there. This panel shows the sign-in Quota01 owns; an existing local WorkBuddy or CodeBuddy login keeps working as a fallback.',
+    deviceCodeHint: 'Open the authorization link and confirm the sign-in there.',
     fallbackHint:
       'This status shows the sign-in Quota01 owns. An existing local WorkBuddy or CodeBuddy login keeps working as a fallback.',
     verificationUri: 'Authorization link',

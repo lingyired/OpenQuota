@@ -648,8 +648,7 @@ export const zhCn = {
     hint: '请在打开的窗口中完成登录；关闭窗口后会自动连接。',
     startSignIn: '登录',
     waitingForSignIn: '等待授权…',
-    deviceCodeHint:
-      '打开授权链接并在其中确认登录，Quota01 会自动连接。此处显示的是 Quota01 自己的登录；本机已有的 WorkBuddy 或 CodeBuddy 登录会继续作为后备可用。',
+    deviceCodeHint: '打开授权链接并在其中确认登录，Quota01 会自动连接。',
     fallbackHint:
       '此处显示的是 Quota01 自己的登录；本机已有的 WorkBuddy 或 CodeBuddy 登录会继续作为后备可用。',
     verificationUri: '授权链接',
