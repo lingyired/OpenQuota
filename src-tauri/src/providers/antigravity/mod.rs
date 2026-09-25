@@ -128,7 +128,15 @@ impl AntigravityProvider {
 
     #[cfg(target_os = "macos")]
     fn refresh_inner(&self) -> Result<ProviderSnapshot, AntigravityError> {
-        refresh_local_with(discover, |server, method| {
+        self.refresh_inner_with(discover)
+    }
+
+    #[cfg(target_os = "macos")]
+    fn refresh_inner_with(
+        &self,
+        discover_server: impl FnOnce() -> Option<LanguageServer>,
+    ) -> Result<ProviderSnapshot, AntigravityError> {
+        refresh_local_with(discover_server, |server, method| {
             self.client.call_language_server(server, method)
         })
     }
@@ -588,6 +596,47 @@ mod tests {
         );
 
         assert!(matches!(result, Err(AntigravityError::Unavailable)));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_refresh_entrypoint_uses_rpc_without_cloud_or_token_calls() {
+        let local_rpc = crate::providers::test_http::serve_sequence(&[
+            (
+                200,
+                r#"{"response":{"groups":[{"buckets":[{"bucketId":"gemini-5h","remainingFraction":0.8}]}]}}"#,
+            ),
+            (
+                200,
+                r#"{"userStatus":{"userTier":{"name":"Google AI Pro"}}}"#,
+            ),
+        ]);
+        let port = local_rpc
+            .strip_prefix("http://127.0.0.1:")
+            .unwrap()
+            .parse::<u16>()
+            .unwrap();
+        let client = super::client::AntigravityClient::with_endpoints(
+            vec!["http://cloud.invalid".into()],
+            "http://tokens.invalid/token".into(),
+            std::time::Duration::from_secs(1),
+        )
+        .unwrap();
+        let provider = super::AntigravityProvider { client };
+
+        let snapshot = provider
+            .refresh_inner_with(|| {
+                Some(LanguageServer {
+                    csrf: "csrf".into(),
+                    ports: vec![],
+                    extension_port: Some(port),
+                })
+            })
+            .unwrap();
+
+        assert_eq!(snapshot.quotas.len(), 1);
+        assert_eq!(snapshot.quotas[0].used_percent, 20.0);
+        assert_eq!(provider.client.fallback_call_counts(), (0, 0));
     }
 
     #[cfg(not(target_os = "macos"))]

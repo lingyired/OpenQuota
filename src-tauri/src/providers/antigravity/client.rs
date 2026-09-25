@@ -4,6 +4,8 @@ use reqwest::StatusCode;
 #[cfg(any(test, not(target_os = "macos")))]
 use serde::Deserialize;
 use serde_json::{json, Value};
+#[cfg(test)]
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::{discovery::LanguageServer, AntigravityError};
 
@@ -33,6 +35,10 @@ pub struct AntigravityClient {
     cloud_bases: Vec<String>,
     #[cfg(any(test, not(target_os = "macos")))]
     google_token_url: String,
+    #[cfg(test)]
+    cloud_calls: AtomicUsize,
+    #[cfg(test)]
+    token_refresh_calls: AtomicUsize,
 }
 
 #[cfg(any(test, not(target_os = "macos")))]
@@ -97,7 +103,7 @@ impl AntigravityClient {
     }
 
     #[cfg(any(test, not(target_os = "macos")))]
-    fn with_endpoints(
+    pub(super) fn with_endpoints(
         cloud_bases: Vec<String>,
         google_token_url: String,
         remote_timeout: std::time::Duration,
@@ -110,6 +116,10 @@ impl AntigravityClient {
                 .map_err(|_| AntigravityError::Unavailable)?,
             cloud_bases,
             google_token_url,
+            #[cfg(test)]
+            cloud_calls: AtomicUsize::new(0),
+            #[cfg(test)]
+            token_refresh_calls: AtomicUsize::new(0),
         })
     }
 
@@ -166,6 +176,8 @@ impl AntigravityClient {
         body: Value,
         user_agent: CloudUserAgent,
     ) -> CloudOutcome {
+        #[cfg(test)]
+        self.cloud_calls.fetch_add(1, Ordering::Relaxed);
         for base in &self.cloud_bases {
             let response = self
                 .remote
@@ -201,6 +213,8 @@ impl AntigravityClient {
 
     #[cfg(any(test, not(target_os = "macos")))]
     pub fn refresh_google_token(&self, refresh_token: &str) -> RefreshOutcome {
+        #[cfg(test)]
+        self.token_refresh_calls.fetch_add(1, Ordering::Relaxed);
         crate::app_info!("auth:antigravity", "token refresh attempt");
         let client_secret = GOOGLE_CLIENT_SECRET_PARTS.concat();
         let response = self
@@ -253,6 +267,14 @@ impl AntigravityClient {
             RefreshOutcome::Unavailable
         }
     }
+
+    #[cfg(test)]
+    pub(super) fn fallback_call_counts(&self) -> (usize, usize) {
+        (
+            self.cloud_calls.load(Ordering::Relaxed),
+            self.token_refresh_calls.load(Ordering::Relaxed),
+        )
+    }
 }
 
 fn local_client() -> Result<Client, AntigravityError> {
@@ -266,6 +288,7 @@ fn local_client() -> Result<Client, AntigravityError> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicUsize;
     use std::time::Duration;
 
     use reqwest::blocking::Client;
@@ -300,6 +323,8 @@ mod tests {
                 .unwrap(),
             cloud_bases: vec![remote_base.to_owned()],
             google_token_url: format!("{remote_base}/token"),
+            cloud_calls: AtomicUsize::new(0),
+            token_refresh_calls: AtomicUsize::new(0),
         }
     }
 
