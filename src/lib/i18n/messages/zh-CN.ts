@@ -650,6 +650,8 @@ export const zhCn = {
     waitingForSignIn: '等待授权…',
     deviceCodeHint:
       '打开授权链接并在其中确认登录，Quota01 会自动连接。此处显示的是 Quota01 自己的登录；本机已有的 WorkBuddy 或 CodeBuddy 登录会继续作为后备可用。',
+    fallbackHint:
+      '此处显示的是 Quota01 自己的登录；本机已有的 WorkBuddy 或 CodeBuddy 登录会继续作为后备可用。',
     verificationUri: '授权链接',
     cancel: '取消',
     expired: '本次登录尝试已过期。请重新开始。',

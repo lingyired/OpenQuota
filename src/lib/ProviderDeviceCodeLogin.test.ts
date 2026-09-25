@@ -75,6 +75,58 @@ describe('ProviderDeviceCodeLogin', () => {
     vi.useRealTimers();
   });
 
+  // The state a user with only the legacy local WorkBuddy/CodeBuddy login sees:
+  // `session_status()` reports Quota01's own vault session as `notSet`, so the
+  // panel says "Not connected" even though the app still reads their data. The
+  // panel has to explain that, or the copy lives only in the active-attempt
+  // state where the confusion cannot be seen.
+  const idleFallbackHint =
+    'This status shows the sign-in Quota01 owns. An existing local WorkBuddy or CodeBuddy login keeps working as a fallback.';
+
+  it('explains the Quota01-owned status and the local fallback while not connected', async () => {
+    renderPanel();
+    await flush();
+
+    expect(screen.getByText('Not connected')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
+    // Removing this line from the idle branch of the template fails here.
+    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
+
+    await locale.set('zh-CN');
+    await flush();
+    expect(
+      screen.getByText(
+        '此处显示的是 Quota01 自己的登录；本机已有的 WorkBuddy 或 CodeBuddy 登录会继续作为后备可用。',
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it('swaps the idle clarification for the attempt hint while authorizing', async () => {
+    renderPanel();
+    await flush();
+    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
+
+    await startSignIn();
+
+    // The authorizing state keeps its own hint and does not stack the idle copy.
+    expect(screen.queryByText(idleFallbackHint)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Open the authorization link and confirm the sign-in there\./),
+    ).toBeInTheDocument();
+  });
+
+  it('hides the fallback clarification once a session is connected', async () => {
+    mockCommands({
+      get_provider_session_state: () =>
+        Promise.resolve({ providerId: 'workbuddy-cn', status: 'saved' }),
+    });
+    renderPanel();
+    await flush();
+
+    expect(screen.getByText('Connected')).toBeInTheDocument();
+    expect(screen.queryByText(idleFallbackHint)).not.toBeInTheDocument();
+  });
+
   it('shows the authorization link after starting a sign-in without opening it', async () => {
     renderPanel();
     await flush();
