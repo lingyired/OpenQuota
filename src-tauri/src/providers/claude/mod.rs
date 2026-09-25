@@ -716,28 +716,27 @@ impl crate::providers::UsageProvider for ClaudeProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        self.refresh_inner().map_err(|error| {
-            use crate::models::ProviderErrorKind as Kind;
-
-            let kind = match error {
-                ClaudeError::NotLoggedIn
-                | ClaudeError::DesktopAppOnly
-                | ClaudeError::SessionExpired
-                | ClaudeError::TokenExpired
-                | ClaudeError::CredentialsChanged
-                | ClaudeError::AccountChanged => Kind::Authentication,
-                ClaudeError::InvalidOAuthUrl | ClaudeError::InvalidResponse => {
-                    Kind::InvalidResponse
-                }
-                ClaudeError::AuthWrite => Kind::CredentialStorage,
-                ClaudeError::RequestFailed(429) => Kind::RateLimited,
-                ClaudeError::RequestFailed(_) | ClaudeError::ConnectionFailed => Kind::Network,
-                ClaudeError::LocalUsage => Kind::LocalData,
-                ClaudeError::AccountStore(_) => Kind::Internal,
-            };
-            crate::providers::ProviderError::from_display(kind, error)
-        })
+        self.refresh_inner().map_err(provider_error)
     }
+}
+
+fn provider_error(error: ClaudeError) -> crate::providers::ProviderError {
+    use crate::models::ProviderErrorKind as Kind;
+    let kind = match error {
+        ClaudeError::NotLoggedIn => Kind::CredentialsUnavailable,
+        ClaudeError::DesktopAppOnly => Kind::Unsupported,
+        ClaudeError::SessionExpired
+        | ClaudeError::TokenExpired
+        | ClaudeError::CredentialsChanged
+        | ClaudeError::AccountChanged => Kind::Authentication,
+        ClaudeError::InvalidOAuthUrl | ClaudeError::InvalidResponse => Kind::InvalidResponse,
+        ClaudeError::AuthWrite => Kind::CredentialStorage,
+        ClaudeError::RequestFailed(429) => Kind::RateLimited,
+        ClaudeError::RequestFailed(_) | ClaudeError::ConnectionFailed => Kind::Network,
+        ClaudeError::LocalUsage => Kind::LocalData,
+        ClaudeError::AccountStore(_) => Kind::Internal,
+    };
+    crate::providers::ProviderError::from_display(kind, error)
 }
 
 #[cfg(test)]
@@ -767,9 +766,27 @@ mod tests {
             ClaudeOAuthConfig,
         },
         client::ClaudeClient,
-        definition, definition_for, missing_cli_credential_error, rate_limit_notice,
-        runtime_configs, ClaudeError, ClaudeProvider, ClaudeRuntimeConfig,
+        definition, definition_for, missing_cli_credential_error, provider_error,
+        rate_limit_notice, runtime_configs, ClaudeError, ClaudeProvider, ClaudeRuntimeConfig,
     };
+
+    #[test]
+    fn missing_and_desktop_only_credentials_have_distinct_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(ClaudeError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(ClaudeError::DesktopAppOnly).kind(),
+            Kind::Unsupported
+        );
+        assert_eq!(
+            provider_error(ClaudeError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+    }
 
     fn credential_json(access: &str, refresh: &str, plan: &str) -> String {
         format!(

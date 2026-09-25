@@ -292,6 +292,9 @@ pub enum SnapshotSource {
 #[serde(rename_all = "camelCase")]
 pub enum ProviderErrorKind {
     Authentication,
+    CredentialsUnavailable,
+    LocalServiceUnavailable,
+    Unsupported,
     Permission,
     RateLimited,
     Network,
@@ -1264,5 +1267,27 @@ mod tests {
                 ProviderLink::new("HTTP", "http://example.com/dashboard"),
             ]
         );
+    }
+
+    #[test]
+    fn local_credential_error_kinds_use_camel_case_names() {
+        let kinds = [
+            (
+                ProviderErrorKind::CredentialsUnavailable,
+                "credentialsUnavailable",
+            ),
+            (
+                ProviderErrorKind::LocalServiceUnavailable,
+                "localServiceUnavailable",
+            ),
+            (ProviderErrorKind::Unsupported, "unsupported"),
+        ];
+
+        for (kind, expected) in kinds {
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{expected}\"")
+            );
+        }
     }
 }

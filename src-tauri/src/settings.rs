@@ -480,7 +480,7 @@ impl SettingsService {
                 .map(|provider| provider.id.clone())
                 .collect(),
             auto_enable_provider_ids: HashSet::new(),
-            replace_fallback: true,
+            replace_fallback: false,
             enablement_revision: self.enablement_revision.load(Ordering::SeqCst),
             credential_revision: self.credential_revision.load(Ordering::SeqCst),
         }
@@ -1384,11 +1384,41 @@ mod tests {
         assert!(codex.detected);
         assert!(codex.enabled);
         assert!(antigravity.detected);
-        assert!(antigravity.enabled);
+        assert!(!antigravity.enabled);
     }
 
     #[test]
-    fn definitive_reset_absence_restores_the_fallback_set() {
+    fn absent_or_unknown_local_probe_never_disables_an_enabled_provider() {
+        for status in [
+            CredentialProbeStatus::Absent,
+            CredentialProbeStatus::Unknown,
+        ] {
+            let directory = tempdir().unwrap();
+            let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+            let service = SettingsService::new_for_test(
+                storage,
+                catalog(),
+                &HashSet::from(["antigravity".to_owned()]),
+            )
+            .unwrap();
+            let plan = service.reset_detection_plan();
+            let mut results = probe_results(&[]);
+            results.insert("antigravity".to_owned(), status);
+
+            let outcome = service.apply_credential_detection(&plan, &results).unwrap();
+            let antigravity = outcome
+                .settings
+                .providers
+                .iter()
+                .find(|provider| provider.id == "antigravity")
+                .unwrap();
+
+            assert!(antigravity.enabled, "{status:?} probe disabled Antigravity");
+        }
+    }
+
+    #[test]
+    fn reset_absence_preserves_enabled_provider_instances() {
         let directory = tempdir().unwrap();
         let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
         let service = SettingsService::new_for_test(
@@ -1403,10 +1433,7 @@ mod tests {
             .apply_credential_detection(&plan, &probe_results(&[]))
             .unwrap();
 
-        assert_eq!(
-            enabled_ids(&outcome.settings),
-            ["claude", "codex", "cursor"]
-        );
+        assert!(enabled_ids(&outcome.settings).contains(&"antigravity"));
         assert!(outcome
             .settings
             .providers

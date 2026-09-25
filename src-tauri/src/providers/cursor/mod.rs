@@ -505,25 +505,26 @@ impl crate::providers::UsageProvider for CursorProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        CursorProvider::refresh(self).map_err(|error| {
-            use crate::models::ProviderErrorKind as Kind;
-            let kind = match error {
-                CursorError::NotLoggedIn
-                | CursorError::SessionExpired
-                | CursorError::TokenExpired => Kind::Authentication,
-                CursorError::AuthWrite => Kind::CredentialStorage,
-                CursorError::RequestFailed(429) => Kind::RateLimited,
-                CursorError::ConnectionFailed
-                | CursorError::RequestFailed(_)
-                | CursorError::UsageAfterRefreshFailed
-                | CursorError::RequestBasedUnavailable(_) => Kind::Network,
-                CursorError::InvalidResponse
-                | CursorError::TotalUsageLimitMissing
-                | CursorError::NoActiveSubscription => Kind::InvalidResponse,
-            };
-            crate::providers::ProviderError::from_display(kind, error)
-        })
+        CursorProvider::refresh(self).map_err(provider_error)
     }
+}
+
+fn provider_error(error: CursorError) -> crate::providers::ProviderError {
+    use crate::models::ProviderErrorKind as Kind;
+    let kind = match error {
+        CursorError::NotLoggedIn => Kind::CredentialsUnavailable,
+        CursorError::SessionExpired | CursorError::TokenExpired => Kind::Authentication,
+        CursorError::AuthWrite => Kind::CredentialStorage,
+        CursorError::RequestFailed(429) => Kind::RateLimited,
+        CursorError::ConnectionFailed
+        | CursorError::RequestFailed(_)
+        | CursorError::UsageAfterRefreshFailed
+        | CursorError::RequestBasedUnavailable(_) => Kind::Network,
+        CursorError::InvalidResponse
+        | CursorError::TotalUsageLimitMissing
+        | CursorError::NoActiveSubscription => Kind::InvalidResponse,
+    };
+    crate::providers::ProviderError::from_display(kind, error)
 }
 
 #[cfg(test)]
@@ -545,9 +546,27 @@ mod tests {
     use super::{
         auth::{CursorAuthSource, CursorAuthState},
         client::{CursorClient, Endpoints},
-        definition, CursorProvider,
+        definition, provider_error, CursorError, CursorProvider,
     };
     use crate::pricing::PricingStore;
+
+    #[test]
+    fn local_credential_errors_map_to_stable_provider_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(CursorError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(CursorError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(CursorError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+    }
 
     #[cfg(target_os = "macos")]
     #[test]

@@ -395,8 +395,14 @@ mod tests {
 
     use super::{
         auth::CopilotAuthStore, client::CopilotClient, definition, org_request_timeout,
-        CopilotProvider, ORG_LOOKUP_BUDGET, ORG_REQUEST_TIMEOUT,
+        CopilotError, CopilotProvider, ORG_LOOKUP_BUDGET, ORG_REQUEST_TIMEOUT,
     };
+
+    #[test]
+    fn missing_local_token_has_an_authentication_category() {
+        let error = crate::providers::ProviderError::from(CopilotError::NotLoggedIn);
+        assert_eq!(error.kind(), ProviderErrorKind::Authentication);
+    }
 
     struct Route {
         path: String,

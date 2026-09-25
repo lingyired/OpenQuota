@@ -121,6 +121,9 @@ export interface ProviderSnapshot {
 
 export type ProviderErrorKind =
   | 'authentication'
+  | 'credentialsUnavailable'
+  | 'localServiceUnavailable'
+  | 'unsupported'
   | 'permission'
   | 'rateLimited'
   | 'network'

@@ -363,13 +363,13 @@ fn provider_error(error: CodexError) -> crate::providers::ProviderError {
     use crate::models::ProviderErrorKind as Kind;
 
     let kind = match error {
-        CodexError::NotLoggedIn
-        | CodexError::SessionExpired
+        CodexError::NotLoggedIn => Kind::CredentialsUnavailable,
+        CodexError::SessionExpired
         | CodexError::TokenConflict
         | CodexError::TokenRevoked
         | CodexError::TokenExpired
-        | CodexError::InvalidAuth
         | CodexError::AccountChanged => Kind::Authentication,
+        CodexError::InvalidAuth => Kind::InvalidResponse,
         CodexError::ApiKeyOnly => Kind::Permission,
         CodexError::AuthWrite => Kind::CredentialStorage,
         CodexError::RequestFailed(429) => Kind::RateLimited,
@@ -433,9 +433,31 @@ mod account_tests {
     use tempfile::tempdir;
 
     use super::{
-        load_refresh_candidates_from_paths, validate_account_identity, CodexClient, CodexError,
-        CodexProvider,
+        load_refresh_candidates_from_paths, provider_error, validate_account_identity, CodexClient,
+        CodexError, CodexProvider,
     };
+
+    #[test]
+    fn local_credential_errors_map_to_stable_provider_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(CodexError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(CodexError::InvalidAuth).kind(),
+            Kind::InvalidResponse
+        );
+        assert_eq!(
+            provider_error(CodexError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(CodexError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+    }
     use crate::{
         pricing::PricingStore,
         providers::{CacheIdentity, UsageProvider},

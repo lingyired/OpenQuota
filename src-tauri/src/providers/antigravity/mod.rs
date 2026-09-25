@@ -440,21 +440,31 @@ impl crate::providers::UsageProvider for AntigravityProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        self.refresh_inner().map_err(|error| {
-            use crate::models::ProviderErrorKind as Kind;
-
-            let kind = match error {
-                #[cfg(not(target_os = "macos"))]
-                AntigravityError::NotSignedIn
-                | AntigravityError::AuthExpired
-                | AntigravityError::InvalidCredentialData => Kind::Authentication,
-                #[cfg(not(target_os = "macos"))]
-                AntigravityError::CredentialStoreUnreadable => Kind::CredentialStorage,
-                AntigravityError::Unavailable => Kind::Network,
-            };
-            crate::providers::ProviderError::from_display(kind, error)
-        })
+        self.refresh_inner().map_err(provider_error)
     }
+}
+
+fn provider_error(error: AntigravityError) -> crate::providers::ProviderError {
+    use crate::models::ProviderErrorKind as Kind;
+    let kind = match error {
+        #[cfg(not(target_os = "macos"))]
+        AntigravityError::NotSignedIn | AntigravityError::AuthExpired => Kind::Authentication,
+        #[cfg(not(target_os = "macos"))]
+        AntigravityError::InvalidCredentialData => Kind::InvalidResponse,
+        #[cfg(not(target_os = "macos"))]
+        AntigravityError::CredentialStoreUnreadable => Kind::CredentialStorage,
+        AntigravityError::Unavailable => {
+            #[cfg(target_os = "macos")]
+            {
+                Kind::LocalServiceUnavailable
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Kind::Network
+            }
+        }
+    };
+    crate::providers::ProviderError::from_display(kind, error)
 }
 
 #[cfg(test)]
@@ -465,10 +475,19 @@ mod tests {
     #[cfg(not(target_os = "macos"))]
     use super::auth::AntigravityToken;
     use super::refresh_local_with;
-    use super::AntigravityError;
     #[cfg(not(target_os = "macos"))]
     use super::{access_token_candidates, credential_failure, should_refresh_access_token};
+    use super::{provider_error, AntigravityError};
     use crate::providers::antigravity::discovery::LanguageServer;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn unavailable_local_service_has_a_distinct_provider_category() {
+        assert_eq!(
+            provider_error(AntigravityError::Unavailable).kind(),
+            crate::models::ProviderErrorKind::LocalServiceUnavailable
+        );
+    }
 
     fn server() -> LanguageServer {
         LanguageServer {
