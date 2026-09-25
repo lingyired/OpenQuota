@@ -297,7 +297,10 @@ fn set_string(document: &mut Value, pointer: &str, value: &str) -> Result<(), Co
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use chrono::{Duration, TimeZone, Utc};
@@ -344,11 +347,20 @@ mod tests {
     }
 
     #[test]
-    fn no_auth_files_means_no_candidate_even_if_a_keychain_entry_exists() {
+    fn no_auth_files_means_no_file_candidate() {
         assert!(matches!(
             CodexAuthState::load_candidates_from_paths(&[]),
             Err(CodexError::NotLoggedIn)
         ));
+    }
+
+    #[test]
+    fn codex_candidate_source_type_is_file_only() {
+        let path = PathBuf::from("auth.json");
+        let source = AuthSource::File(path);
+        match &source {
+            AuthSource::File(_) => {}
+        }
     }
 
     #[test]

@@ -3,6 +3,8 @@ pub mod client;
 pub mod csv;
 pub mod mapper;
 
+#[cfg(all(test, target_os = "macos"))]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{Days, Local, TimeZone, Utc};
@@ -166,7 +168,8 @@ impl CursorProvider {
 
     pub fn refresh(&self) -> Result<ProviderSnapshot, CursorError> {
         let now = Utc::now();
-        let auth = CursorAuthState::load()?.ok_or(CursorError::NotLoggedIn)?;
+        let auth = load_refresh_auth()?;
+        let auth = auth.ok_or(CursorError::NotLoggedIn)?;
         self.refresh_with_auth(auth, now)
     }
 
@@ -454,6 +457,17 @@ fn snapshot(
     }
 }
 
+fn load_refresh_auth() -> Result<Option<CursorAuthState>, CursorError> {
+    CursorAuthState::load()
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn load_refresh_auth_from_database_paths(
+    paths: &[PathBuf],
+) -> Result<Option<CursorAuthState>, CursorError> {
+    CursorAuthState::load_from_database_paths(paths)
+}
+
 fn require_success(response: &CursorResponse) -> Result<(), CursorError> {
     if response.status.is_success() {
         Ok(())
@@ -526,12 +540,47 @@ mod tests {
     use rusqlite::Connection;
     use tempfile::tempdir;
 
+    #[cfg(target_os = "macos")]
+    use super::load_refresh_auth_from_database_paths;
     use super::{
         auth::{CursorAuthSource, CursorAuthState},
         client::{CursorClient, Endpoints},
         definition, CursorProvider,
     };
     use crate::pricing::PricingStore;
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn refresh_auth_loader_uses_only_the_selected_sqlite_database() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("state.vscdb");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+                ("cursorAuth/accessToken", "sqlite-access"),
+            )
+            .unwrap();
+        drop(connection);
+
+        let auth = load_refresh_auth_from_database_paths(std::slice::from_ref(&path))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(auth.access_token.as_deref(), Some("sqlite-access"));
+        assert!(
+            matches!(&auth.source, CursorAuthSource::Sqlite(source) if source.as_path() == path.as_path())
+        );
+        assert!(load_refresh_auth_from_database_paths(&[])
+            .unwrap()
+            .is_none());
+    }
 
     fn jwt(subject: &str) -> String {
         let payload = URL_SAFE_NO_PAD

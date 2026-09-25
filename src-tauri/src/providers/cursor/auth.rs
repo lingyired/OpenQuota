@@ -37,7 +37,11 @@ pub struct CursorAuthState {
 
 impl CursorAuthState {
     pub fn load() -> Result<Option<Self>, CursorError> {
-        let sqlite = sqlite_auth_from_paths(&state_database_paths());
+        Self::load_from_database_paths(&state_database_paths())
+    }
+
+    pub(super) fn load_from_database_paths(paths: &[PathBuf]) -> Result<Option<Self>, CursorError> {
+        let sqlite = sqlite_auth_from_paths(paths);
         #[cfg(target_os = "macos")]
         return Ok(sqlite.map(|(state, _)| state));
         #[cfg(not(target_os = "macos"))]
@@ -228,7 +232,7 @@ fn non_empty(value: impl AsRef<str>) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
 }
 
-fn state_database_paths() -> Vec<PathBuf> {
+pub(super) fn state_database_paths() -> Vec<PathBuf> {
     if let Some(path) = std::env::var_os("QUOTA01_CURSOR_STATE_DB").map(PathBuf::from) {
         return vec![path];
     }
@@ -339,6 +343,21 @@ mod tests {
             selected.unwrap().source,
             CursorAuthSource::Sqlite(_)
         ));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn credential_store_only_auth_remains_available_off_macos() {
+        let credential_store = state(
+            CursorAuthSource::Keychain {
+                account: "legacy-account".into(),
+            },
+            &jwt("auth0|legacy", 100),
+        );
+
+        let selected = select_auth_state(None, Some(credential_store)).unwrap();
+
+        assert!(matches!(selected.source, CursorAuthSource::Keychain { .. }));
     }
 
     #[test]
