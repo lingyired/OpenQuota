@@ -8,7 +8,6 @@
   import ProviderIcon from './ProviderIcon.svelte';
   import ProviderLinks from './ProviderLinks.svelte';
   import ProviderNoticeRow from './ProviderNoticeRow.svelte';
-  import ProviderDeviceCodeLogin from './ProviderDeviceCodeLogin.svelte';
   import ProviderSessionActions from './ProviderSessionActions.svelte';
   import Icon from './Icon.svelte';
   import MetricRenderer from './MetricRenderer.svelte';
@@ -572,13 +571,6 @@
               >{$tBackendStore(state.error)}</span
             >
             <div class="provider-error-row__actions">
-              {#if catalog.supportsDeviceCodeSignIn(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'credentialStorage')}
-                <ProviderDeviceCodeLogin
-                  providerId={provider.id}
-                  providerName={providerDisplayName(provider.id)}
-                  compact
-                />
-              {/if}
               {#if catalog.supportsWebviewAuth(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'permission' || state.errorKind === 'credentialStorage')}
                 <ProviderSessionActions
                   providerId={provider.id}

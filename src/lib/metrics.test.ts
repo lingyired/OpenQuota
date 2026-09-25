@@ -27,18 +27,6 @@ describe('provider catalog index', () => {
     ]);
   });
 
-  it('reports device-code sign-in providers from the catalog', () => {
-    const catalog = new ProviderCatalogIndex({
-      providers: [],
-      apiKeyProviderIds: [],
-      webviewAuthProviderIds: [],
-      deviceCodeSignInProviderIds: ['workbuddy-cn'],
-    });
-
-    expect(catalog.supportsDeviceCodeSignIn('workbuddy-cn')).toBe(true);
-    expect(catalog.supportsDeviceCodeSignIn('codex')).toBe(false);
-  });
-
   it('uses safe unknown-provider fallbacks without borrowing another provider identity', () => {
     const catalog = new ProviderCatalogIndex(providerCatalog);
 

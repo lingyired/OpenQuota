@@ -11,7 +11,6 @@ export class ProviderCatalogIndex {
   readonly #metricsById: Map<string, MetricDefinition>;
   readonly #apiKeyProviderIds: Set<string>;
   readonly #webviewAuthProviderIds: Set<string>;
-  readonly #deviceCodeSignInProviderIds: Set<string>;
 
   constructor(catalog: ProviderCatalog) {
     this.providers = catalog.providers;
@@ -19,7 +18,6 @@ export class ProviderCatalogIndex {
     this.#metricsById = new Map();
     this.#apiKeyProviderIds = new Set(catalog.apiKeyProviderIds ?? []);
     this.#webviewAuthProviderIds = new Set(catalog.webviewAuthProviderIds ?? []);
-    this.#deviceCodeSignInProviderIds = new Set(catalog.deviceCodeSignInProviderIds ?? []);
 
     for (const provider of catalog.providers) {
       if (this.#providersById.has(provider.id)) {
@@ -59,10 +57,6 @@ export class ProviderCatalogIndex {
 
   supportsWebviewAuth(id: string) {
     return this.#webviewAuthProviderIds.has(id);
-  }
-
-  supportsDeviceCodeSignIn(id: string) {
-    return this.#deviceCodeSignInProviderIds.has(id);
   }
 
   localUsageSourceNote(id: string) {

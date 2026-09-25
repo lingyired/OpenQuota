@@ -131,18 +131,6 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   // Provider errors
   'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.':
     'providerError.workbuddyCredentialsEncrypted',
-  'Could not reach WorkBuddy.': ['providerError.couldNotReach', { provider: 'WorkBuddy' }],
-  'WorkBuddy returned credentials without a domain. Sign in again.':
-    'providerError.workbuddyCredentialsWithoutDomain',
-  'This WorkBuddy sign-in attempt is unknown. Start again.':
-    'providerError.workbuddySignInAttemptUnknown',
-  'This WorkBuddy sign-in attempt is no longer active. Start again.':
-    'providerError.workbuddySignInAttemptInactive',
-  'This WorkBuddy sign-in attempt expired. Start again.':
-    'providerError.workbuddySignInAttemptExpired',
-  'That provider does not use a device-code sign-in.': 'providerError.deviceCodeUnsupported',
-  'The sign-in could not be started.': 'providerError.signInCouldNotStart',
-  'The sign-in status could not be read.': 'providerError.signInStatusUnreadable',
   'That provider does not have a saved connection.': 'providerError.noSavedConnection',
   'Not logged in. Run `codex` to authenticate.': [
     'providerError.notLoggedInRunCmd',
@@ -358,11 +346,6 @@ export interface BackendPattern {
 export const backendPatterns: BackendPattern[] = [
   // Provider errors returned by the Rust providers. Keep the more specific
   // usage/billing variants before the generic request variant.
-  {
-    pattern: /^WorkBuddy returned credentials for an untrusted domain \((.+)\)\. Sign in again\.$/,
-    key: 'providerError.workbuddyUntrustedDomain',
-    params: ['domain'],
-  },
   {
     pattern: /^Could not connect to (.+)\. Check your internet connection\.$/,
     key: 'providerError.couldNotConnect',

@@ -191,18 +191,6 @@ export interface ApiKeyMutationOutcome extends ProviderApiKeyState {
   warning?: string;
 }
 
-export interface DeviceCodeChallenge {
-  loginId: string;
-  verificationUri: string;
-  expiresIn: number;
-}
-
-// Session material stays in Rust; this payload never carries it.
-export interface DeviceCodePoll {
-  done: boolean;
-  error?: string;
-}
-
 export interface ProviderDefinition {
   id: string;
   displayName: string;
@@ -217,7 +205,6 @@ export interface ProviderCatalog {
   providers: ProviderDefinition[];
   apiKeyProviderIds?: string[];
   webviewAuthProviderIds?: string[];
-  deviceCodeSignInProviderIds?: string[];
 }
 
 export interface MetricLayout {

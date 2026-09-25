@@ -37,7 +37,6 @@ impl ProviderRegistry {
         let mut metric_owners = BTreeMap::<String, String>::new();
         let mut api_key_provider_ids = Vec::new();
         let mut webview_auth_provider_ids = Vec::new();
-        let mut device_code_sign_in_provider_ids = Vec::new();
 
         for provider in providers {
             let mut definition = provider.definition();
@@ -66,9 +65,6 @@ impl ProviderRegistry {
             if provider.webview_auth().is_some() {
                 webview_auth_provider_ids.push(definition.id.clone());
             }
-            if provider.device_code_auth().is_some() {
-                device_code_sign_in_provider_ids.push(definition.id.clone());
-            }
             runtimes.insert(definition.id.clone(), provider);
             definitions.push(definition);
         }
@@ -85,7 +81,6 @@ impl ProviderRegistry {
                 providers: definitions,
                 api_key_provider_ids,
                 webview_auth_provider_ids,
-                device_code_sign_in_provider_ids,
             },
             definition_indices,
             metric_indices,
@@ -182,8 +177,7 @@ impl UsageProvider for DefinitionOnlyProvider {
 /// 所以这几个桩对 crate 内可见。
 #[cfg(test)]
 pub(crate) use tests::{
-    definition as test_definition, DeviceCodeStubProvider, StubProvider, WebviewStubProvider,
-    DEVICE_CODE_FAILED_LOGIN_ID, DEVICE_CODE_LOGIN_ID,
+    definition as test_definition, SessionOnlyStubProvider, StubProvider, WebviewStubProvider,
 };
 
 fn validate_definition(
@@ -311,8 +305,8 @@ mod tests {
 
     use crate::{
         models::{
-            ApiKeyStatus, DeviceCodeChallenge, DeviceCodePoll, MetricDefinition, MetricSection,
-            MetricSource, ProviderDefinition, ProviderSnapshot,
+            ApiKeyStatus, MetricDefinition, MetricSection, MetricSource, ProviderDefinition,
+            ProviderSnapshot,
         },
         providers::{ProviderError, UsageProvider},
     };
@@ -325,18 +319,9 @@ mod tests {
 
     pub(crate) struct WebviewStubProvider(pub(crate) ProviderDefinition);
 
-    pub(crate) struct DeviceCodeStubProvider(pub(crate) ProviderDefinition);
-
-    /// 桩认得的登录句柄：命令必须原样透传，桩才认这次轮询与取消。
-    pub(crate) const DEVICE_CODE_LOGIN_ID: &str = "device-code-login";
-
-    /// 桩用这个句柄报告「尝试已失败」：错误必须以轮询结果的形式回到前端，
-    /// 而不是把整条命令变成 `Err`。
-    pub(crate) const DEVICE_CODE_FAILED_LOGIN_ID: &str = "device-code-failed";
-
-    const DEVICE_CODE_VERIFICATION_URI: &str = "https://example.com/device";
-
-    const DEVICE_CODE_EXPIRES_IN: u64 = 600;
+    /// 有会话、但没有 WebView 可清理的 provider：`delete_provider_session` 必须照样
+    /// 能断开它（WorkBuddy 就是这种形状）。
+    pub(crate) struct SessionOnlyStubProvider(pub(crate) ProviderDefinition);
 
     impl UsageProvider for StubProvider {
         fn definition(&self) -> ProviderDefinition {
@@ -376,7 +361,7 @@ mod tests {
         }
     }
 
-    impl UsageProvider for DeviceCodeStubProvider {
+    impl UsageProvider for SessionOnlyStubProvider {
         fn definition(&self) -> ProviderDefinition {
             self.0.clone()
         }
@@ -385,46 +370,7 @@ mod tests {
             false
         }
 
-        fn device_code_auth(&self) -> Option<crate::providers::DeviceCodeAuth> {
-            Some(crate::providers::DeviceCodeAuth {
-                platform: "test".into(),
-            })
-        }
-
-        /// 真实 provider（WorkBuddy）的申请结果从这里出去，桩给出确定值，
-        /// 命令测试因此能钉住「原样透传」而不是钉住某段实现。
-        fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
-            Ok(DeviceCodeChallenge {
-                login_id: DEVICE_CODE_LOGIN_ID.into(),
-                verification_uri: DEVICE_CODE_VERIFICATION_URI.into(),
-                expires_in: DEVICE_CODE_EXPIRES_IN,
-            })
-        }
-
-        fn poll_device_code_login(&self, login_id: &str) -> DeviceCodePoll {
-            match login_id {
-                DEVICE_CODE_LOGIN_ID => DeviceCodePoll {
-                    done: true,
-                    error: None,
-                },
-                DEVICE_CODE_FAILED_LOGIN_ID => DeviceCodePoll {
-                    done: true,
-                    error: Some("The test sign-in failed.".into()),
-                },
-                // 认不出的句柄按「还没完成」处理：命令丢掉 login_id 时测试必须看得出来。
-                _ => DeviceCodePoll {
-                    done: false,
-                    error: None,
-                },
-            }
-        }
-
-        fn cancel_device_code_login(&self, login_id: &str) -> bool {
-            login_id == DEVICE_CODE_LOGIN_ID
-        }
-
-        /// 设备码登录签发的会话存在 Quota01 自己的 vault 里，因此这个桩
-        /// 同 WorkBuddy 一样报得出会话、却没有 WebView 可清理。
+        /// 会话存在 Quota01 自己的 vault 里：报得出会话，却没有 WebView 可清理。
         fn session_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
             Some(Ok(ApiKeyStatus::Saved))
         }
@@ -523,20 +469,6 @@ mod tests {
         .unwrap();
 
         assert_eq!(registry.catalog().webview_auth_provider_ids, ["webview"]);
-    }
-
-    #[test]
-    fn registry_exposes_device_code_sign_in_capabilities() {
-        let registry = ProviderRegistry::new(vec![
-            Arc::new(DeviceCodeStubProvider(definition("device-code"))),
-            runtime(definition("plain")),
-        ])
-        .unwrap();
-
-        assert_eq!(
-            registry.catalog().device_code_sign_in_provider_ids,
-            ["device-code"]
-        );
     }
 
     #[test]

@@ -66,9 +66,9 @@ systems for China and the rest of the world, both are listed as separate provide
   balance on `api.siliconflow.cn` (API key)
 - **[TraeWork CN](docs/providers/trae-work-cn.md)** — available Trae credits through secure WebView sign-in
 - **[Workbuddy CN](docs/providers/workbuddy-cn.md)** — credit packages, available credits, and usage
-  history through browser sign-in in Quota01 (no API key), with the local WorkBuddy or CodeBuddy
-  login as a fallback; that fallback keeps the cards working, while the sign-in panel reports only
-  the session Quota01 itself holds
+  history through a WebView sign-in in Quota01 (no API key), with the local WorkBuddy or CodeBuddy
+  login as a fallback; that fallback keeps the cards working, while the connection panel reports
+  only the session Quota01 itself holds
 - **[Z.ai CN](docs/providers/zai-cn.md)** — GLM Coding Plan session, weekly, and web-search quotas on
   `open.bigmodel.cn` (API key)
 
@@ -99,9 +99,10 @@ Most providers use credentials already available on your computer. OpenRouter, S
 SiliconFlow CN, Z.ai, Z.ai CN, Kimi CN, MiniMax, MiniMax CN, and Infini require API keys, which you
 can add in Customize; Quota01 stores them securely in your encrypted credential vault protected by
 the operating system credential store.
-DeepSeek and TraeWork CN use a WebView sign-in and store only the resulting account session in the
-credential store. Workbuddy CN reuses the WorkBuddy or CodeBuddy login data on disk. Codex
-subscription limits require a ChatGPT login and are not available in API-key-only sessions.
+DeepSeek, TraeWork CN, and Workbuddy CN use a WebView sign-in and store only the resulting
+account session in the credential store; Workbuddy CN also falls back to the WorkBuddy or CodeBuddy
+login data on disk. Codex subscription limits require a ChatGPT login and are not available in
+API-key-only sessions.
 
 ## Features
 
