@@ -31,6 +31,21 @@ enum SettingsSaveMode {
     ResetAll,
 }
 
+const NOTIFICATION_PERMISSION_ERROR: &str = "Notification permission could not be requested.";
+
+fn notification_permission_error<T, E>(result: Result<T, E>) -> Option<String> {
+    result
+        .err()
+        .map(|_| NOTIFICATION_PERMISSION_ERROR.to_owned())
+}
+
+fn merge_integration_errors(
+    notification_error: Option<String>,
+    integration_error: Option<String>,
+) -> Option<String> {
+    notification_error.or(integration_error)
+}
+
 #[tauri::command]
 pub fn get_app_settings(
     app: AppHandle,
@@ -365,7 +380,10 @@ fn newly_enabled_provider_ids(previous: &AppSettings, next: &AppSettings) -> Vec
 
 #[cfg(test)]
 mod tests {
-    use super::newly_enabled_provider_ids;
+    use super::{
+        merge_integration_errors, newly_enabled_provider_ids, notification_permission_error,
+        NOTIFICATION_PERMISSION_ERROR,
+    };
     use crate::models::{AppSettings, ProviderLayout};
 
     fn provider(id: &str, enabled: bool) -> ProviderLayout {
@@ -400,6 +418,19 @@ mod tests {
             vec!["cursor".to_owned(), "claude".to_owned()]
         );
     }
+
+    #[test]
+    fn failed_notification_permission_request_is_reported() {
+        let integration_error = merge_integration_errors(
+            notification_permission_error::<(), ()>(Err(())),
+            Some("Another integration error.".to_owned()),
+        );
+
+        assert_eq!(
+            integration_error.as_deref(),
+            Some(NOTIFICATION_PERMISSION_ERROR)
+        );
+    }
 }
 
 #[tauri::command]
@@ -431,20 +462,11 @@ pub fn request_notification_permission(
     settings: State<'_, Arc<SettingsService>>,
 ) -> SettingsViewState {
     crate::app_info!("notifications", "notification permission requested");
-    let error = app
-        .notification()
-        .request_permission()
-        .err()
-        .map(|_| "Notification permission could not be requested.".to_owned());
+    let error = notification_permission_error(app.notification().request_permission());
     if error.is_some() {
         crate::app_error!("notifications", "notification permission request failed");
     }
-    settings.view_state(
-        notification_permission(&app),
-        error,
-        app.state::<DesktopIntegration>().tray_available(),
-        app.state::<DesktopIntegration>().platform_summary(),
-    )
+    settings_view_state_with_error(&app, &settings, error)
 }
 
 #[tauri::command]
@@ -502,6 +524,14 @@ pub fn open_log_folder(app: AppHandle) -> Result<(), String> {
 }
 
 pub(crate) fn settings_view_state(app: &AppHandle, service: &SettingsService) -> SettingsViewState {
+    settings_view_state_with_error(app, service, None)
+}
+
+fn settings_view_state_with_error(
+    app: &AppHandle,
+    service: &SettingsService,
+    notification_error: Option<String>,
+) -> SettingsViewState {
     let (autostart, mut integration_error) = match autostart_is_enabled(app) {
         Ok(enabled) => (Some(enabled), None),
         Err(_) => (
@@ -515,11 +545,23 @@ pub(crate) fn settings_view_state(app: &AppHandle, service: &SettingsService) ->
                 Some("The saved global shortcut is currently unavailable.".to_owned());
         }
     }
+    integration_error = merge_integration_errors(notification_error, integration_error);
+    #[cfg(target_os = "macos")]
+    let app_menubar_forced = crate::menubar::app_menubar_forced(
+        &app.state::<Arc<ProviderService>>().state(),
+        &service.get(),
+        service.registry(),
+        app.state::<crate::menubar::MenubarState>()
+            .allows_no_menubar(),
+    );
+    #[cfg(not(target_os = "macos"))]
+    let app_menubar_forced = false;
     let mut state = service.view_state(
         notification_permission(app),
         integration_error,
         app.state::<DesktopIntegration>().tray_available(),
         app.state::<DesktopIntegration>().platform_summary(),
+        app_menubar_forced,
     );
     if let Some(enabled) = autostart {
         state.settings.launch_at_login = enabled;

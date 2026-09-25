@@ -8,11 +8,12 @@ import type { AppSettings } from './types';
 afterEach(cleanup);
 
 const settings: AppSettings = {
-  schemaVersion: 8,
+  schemaVersion: 9,
   providerNames: {},
   language: 'en',
   knownProviderIds: ['codex', 'claude', 'antigravity'],
   showTotalSpend: false,
+  showAppMenubar: true,
   theme: 'system',
   density: 'default',
   reduceAnimations: false,

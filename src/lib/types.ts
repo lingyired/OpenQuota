@@ -300,6 +300,7 @@ export interface AppSettings {
   providerNames: Record<string, string>;
   language: LanguagePreference;
   showTotalSpend: boolean;
+  showAppMenubar: boolean;
   theme: 'system' | 'light' | 'dark';
   density: 'default' | 'compact';
   reduceAnimations: boolean;
@@ -355,6 +356,7 @@ export interface SettingsViewState {
   integrationError: string | null;
   trayAvailable: boolean;
   platformSummary: string | null;
+  appMenubarForced: boolean;
 }
 
 export interface BootstrapState {

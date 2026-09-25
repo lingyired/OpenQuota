@@ -223,6 +223,21 @@
         >{$tStore('settings.shortcutRecordingHelp')}</small
       >
     </div>
+    {#if platform === 'macos'}
+      <label class="setting-row">
+        <span>
+          <b>{$tStore('settings.showAppMenubar')}</b>
+          {#if settingsView.appMenubarForced}
+            <small>{$tStore('settings.appMenubarForced')}</small>
+          {/if}
+        </span>
+        <input
+          type="checkbox"
+          checked={settings.showAppMenubar}
+          onchange={(event) => patch({ showAppMenubar: event.currentTarget.checked })}
+        />
+      </label>
+    {/if}
   </div>
 
   <div class="settings-section">

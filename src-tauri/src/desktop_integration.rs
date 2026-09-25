@@ -21,6 +21,14 @@ pub enum LinuxDesktop {
     Other,
 }
 
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RuntimeEntryOutcome {
+    MenuEntry,
+    FloatingWindow,
+    Exit,
+}
+
 #[derive(Debug, Clone)]
 pub struct DesktopIntegration {
     tray_available: Arc<AtomicBool>,
@@ -70,6 +78,60 @@ impl DesktopIntegration {
         let changed = self.tray_available.swap(false, Ordering::SeqCst);
         self.set_floating(true);
         changed
+    }
+
+    pub fn set_menu_entry_available(&self, available: bool) {
+        self.tray_available.store(available, Ordering::SeqCst);
+        if !available {
+            self.set_floating(true);
+        }
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn restore_menu_entry_window_mode(
+        &self,
+        mode: WindowMode,
+        apply: impl FnOnce(WindowMode) -> Result<bool, String>,
+    ) -> Result<bool, String> {
+        let floating = apply(mode)?;
+        self.set_floating(floating);
+        Ok(floating)
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn ensure_runtime_entry(
+        &self,
+        has_menu_entry: bool,
+        floating_window_visible: bool,
+        show_floating_window: impl FnOnce() -> bool,
+    ) -> RuntimeEntryOutcome {
+        self.set_menu_entry_available(has_menu_entry);
+        if has_menu_entry {
+            RuntimeEntryOutcome::MenuEntry
+        } else if floating_window_visible || show_floating_window() {
+            RuntimeEntryOutcome::FloatingWindow
+        } else {
+            RuntimeEntryOutcome::Exit
+        }
+    }
+
+    #[cfg(any(target_os = "macos", test))]
+    pub(crate) fn ensure_runtime_entry_or_exit(
+        &self,
+        has_menu_entry: bool,
+        floating_window_visible: bool,
+        show_floating_window: impl FnOnce() -> bool,
+        exit: impl FnOnce(),
+    ) -> RuntimeEntryOutcome {
+        let outcome = self.ensure_runtime_entry(
+            has_menu_entry,
+            floating_window_visible,
+            show_floating_window,
+        );
+        if outcome == RuntimeEntryOutcome::Exit {
+            exit();
+        }
+        outcome
     }
 
     pub(crate) fn set_floating(&self, floating: bool) {
@@ -202,7 +264,11 @@ pub fn wait_for_status_notifier_loss() -> Result<(), String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_desktop, parse_session_type, LinuxDesktop, LinuxSessionType};
+    use std::cell::Cell;
+
+    use super::{
+        parse_desktop, parse_session_type, LinuxDesktop, LinuxSessionType, RuntimeEntryOutcome,
+    };
     use crate::models::WindowMode;
 
     #[test]
@@ -264,5 +330,120 @@ mod tests {
             Some("KDE Plasma · X11 · standalone window")
         );
         assert!(!integration.disable_tray());
+    }
+
+    #[test]
+    fn losing_the_menu_entry_makes_a_floating_window_exit_on_close() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        assert!(integration.apply_window_mode(WindowMode::Floating));
+        integration.set_menu_entry_available(false);
+        assert!(integration.is_floating());
+        assert!(integration.exits_on_close());
+
+        integration.set_menu_entry_available(true);
+        assert!(!integration.exits_on_close());
+    }
+
+    #[test]
+    fn menu_entry_recovery_reapplies_the_configured_window_mode() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        integration.set_menu_entry_available(false);
+        integration.set_menu_entry_available(true);
+
+        let mut applied = None;
+        integration
+            .restore_menu_entry_window_mode(WindowMode::Popup, |mode| {
+                applied = Some(mode);
+                Ok(false)
+            })
+            .unwrap();
+
+        assert_eq!(applied, Some(WindowMode::Popup));
+        assert!(!integration.is_floating());
+    }
+    #[test]
+    fn runtime_entry_falls_back_to_a_floating_window_when_no_menu_item_remains() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        let fallback_calls = Cell::new(0);
+
+        let outcome = integration.ensure_runtime_entry(false, false, || {
+            fallback_calls.set(fallback_calls.get() + 1);
+            true
+        });
+
+        assert_eq!(outcome, RuntimeEntryOutcome::FloatingWindow);
+        assert_eq!(fallback_calls.get(), 1);
+        assert!(!integration.tray_available());
+        assert!(integration.is_floating());
+        assert!(integration.exits_on_close());
+    }
+
+    #[test]
+    fn runtime_entry_exits_when_no_menu_item_or_floating_window_can_be_shown() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+
+        let outcome = integration.ensure_runtime_entry(false, false, || false);
+
+        assert_eq!(outcome, RuntimeEntryOutcome::Exit);
+        assert!(!integration.tray_available());
+        assert!(integration.is_floating());
+        assert!(integration.exits_on_close());
+    }
+
+    #[test]
+    fn runtime_entry_recovery_only_exits_after_the_floating_fallback_fails() {
+        let recovered =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        let recovered_exit_calls = Cell::new(0);
+
+        let outcome = recovered.ensure_runtime_entry_or_exit(
+            false,
+            false,
+            || true,
+            || recovered_exit_calls.set(recovered_exit_calls.get() + 1),
+        );
+
+        assert_eq!(outcome, RuntimeEntryOutcome::FloatingWindow);
+        assert_eq!(recovered_exit_calls.get(), 0);
+        assert!(!recovered.tray_available());
+        assert!(recovered.is_floating());
+
+        let unrecoverable =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        let unrecoverable_exit_calls = Cell::new(0);
+
+        let outcome = unrecoverable.ensure_runtime_entry_or_exit(
+            false,
+            false,
+            || false,
+            || unrecoverable_exit_calls.set(unrecoverable_exit_calls.get() + 1),
+        );
+
+        assert_eq!(outcome, RuntimeEntryOutcome::Exit);
+        assert_eq!(unrecoverable_exit_calls.get(), 1);
+        assert!(!unrecoverable.tray_available());
+        assert!(unrecoverable.is_floating());
+    }
+
+    #[test]
+    fn runtime_entry_keeps_an_existing_visible_floating_window_without_reapplying() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Wayland, LinuxDesktop::Kde, true);
+        assert!(integration.apply_window_mode(WindowMode::Floating));
+        let fallback_calls = Cell::new(0);
+
+        let outcome = integration.ensure_runtime_entry(false, true, || {
+            fallback_calls.set(fallback_calls.get() + 1);
+            false
+        });
+
+        assert_eq!(outcome, RuntimeEntryOutcome::FloatingWindow);
+        assert_eq!(fallback_calls.get(), 0);
+        assert!(!integration.tray_available());
+        assert!(integration.is_floating());
     }
 }

@@ -533,6 +533,10 @@ pub fn run() {
                     "lifecycle",
                     "tray/taskband presentation update panicked: {payload:?}"
                 );
+                #[cfg(target_os = "macos")]
+                if !crate::menubar::recover_runtime_entry_after_panic(app.handle()) {
+                    return Ok(());
+                }
             }
             spawn_startup_credential_detection(
                 app.handle().clone(),

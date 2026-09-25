@@ -5,6 +5,8 @@ import { panelTargetHeight, screenPanelHeight, shouldDeferPanelFit } from './pan
 
 export type AppScreen = 'dashboard' | 'customize' | 'settings' | `provider:${string}`;
 
+const DEFERRED_FIT_RETRY_MS = 80;
+
 interface WindowControllerOptions {
   screen: () => AppScreen;
   refreshing: () => boolean;
@@ -27,16 +29,37 @@ export function createWindowController(options: WindowControllerOptions) {
   let resizeAvailable = true;
   let contentMorphActive = false;
   let contentMorphTimer: ReturnType<typeof setTimeout> | undefined;
+  let deferredFitTimer: ReturnType<typeof setTimeout> | undefined;
   let resizeInFlight = false;
   let pendingResizeHeight: number | null = null;
   let dashboardBodyHeight: number | null = null;
 
+  function isTransientlyDeferred() {
+    return options.reordering() || shouldDeferPanelFit(options.screen(), options.refreshing());
+  }
+
   function shouldDefer() {
-    return (
-      options.reordering() ||
-      (options.fixedHeight?.() ?? false) ||
-      shouldDeferPanelFit(options.screen(), options.refreshing())
-    );
+    return isTransientlyDeferred() || (options.fixedHeight?.() ?? false);
+  }
+
+  function clearDeferredFitTimer() {
+    if (typeof window === 'undefined') return;
+    window.clearTimeout(deferredFitTimer);
+    deferredFitTimer = undefined;
+  }
+
+  function scheduleDeferredFitRetry() {
+    if (
+      typeof window === 'undefined' ||
+      deferredFitTimer !== undefined ||
+      !isTransientlyDeferred()
+    ) {
+      return;
+    }
+    deferredFitTimer = window.setTimeout(() => {
+      deferredFitTimer = undefined;
+      scheduleFit();
+    }, DEFERRED_FIT_RETRY_MS);
   }
 
   function cancelPendingResize() {
@@ -67,8 +90,11 @@ export function createWindowController(options: WindowControllerOptions) {
     if (shouldDefer()) {
       window.cancelAnimationFrame(measureFrame);
       cancelPendingResize();
+      if (isTransientlyDeferred()) scheduleDeferredFitRetry();
+      else clearDeferredFitTimer();
       return;
     }
+    clearDeferredFitTimer();
     window.cancelAnimationFrame(measureFrame);
     measureFrame = window.requestAnimationFrame(() => void fit());
   }
@@ -184,6 +210,7 @@ export function createWindowController(options: WindowControllerOptions) {
     scheduleFit,
     dispose() {
       window.clearTimeout(contentMorphTimer);
+      clearDeferredFitTimer();
       contentMorphActive = false;
       window.cancelAnimationFrame(measureFrame);
       cancelPendingResize();

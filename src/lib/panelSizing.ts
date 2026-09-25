@@ -1,4 +1,4 @@
-export const PANEL_MIN_HEIGHT = 240;
+export const PANEL_MIN_HEIGHT = 360;
 export const PANEL_MAX_HEIGHT = 800;
 export const PANEL_SCREEN_FRACTION = 0.85;
 

@@ -156,6 +156,9 @@ export const ja = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Quota01 のメニューバーアイコンを表示',
+    appMenubarForced:
+      'Provider のメニューバーアイコンがないため、Quota01 は表示されたままになります。',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

@@ -28,7 +28,7 @@ describe('popover geometry contract', () => {
       height: 800,
       minWidth: 440,
       maxWidth: 440,
-      minHeight: 240,
+      minHeight: 360,
       resizable: false,
     });
     expect(css).toMatch(/\.panel-resize-dragger\s*{[^}]*height: 10px;[^}]*cursor: ns-resize;/s);

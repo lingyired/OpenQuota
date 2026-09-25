@@ -156,6 +156,8 @@ export const de = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Quota01-Symbol in der Menüleiste anzeigen',
+    appMenubarForced: 'Es sind keine Provider-Symbole sichtbar, daher bleibt Quota01 sichtbar.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

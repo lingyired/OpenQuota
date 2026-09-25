@@ -358,6 +358,19 @@ impl SettingsService {
         )
     }
 
+    pub fn mutate_latest(
+        &self,
+        mutate: impl FnOnce(&mut AppSettings),
+    ) -> Result<AppSettings, String> {
+        let mut current = self
+            .settings
+            .write()
+            .map_err(|_| "Quota01 settings are temporarily unavailable.".to_owned())?;
+        let mut settings = current.clone();
+        mutate(&mut settings);
+        self.update_locked(&mut current, &mut settings, None, None, false)
+    }
+
     fn update_internal(
         &self,
         settings: &mut AppSettings,
@@ -369,6 +382,23 @@ impl SettingsService {
             .settings
             .write()
             .map_err(|_| "Quota01 settings are temporarily unavailable.".to_owned())?;
+        self.update_locked(
+            &mut current,
+            settings,
+            expected_settings_revision,
+            expected_account_revision,
+            reset_all_account_names,
+        )
+    }
+
+    fn update_locked(
+        &self,
+        current: &mut AppSettings,
+        settings: &mut AppSettings,
+        expected_settings_revision: Option<u64>,
+        expected_account_revision: Option<u64>,
+        reset_all_account_names: bool,
+    ) -> Result<AppSettings, String> {
         if expected_settings_revision
             .is_some_and(|revision| revision != self.settings_revision.load(Ordering::SeqCst))
         {
@@ -376,7 +406,7 @@ impl SettingsService {
                 "Settings changed before they could be saved. Please try again.".to_owned(),
             );
         }
-        let enabled_before = enabled_provider_set(&current);
+        let enabled_before = enabled_provider_set(current);
         let detected = current
             .providers
             .iter()
@@ -648,6 +678,7 @@ impl SettingsService {
         integration_error: Option<String>,
         tray_available: bool,
         platform_summary: Option<String>,
+        app_menubar_forced: bool,
     ) -> SettingsViewState {
         let (settings, settings_revision, account_revision) = self.get_with_revisions();
         let mut renamable_provider_ids = self.registry.observed_account_provider_ids();
@@ -669,6 +700,7 @@ impl SettingsService {
             integration_error,
             tray_available,
             platform_summary,
+            app_menubar_forced,
         }
     }
 }
@@ -784,7 +816,7 @@ fn normalize_with_persisted_accounts(
     let catalog = registry.catalog();
     migrate_renamed_provider_ids(settings);
     let migrating_to_multi_provider = settings.schema_version < 3;
-    settings.schema_version = 8;
+    settings.schema_version = 9;
     settings.dismissed_update_version = settings
         .dismissed_update_version
         .take()
@@ -1044,14 +1076,16 @@ fn normalize_metrics(metrics: &mut Vec<MetricLayout>, definitions: &[MetricDefin
 mod tests {
     use std::{
         collections::HashSet,
-        sync::{atomic::Ordering, Arc},
+        sync::{atomic::Ordering, Arc, Barrier},
     };
 
     use serde_json::Value;
     use tempfile::tempdir;
 
     use crate::{
-        models::{MetricSection, ProviderDefinition, ProviderSnapshot, ThemePreference},
+        models::{
+            AppSettings, MetricSection, ProviderDefinition, ProviderSnapshot, ThemePreference,
+        },
         providers::{
             antigravity, claude, codex, cursor, openrouter, CredentialProbeResults,
             CredentialProbeStatus, ProviderError, ProviderRegistry, UsageProvider,
@@ -1063,6 +1097,25 @@ mod tests {
         default_settings, normalize, normalize_with_persisted_accounts, SettingsService,
         MAX_PINS_PER_PROVIDER,
     };
+
+    #[test]
+    fn normalization_marks_schema_nine() {
+        let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
+        let mut settings = AppSettings::default();
+        normalize(&catalog, &mut settings, &HashSet::new());
+        assert_eq!(settings.schema_version, 9);
+    }
+
+    #[test]
+    fn view_state_exposes_app_menubar_forced() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let service = SettingsService::new_for_test(storage, catalog(), &HashSet::new()).unwrap();
+
+        let state = service.view_state("prompt", None, false, None, true);
+
+        assert!(state.app_menubar_forced);
+    }
 
     struct CatalogProvider(ProviderDefinition);
 
@@ -1448,7 +1501,7 @@ mod tests {
         drop(first);
 
         let (second, _) = SettingsService::new_deferred(storage, registry).unwrap();
-        let state = second.view_state("prompt", None, false, None);
+        let state = second.view_state("prompt", None, false, None, false);
 
         assert_eq!(
             state
@@ -1630,7 +1683,7 @@ mod tests {
         assert_eq!(service.settings_revision(), revision);
         assert_eq!(
             service
-                .view_state("prompt", None, true, None)
+                .view_state("prompt", None, true, None, false)
                 .settings_revision,
             revision
         );
@@ -2207,7 +2260,7 @@ mod tests {
             &mut settings,
             &HashSet::from(["codex".to_owned(), "antigravity".to_owned()]),
         );
-        assert_eq!(settings.schema_version, 8);
+        assert_eq!(settings.schema_version, 9);
         assert_eq!(
             settings
                 .providers
@@ -2584,5 +2637,49 @@ mod tests {
             .providers
             .iter()
             .any(|provider| provider.id == "devin"));
+    }
+
+    #[test]
+    fn mutate_latest_serializes_concurrent_settings_updates() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let service =
+            Arc::new(SettingsService::new_for_test(storage, catalog(), &HashSet::new()).unwrap());
+
+        for _ in 0..64 {
+            service
+                .mutate_latest(|settings| {
+                    settings.density = crate::models::DensityPreference::Default;
+                    settings.always_show_pacing = true;
+                })
+                .unwrap();
+
+            let barrier = Arc::new(Barrier::new(2));
+            std::thread::scope(|scope| {
+                let left_service = service.as_ref();
+                let left_barrier = barrier.clone();
+                scope.spawn(move || {
+                    left_barrier.wait();
+                    left_service
+                        .mutate_latest(|settings| {
+                            settings.density = crate::models::DensityPreference::Compact;
+                        })
+                        .unwrap();
+                });
+
+                let right_service = service.as_ref();
+                let right_barrier = barrier.clone();
+                scope.spawn(move || {
+                    right_barrier.wait();
+                    right_service
+                        .mutate_latest(|settings| settings.always_show_pacing = false)
+                        .unwrap();
+                });
+            });
+
+            let settings = service.get();
+            assert_eq!(settings.density, crate::models::DensityPreference::Compact);
+            assert!(!settings.always_show_pacing);
+        }
     }
 }

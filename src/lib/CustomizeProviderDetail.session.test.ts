@@ -86,7 +86,7 @@ const catalogData: ProviderCatalog = {
 };
 
 const settings: AppSettings = {
-  schemaVersion: 8,
+  schemaVersion: 9,
   providers: [
     {
       id: 'trae-cn',
@@ -129,6 +129,7 @@ const settings: AppSettings = {
   providerNames: {},
   language: 'en',
   showTotalSpend: true,
+  showAppMenubar: true,
   theme: 'system',
   density: 'default',
   reduceAnimations: false,

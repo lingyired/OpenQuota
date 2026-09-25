@@ -151,6 +151,8 @@ export const zhCn = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: '常规',
+    showAppMenubar: '显示 Quota01 菜单栏图标',
+    appMenubarForced: '当前没有 Provider 菜单栏图标，因此 Quota01 会保持显示。',
     showTotalSpend: '显示总消费',
     launchAtLogin: '登录时启动',
     globalShortcut: '全局快捷键',

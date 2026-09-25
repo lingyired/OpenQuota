@@ -156,6 +156,8 @@ export const fr = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Afficher l’icône Quota01 dans la barre des menus',
+    appMenubarForced: 'Aucune icône de fournisseur n’est visible, donc Quota01 reste visible.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

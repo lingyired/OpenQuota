@@ -312,7 +312,7 @@ describe('hybrid window controller', () => {
 
     fixedHeight = false;
     controller.scheduleFit();
-    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(250));
+    await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(360));
     controller.dispose();
   });
 
@@ -379,7 +379,6 @@ describe('hybrid window controller', () => {
     expect(mocks.fitPanelToContent).not.toHaveBeenCalled();
 
     refreshing = false;
-    controller.scheduleFit();
     await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledWith(430));
     controller.dispose();
   });

@@ -156,6 +156,8 @@ export const pl = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    showAppMenubar: 'Pokaż ikonę Quota01 na pasku menu',
+    appMenubarForced: 'Brak widocznych ikon Provider, więc Quota01 pozostaje widoczny.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',

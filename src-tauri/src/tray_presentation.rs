@@ -1,4 +1,4 @@
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 use tauri::image::Image;
 use tauri::AppHandle;
 
@@ -35,6 +35,7 @@ pub(crate) struct ResolvedTrayMetric {
     pub value: String,
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg(any(not(target_os = "macos"), test))]
 struct TrayGroup {
@@ -59,9 +60,7 @@ pub fn update(
     #[cfg(target_os = "windows")]
     crate::taskband::update(app, state, settings, registry);
     #[cfg(target_os = "macos")]
-    {
-        crate::menubar::update(app, state, settings, registry);
-    }
+    crate::menubar::update(app, state, settings, registry);
 
     #[cfg(not(target_os = "macos"))]
     {
@@ -89,32 +88,11 @@ pub fn update(
         #[cfg(target_os = "linux")]
         let _ = tooltip;
 
-        #[cfg(not(target_os = "macos"))]
-        {
-            let icon = primary_gauge(&groups)
-                .map(|gauge| {
-                    tray_icon::render_gauge(gauge.display_fraction, gauge.remaining_fraction)
-                })
-                .unwrap_or_else(mark_icon);
-            if tray.set_icon(Some(icon)).is_err() {
-                crate::app_warn!("tray", "tray icon update failed");
-            }
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            // 菜单栏的指标内容已交给 multiline-menubar 插件逐 provider 渲染；
-            // 托盘/状态项只保留应用 mark + 右键菜单（settings/quit），
-            // 对应 Windows 的「系统托盘 + taskband」双轨结构。
-            if tray.set_title(Some("")).is_err() {
-                crate::app_warn!("tray", "macOS menu bar title clear failed");
-            }
-            if tray
-                .set_icon_with_as_template(Some(mark_icon()), true)
-                .is_err()
-            {
-                crate::app_warn!("tray", "macOS menu bar icon update failed");
-            }
+        let icon = primary_gauge(&groups)
+            .map(|gauge| tray_icon::render_gauge(gauge.display_fraction, gauge.remaining_fraction))
+            .unwrap_or_else(mark_icon);
+        if tray.set_icon(Some(icon)).is_err() {
+            crate::app_warn!("tray", "tray icon update failed");
         }
     }
 }
@@ -520,7 +498,7 @@ fn format_tokens(tokens: u64) -> String {
     }
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
 fn mark_icon() -> Image<'static> {
     Image::from_bytes(include_bytes!("../icons/32x32.png"))
         .expect("bundled Quota01 tray mark must be a valid PNG")
@@ -543,15 +521,14 @@ mod tests {
     };
 
     use super::{
-        format_tokens, pinned_provider_metrics, primary_gauge, resolved_groups, TrayGauge,
-        TrayGroup, TrayMetric,
+        format_tokens, mark_icon, pinned_provider_metrics, primary_gauge, resolved_groups,
+        TrayGauge, TrayGroup, TrayMetric,
     };
     use crate::service::UsageViewState;
 
     #[test]
     fn bundled_tray_mark_decodes_at_the_expected_size() {
-        let image = tauri::image::Image::from_bytes(include_bytes!("../icons/32x32.png"))
-            .expect("bundled tray mark should decode");
+        let image = mark_icon();
         assert_eq!((image.width(), image.height()), (32, 32));
     }
 
