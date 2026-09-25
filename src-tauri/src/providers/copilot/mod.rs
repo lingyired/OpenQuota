@@ -125,6 +125,8 @@ pub(super) enum CopilotError {
         error("Your GitHub token is invalid or expired. Run `gh auth login` and try again.")
     )]
     InvalidToken,
+    #[error("Configured Copilot credential file could not be read.")]
+    CredentialRead,
     #[error("Could not reach GitHub. Check your internet connection.")]
     ConnectionFailed,
     #[error("Copilot usage data is temporarily unavailable.")]
@@ -140,6 +142,7 @@ impl From<CopilotError> for ProviderError {
         let kind = match error {
             CopilotError::NotLoggedIn => ProviderErrorKind::CredentialsUnavailable,
             CopilotError::InvalidToken => ProviderErrorKind::Authentication,
+            CopilotError::CredentialRead => ProviderErrorKind::CredentialStorage,
             CopilotError::ConnectionFailed => ProviderErrorKind::Network,
             CopilotError::RequestFailed(429) => ProviderErrorKind::RateLimited,
             CopilotError::RequestFailed(401 | 403) => ProviderErrorKind::Authentication,
@@ -179,47 +182,47 @@ impl CopilotProvider {
 
     fn refresh_inner(&self) -> Result<ProviderSnapshot, CopilotError> {
         let mut saw_auth_failure = false;
-        self.auth
-            .visit_candidates(|token| {
-                let response = match self.client.fetch_usage(token.as_str()) {
-                    Ok(response) => response,
-                    Err(error) => return ControlFlow::Break(Err(error)),
-                };
-                match require_usage_success(&response) {
-                    Ok(()) => {}
-                    Err(CopilotError::InvalidToken) => {
-                        saw_auth_failure = true;
-                        return ControlFlow::Continue(());
-                    }
-                    Err(error) => return ControlFlow::Break(Err(error)),
+        let candidates = self.auth.visit_candidates(|token| {
+            let response = match self.client.fetch_usage(token.as_str()) {
+                Ok(response) => response,
+                Err(error) => return ControlFlow::Break(Err(error)),
+            };
+            match require_usage_success(&response) {
+                Ok(()) => {}
+                Err(CopilotError::InvalidToken) => {
+                    saw_auth_failure = true;
+                    return ControlFlow::Continue(());
                 }
-                let mut mapped = match map_usage(&response.body) {
-                    Ok(mapped) => mapped,
-                    Err(error) => return ControlFlow::Break(Err(error)),
-                };
-                if mapped.is_org_managed_seat {
-                    mapped.value_metrics = self.org_billing_metrics(token.as_str());
-                }
-                ControlFlow::Break(Ok(ProviderSnapshot {
-                    credit_packages: Vec::new(),
-                    provider_id: "copilot".into(),
-                    plan: mapped.plan,
-                    quotas: mapped.quotas,
-                    value_metrics: mapped.value_metrics,
-                    status_metrics: Vec::new(),
-                    notices: Vec::new(),
-                    usage: UsageHistory::default(),
-                    warnings: Vec::new(),
-                    refreshed_at: Utc::now(),
-                }))
-            })
-            .unwrap_or({
-                Err(if saw_auth_failure {
-                    CopilotError::InvalidToken
-                } else {
-                    CopilotError::NotLoggedIn
-                })
-            })
+                Err(error) => return ControlFlow::Break(Err(error)),
+            }
+            let mut mapped = match map_usage(&response.body) {
+                Ok(mapped) => mapped,
+                Err(error) => return ControlFlow::Break(Err(error)),
+            };
+            if mapped.is_org_managed_seat {
+                mapped.value_metrics = self.org_billing_metrics(token.as_str());
+            }
+            ControlFlow::Break(Ok(ProviderSnapshot {
+                credit_packages: Vec::new(),
+                provider_id: "copilot".into(),
+                plan: mapped.plan,
+                quotas: mapped.quotas,
+                value_metrics: mapped.value_metrics,
+                status_metrics: Vec::new(),
+                notices: Vec::new(),
+                usage: UsageHistory::default(),
+                warnings: Vec::new(),
+                refreshed_at: Utc::now(),
+            }))
+        });
+
+        match candidates {
+            Ok(Some(result)) => result,
+            Ok(None) if saw_auth_failure => Err(CopilotError::InvalidToken),
+            Ok(None) => Err(CopilotError::NotLoggedIn),
+            Err(_) if saw_auth_failure => Err(CopilotError::InvalidToken),
+            Err(error) => Err(error),
+        }
     }
 
     fn org_billing_metrics(&self, token: &str) -> Vec<ValueMetric> {

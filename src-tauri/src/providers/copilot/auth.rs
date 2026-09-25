@@ -60,6 +60,11 @@ impl CopilotToken {
 
 trait TextFileAccess: Send + Sync {
     fn read_text(&self, path: &Path) -> Option<String>;
+
+    #[cfg(target_os = "macos")]
+    fn read_text_checked(&self, path: &Path) -> Result<Option<String>, super::CopilotError> {
+        Ok(self.read_text(path))
+    }
 }
 
 #[derive(Default)]
@@ -72,6 +77,29 @@ impl TextFileAccess for LocalTextFiles {
             return None;
         }
         fs::read_to_string(path).ok()
+    }
+
+    #[cfg(target_os = "macos")]
+    fn read_text_checked(&self, path: &Path) -> Result<Option<String>, super::CopilotError> {
+        let metadata = match fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(super::CopilotError::CredentialRead),
+        };
+        if !metadata.is_file() {
+            return Err(super::CopilotError::CredentialRead);
+        }
+        if metadata.len() > MAX_CONFIG_BYTES {
+            return Err(super::CopilotError::InvalidResponse);
+        }
+        match fs::read_to_string(path) {
+            Ok(text) => Ok(Some(text)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                Err(super::CopilotError::InvalidResponse)
+            }
+            Err(_) => Err(super::CopilotError::CredentialRead),
+        }
     }
 }
 
@@ -192,19 +220,74 @@ impl CopilotAuthStore {
 
     pub(super) fn visit_candidates<B>(
         &self,
-        mut visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
-    ) -> Option<B> {
-        let mut seen = HashSet::new();
+        visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
+    ) -> Result<Option<B>, super::CopilotError> {
         #[cfg(target_os = "macos")]
         {
-            return self.visit_file_candidates(&mut seen, &mut visit);
+            return self.visit_macos_candidates(visit);
         }
         #[cfg(not(target_os = "macos"))]
         {
+            let mut visit = visit;
+            let mut seen = HashSet::new();
             if let Some(result) = self.visit_editor_candidates(&mut seen, &mut visit) {
-                return Some(result);
+                return Ok(Some(result));
             }
-            self.visit_github_cli_candidates(&mut seen, &mut visit)
+            Ok(self.visit_github_cli_candidates(&mut seen, &mut visit))
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn visit_macos_candidates<B>(
+        &self,
+        mut visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
+    ) -> Result<Option<B>, super::CopilotError> {
+        let mut seen = HashSet::new();
+        let mut source_error = None;
+        for path in &self.paths.editor_configs {
+            let text = match self.files.read_text_checked(path) {
+                Ok(Some(text)) => text,
+                Ok(None) => continue,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            let candidate = match editor_oauth_token_checked(&text) {
+                Ok(candidate) => candidate,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            if let Some(result) = visit_candidate(candidate, &mut seen, &mut visit) {
+                return Ok(Some(result));
+            }
+        }
+        for path in &self.paths.gh_configs {
+            let text = match self.files.read_text_checked(path) {
+                Ok(Some(text)) => text,
+                Ok(None) => continue,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            let candidate = match yaml_oauth_token_checked(&text) {
+                Ok(candidate) => candidate,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            if let Some(result) = visit_candidate(candidate, &mut seen, &mut visit) {
+                return Ok(Some(result));
+            }
+        }
+        if let Some(error) = source_error {
+            Err(error)
+        } else {
+            Ok(None)
         }
     }
 
@@ -292,7 +375,7 @@ impl CopilotAuthStore {
     #[cfg(test)]
     #[cfg(not(target_os = "macos"))]
     pub(super) fn load(&self) -> Option<CopilotToken> {
-        self.visit_candidates(ControlFlow::Break)
+        self.visit_candidates(ControlFlow::Break).ok().flatten()
     }
 
     fn gh_config_texts(&self) -> impl Iterator<Item = String> + '_ {
@@ -390,6 +473,40 @@ fn editor_oauth_token(text: &str) -> Option<String> {
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned)
     })
+}
+
+#[cfg(target_os = "macos")]
+fn editor_oauth_token_checked(text: &str) -> Result<Option<CopilotToken>, super::CopilotError> {
+    let document = serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|_| super::CopilotError::InvalidResponse)?;
+    let object = document
+        .as_object()
+        .ok_or(super::CopilotError::InvalidResponse)?;
+    for (host, value) in object {
+        if host != "github.com" && !host.starts_with("github.com:") {
+            continue;
+        }
+        let Some(token_value) = value.get("oauth_token") else {
+            continue;
+        };
+        let token = token_value
+            .as_str()
+            .ok_or(super::CopilotError::InvalidResponse)?;
+        return CopilotToken::new(token.to_owned())
+            .map(Some)
+            .ok_or(super::CopilotError::InvalidResponse);
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "macos")]
+fn yaml_oauth_token_checked(text: &str) -> Result<Option<CopilotToken>, super::CopilotError> {
+    let Some(token) = yaml_value(text, "oauth_token") else {
+        return Ok(None);
+    };
+    CopilotToken::new(token)
+        .map(Some)
+        .ok_or(super::CopilotError::InvalidResponse)
 }
 
 fn yaml_value(text: &str, key: &str) -> Option<String> {
@@ -554,9 +671,16 @@ impl CredentialAccess for NoCredentials {
 mod tests {
     use std::{
         collections::HashMap,
+        fs,
         path::PathBuf,
         sync::{Arc, Mutex},
+        time::Duration,
     };
+
+    use tempfile::tempdir;
+
+    #[cfg(target_os = "macos")]
+    use crate::providers::UsageProvider;
 
     #[cfg(not(target_os = "macos"))]
     use base64::{engine::general_purpose::STANDARD, Engine};
@@ -565,8 +689,86 @@ mod tests {
     use super::token_from_keyring;
     use super::{
         editor_oauth_token, yaml_value, AuthPaths, CopilotAuthStore, CopilotToken,
-        CredentialAccess, GhTokenCommand, MemoryFiles,
+        CredentialAccess, GhTokenCommand, LocalTextFiles, MemoryFiles, NoCredentials, NoGhCommand,
     };
+
+    #[cfg(target_os = "macos")]
+    fn refresh_error_for_local_paths(
+        editor_configs: Vec<PathBuf>,
+        gh_configs: Vec<PathBuf>,
+    ) -> crate::models::ProviderErrorKind {
+        let auth = CopilotAuthStore {
+            paths: AuthPaths {
+                editor_configs,
+                gh_configs,
+            },
+            files: Arc::new(LocalTextFiles),
+            gh_command: Arc::new(NoGhCommand),
+            credentials: Arc::new(NoCredentials),
+        };
+        let provider = super::super::CopilotProvider::with_dependencies(
+            auth,
+            super::super::client::CopilotClient::for_test(
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1/",
+                Duration::from_millis(100),
+            ),
+        );
+        provider.refresh().unwrap_err().kind()
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_configured_copilot_file_failures_are_distinct_from_missing_credentials() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing-apps.json");
+        let unreadable = directory.path().join("unreadable-apps.json");
+        fs::create_dir(&unreadable).unwrap();
+        let malformed = directory.path().join("malformed-apps.json");
+        fs::write(&malformed, b"{broken").unwrap();
+        let invalid_token = directory.path().join("invalid-token-apps.json");
+        fs::write(
+            &invalid_token,
+            br#"{"github.com":{"oauth_token":"token with spaces"}}"#,
+        )
+        .unwrap();
+        let unavailable = directory.path().join("empty-apps.json");
+        fs::write(&unavailable, br#"{"github.com":{}}"#).unwrap();
+        let invalid_hosts_token = directory.path().join("invalid-hosts.yml");
+        fs::write(
+            &invalid_hosts_token,
+            "github.com:\n    oauth_token: \"token with spaces\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            refresh_error_for_local_paths(vec![missing], vec![]),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![unavailable], vec![]),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![unreadable], vec![]),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![malformed], vec![]),
+            Kind::InvalidResponse
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![invalid_token], vec![]),
+            Kind::InvalidResponse
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![], vec![invalid_hosts_token]),
+            Kind::InvalidResponse
+        );
+    }
 
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     enum FakeGhResult {
@@ -898,10 +1100,12 @@ github.com:
             vault,
         );
         let mut candidates = Vec::new();
-        let completed: Option<()> = auth.visit_candidates(|token| {
-            candidates.push(token.as_str().to_owned());
-            std::ops::ControlFlow::Continue(())
-        });
+        let completed: Option<()> = auth
+            .visit_candidates(|token| {
+                candidates.push(token.as_str().to_owned());
+                std::ops::ControlFlow::Continue(())
+            })
+            .unwrap();
 
         assert!(completed.is_none());
         assert_eq!(
