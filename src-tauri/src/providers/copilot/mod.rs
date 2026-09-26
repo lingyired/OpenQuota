@@ -107,10 +107,26 @@ pub(crate) fn definition() -> ProviderDefinition {
 
 #[derive(Debug, Error, PartialEq, Eq)]
 pub(super) enum CopilotError {
-    #[error("Sign in to GitHub Copilot in your editor, or run `gh auth login`, and try again.")]
+    #[cfg_attr(
+        target_os = "macos",
+        error("Sign in to GitHub Copilot in your editor or configure an oauth_token in gh hosts.yml, then try again.")
+    )]
+    #[cfg_attr(
+        not(target_os = "macos"),
+        error("Sign in to GitHub Copilot in your editor, or run `gh auth login`, and try again.")
+    )]
     NotLoggedIn,
-    #[error("Your GitHub token is invalid or expired. Run `gh auth login` and try again.")]
+    #[cfg_attr(
+        target_os = "macos",
+        error("Your GitHub token is invalid or expired. Sign in again in your editor or update gh hosts.yml.")
+    )]
+    #[cfg_attr(
+        not(target_os = "macos"),
+        error("Your GitHub token is invalid or expired. Run `gh auth login` and try again.")
+    )]
     InvalidToken,
+    #[error("Configured Copilot credential file could not be read.")]
+    CredentialRead,
     #[error("Could not reach GitHub. Check your internet connection.")]
     ConnectionFailed,
     #[error("Copilot usage data is temporarily unavailable.")]
@@ -124,9 +140,9 @@ pub(super) enum CopilotError {
 impl From<CopilotError> for ProviderError {
     fn from(error: CopilotError) -> Self {
         let kind = match error {
-            CopilotError::NotLoggedIn | CopilotError::InvalidToken => {
-                ProviderErrorKind::Authentication
-            }
+            CopilotError::NotLoggedIn => ProviderErrorKind::CredentialsUnavailable,
+            CopilotError::InvalidToken => ProviderErrorKind::Authentication,
+            CopilotError::CredentialRead => ProviderErrorKind::CredentialStorage,
             CopilotError::ConnectionFailed => ProviderErrorKind::Network,
             CopilotError::RequestFailed(429) => ProviderErrorKind::RateLimited,
             CopilotError::RequestFailed(401 | 403) => ProviderErrorKind::Authentication,
@@ -166,47 +182,47 @@ impl CopilotProvider {
 
     fn refresh_inner(&self) -> Result<ProviderSnapshot, CopilotError> {
         let mut saw_auth_failure = false;
-        self.auth
-            .visit_candidates(|token| {
-                let response = match self.client.fetch_usage(token.as_str()) {
-                    Ok(response) => response,
-                    Err(error) => return ControlFlow::Break(Err(error)),
-                };
-                match require_usage_success(&response) {
-                    Ok(()) => {}
-                    Err(CopilotError::InvalidToken) => {
-                        saw_auth_failure = true;
-                        return ControlFlow::Continue(());
-                    }
-                    Err(error) => return ControlFlow::Break(Err(error)),
+        let candidates = self.auth.visit_candidates(|token| {
+            let response = match self.client.fetch_usage(token.as_str()) {
+                Ok(response) => response,
+                Err(error) => return ControlFlow::Break(Err(error)),
+            };
+            match require_usage_success(&response) {
+                Ok(()) => {}
+                Err(CopilotError::InvalidToken) => {
+                    saw_auth_failure = true;
+                    return ControlFlow::Continue(());
                 }
-                let mut mapped = match map_usage(&response.body) {
-                    Ok(mapped) => mapped,
-                    Err(error) => return ControlFlow::Break(Err(error)),
-                };
-                if mapped.is_org_managed_seat {
-                    mapped.value_metrics = self.org_billing_metrics(token.as_str());
-                }
-                ControlFlow::Break(Ok(ProviderSnapshot {
-                    credit_packages: Vec::new(),
-                    provider_id: "copilot".into(),
-                    plan: mapped.plan,
-                    quotas: mapped.quotas,
-                    value_metrics: mapped.value_metrics,
-                    status_metrics: Vec::new(),
-                    notices: Vec::new(),
-                    usage: UsageHistory::default(),
-                    warnings: Vec::new(),
-                    refreshed_at: Utc::now(),
-                }))
-            })
-            .unwrap_or({
-                Err(if saw_auth_failure {
-                    CopilotError::InvalidToken
-                } else {
-                    CopilotError::NotLoggedIn
-                })
-            })
+                Err(error) => return ControlFlow::Break(Err(error)),
+            }
+            let mut mapped = match map_usage(&response.body) {
+                Ok(mapped) => mapped,
+                Err(error) => return ControlFlow::Break(Err(error)),
+            };
+            if mapped.is_org_managed_seat {
+                mapped.value_metrics = self.org_billing_metrics(token.as_str());
+            }
+            ControlFlow::Break(Ok(ProviderSnapshot {
+                credit_packages: Vec::new(),
+                provider_id: "copilot".into(),
+                plan: mapped.plan,
+                quotas: mapped.quotas,
+                value_metrics: mapped.value_metrics,
+                status_metrics: Vec::new(),
+                notices: Vec::new(),
+                usage: UsageHistory::default(),
+                warnings: Vec::new(),
+                refreshed_at: Utc::now(),
+            }))
+        });
+
+        match candidates {
+            Ok(Some(result)) => result,
+            Ok(None) if saw_auth_failure => Err(CopilotError::InvalidToken),
+            Ok(None) => Err(CopilotError::NotLoggedIn),
+            Err(_) if saw_auth_failure => Err(CopilotError::InvalidToken),
+            Err(error) => Err(error),
+        }
     }
 
     fn org_billing_metrics(&self, token: &str) -> Vec<ValueMetric> {
@@ -304,10 +320,6 @@ impl UsageProvider for CopilotProvider {
         definition()
     }
 
-    fn accesses_system_keychain(&self) -> bool {
-        true
-    }
-
     fn has_local_credentials(&self) -> bool {
         self.auth
             .visit_detection_candidates(|token| {
@@ -385,8 +397,14 @@ mod tests {
 
     use super::{
         auth::CopilotAuthStore, client::CopilotClient, definition, org_request_timeout,
-        CopilotProvider, ORG_LOOKUP_BUDGET, ORG_REQUEST_TIMEOUT,
+        CopilotError, CopilotProvider, ORG_LOOKUP_BUDGET, ORG_REQUEST_TIMEOUT,
     };
+
+    #[test]
+    fn missing_local_token_has_a_credentials_unavailable_category() {
+        let error = crate::providers::ProviderError::from(CopilotError::NotLoggedIn);
+        assert_eq!(error.kind(), ProviderErrorKind::CredentialsUnavailable);
+    }
 
     struct Route {
         path: String,
@@ -732,7 +750,10 @@ mod tests {
         )
         .refresh()
         .unwrap_err();
-        assert_eq!(missing.kind(), ProviderErrorKind::Authentication);
+        assert_eq!(missing.kind(), ProviderErrorKind::CredentialsUnavailable);
+        #[cfg(target_os = "macos")]
+        assert!(missing.to_string().contains("hosts.yml"));
+        #[cfg(not(target_os = "macos"))]
         assert!(missing.to_string().contains("gh auth login"));
 
         for status in [401, 403] {
@@ -909,13 +930,13 @@ mod tests {
         assert!(!missing.has_local_credentials());
         assert_eq!(
             missing.refresh().unwrap_err().kind(),
-            ProviderErrorKind::Authentication
+            ProviderErrorKind::CredentialsUnavailable
         );
     }
 
     #[test]
-    fn github_cli_only_credentials_are_ignored_by_detection_but_used_by_refresh() {
-        let server = usage_sequence_server(vec![(200, paid_body())]);
+    fn direct_hosts_yaml_token_is_detected_and_used_by_refresh() {
+        let server = usage_sequence_server(vec![(200, paid_body()), (200, paid_body())]);
         let provider = CopilotProvider::with_dependencies(
             CopilotAuthStore::for_test_gh_token("gh-token"),
             CopilotClient::for_test(
@@ -926,7 +947,7 @@ mod tests {
             ),
         );
 
-        assert!(!provider.has_local_credentials());
+        assert!(provider.has_local_credentials());
         assert!(provider.refresh().is_ok());
         server.finish();
     }

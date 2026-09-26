@@ -33,6 +33,11 @@ enum SettingsSaveMode {
 
 const NOTIFICATION_PERMISSION_ERROR: &str = "Notification permission could not be requested.";
 
+#[tauri::command]
+pub fn reset_credential_vault() -> Result<(), String> {
+    crate::providers::credential_vault::reset()
+}
+
 fn notification_permission_error<T, E>(result: Result<T, E>) -> Option<String> {
     result
         .err()
@@ -392,6 +397,7 @@ mod tests {
             enabled,
             detected: true,
             expanded: false,
+            #[cfg(not(target_os = "macos"))]
             keychain_access_granted: false,
             metrics: Vec::new(),
         }

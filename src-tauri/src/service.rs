@@ -901,6 +901,11 @@ mod tests {
         failures_before_success: usize,
     }
 
+    struct CredentialFailureProvider {
+        id: &'static str,
+        error_kind: ProviderErrorKind,
+    }
+
     struct CredentialProvider {
         id: &'static str,
         credential: Arc<Mutex<Option<String>>>,
@@ -977,6 +982,23 @@ mod tests {
             } else {
                 Ok(test_snapshot(self.id))
             }
+        }
+    }
+
+    impl UsageProvider for CredentialFailureProvider {
+        fn definition(&self) -> ProviderDefinition {
+            test_definition(self.id)
+        }
+
+        fn has_local_credentials(&self) -> bool {
+            false
+        }
+
+        fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+            Err(ProviderError::new(
+                self.error_kind,
+                "Local credentials are unavailable.",
+            ))
         }
     }
 
@@ -1126,6 +1148,80 @@ mod tests {
         assert!(!state.stale);
         assert_eq!(state.error.as_deref(), Some("offline"));
         assert_eq!(state.error_kind, Some(ProviderErrorKind::Network));
+    }
+
+    #[test]
+    fn local_credential_failure_keeps_enabled_instance_and_stales_cached_snapshot_by_age() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let mut snapshot = test_snapshot("codex");
+        snapshot.refreshed_at = Utc::now()
+            - stale_after(crate::policy::SLOW_REFRESH_INTERVAL)
+            - chrono::Duration::minutes(1);
+        storage.save_snapshot(&snapshot).unwrap();
+        let provider = Arc::new(CredentialFailureProvider {
+            id: "codex",
+            error_kind: ProviderErrorKind::CredentialsUnavailable,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![provider]).unwrap());
+        let (settings, plan) =
+            SettingsService::new_deferred(storage.clone(), registry.clone()).unwrap();
+        settings
+            .apply_credential_detection(
+                &plan,
+                &std::collections::HashMap::from([(
+                    "codex".to_owned(),
+                    crate::providers::CredentialProbeStatus::Detected,
+                )]),
+            )
+            .unwrap();
+        let service = Arc::new(ProviderService::new_with_settings(
+            registry,
+            storage,
+            Arc::new(settings),
+        ));
+
+        let state = refresh_with_test_timeout(&service, "codex", true);
+
+        assert_eq!(state.snapshot, Some(snapshot));
+        assert!(state.stale);
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Local credentials are unavailable.")
+        );
+        assert_eq!(
+            state.error_kind,
+            Some(ProviderErrorKind::CredentialsUnavailable)
+        );
+        assert!(service
+            .settings
+            .as_ref()
+            .unwrap()
+            .get()
+            .providers
+            .iter()
+            .any(|provider| provider.id == "codex" && provider.enabled));
+    }
+
+    #[test]
+    fn local_credential_failure_without_snapshot_sets_error_without_staleness() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let provider = Arc::new(CredentialFailureProvider {
+            id: "codex",
+            error_kind: ProviderErrorKind::CredentialsUnavailable,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![provider]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let state = refresh_with_test_timeout(&service, "codex", true);
+
+        assert!(state.snapshot.is_none());
+        assert!(!state.stale);
+        assert_eq!(
+            state.error_kind,
+            Some(ProviderErrorKind::CredentialsUnavailable)
+        );
     }
 
     #[test]

@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "macos", allow(dead_code))]
+
 use std::{
     fs,
     io::Write,
@@ -9,11 +11,6 @@ use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tempfile::NamedTempFile;
-
-#[cfg(target_os = "macos")]
-use crate::providers::credential_store::{
-    generic_password_exists, read_external_password, write_external_password,
-};
 
 use super::CodexError;
 
@@ -32,77 +29,46 @@ pub struct CodexAuthState {
 #[derive(Debug, Clone)]
 enum AuthSource {
     File(PathBuf),
-    #[cfg(target_os = "macos")]
-    Keychain,
 }
 
 impl CodexAuthState {
     pub fn has_local_credentials() -> bool {
-        if !Self::load_file_candidates().0.is_empty() {
-            return true;
-        }
         #[cfg(target_os = "macos")]
         {
-            // Reading this entry makes macOS ask for Keychain authorization, so it only counts
-            // as a local credential once the user turned the provider on by hand.
-            crate::providers::keychain_access::is_granted("codex")
-                && generic_password_exists("Codex Auth", "", Duration::from_secs(2)) == Some(true)
+            Self::load_candidates_from_paths(&auth_paths()).is_ok()
         }
         #[cfg(not(target_os = "macos"))]
-        {
-            false
-        }
+        Self::has_file_credentials_from_paths(&auth_paths())
+    }
+
+    fn has_file_credentials_from_paths(paths: &[PathBuf]) -> bool {
+        !load_file_candidates_from_paths(paths).0.is_empty()
     }
 
     pub fn load_candidates() -> Result<Vec<Self>, CodexError> {
-        let (mut candidates, api_key_only) = Self::load_file_candidates();
-        if let Some(state) = load_keychain_candidate() {
-            candidates.push(state);
+        Self::load_candidates_from_paths(&auth_paths())
+    }
+
+    pub(super) fn load_candidates_from_paths(paths: &[PathBuf]) -> Result<Vec<Self>, CodexError> {
+        #[cfg(target_os = "macos")]
+        {
+            load_macos_file_candidates_from_paths(paths)
         }
-        if !candidates.is_empty() {
-            Ok(candidates)
-        } else if api_key_only {
-            Err(CodexError::ApiKeyOnly)
-        } else {
-            Err(CodexError::NotLoggedIn)
+        #[cfg(not(target_os = "macos"))]
+        {
+            let (candidates, api_key_only) = load_file_candidates_from_paths(paths);
+            if !candidates.is_empty() {
+                Ok(candidates)
+            } else if api_key_only {
+                Err(CodexError::ApiKeyOnly)
+            } else {
+                Err(CodexError::NotLoggedIn)
+            }
         }
     }
 
     fn load_file_candidates() -> (Vec<Self>, bool) {
-        let mut candidates = Vec::new();
-        let mut api_key_only = false;
-        for path in auth_paths() {
-            if !path.is_file() {
-                continue;
-            }
-            let Ok(text) = fs::read_to_string(&path) else {
-                continue;
-            };
-            let Some(document) = parse_auth_document(&text) else {
-                continue;
-            };
-            let access_token = document
-                .pointer("/tokens/access_token")
-                .and_then(Value::as_str)
-                .filter(|value| !value.is_empty())
-                .map(str::to_owned);
-            if let Some(access_token) = access_token {
-                candidates.push(Self {
-                    source: AuthSource::File(path),
-                    refresh_token: string_at(&document, "/tokens/refresh_token"),
-                    account_id: string_at(&document, "/tokens/account_id"),
-                    last_refresh: string_at(&document, "/last_refresh"),
-                    document,
-                    access_token,
-                });
-                continue;
-            }
-            api_key_only |= document
-                .get("OPENAI_API_KEY")
-                .and_then(Value::as_str)
-                .is_some_and(|value| !value.is_empty());
-        }
-        (candidates, api_key_only)
+        load_file_candidates_from_paths(&auth_paths())
     }
 
     pub fn observed_account_identity() -> Option<String> {
@@ -134,8 +100,6 @@ impl CodexAuthState {
     pub fn reload(&self) -> Result<Self, CodexError> {
         match &self.source {
             AuthSource::File(path) => load_from_path(path),
-            #[cfg(target_os = "macos")]
-            AuthSource::Keychain => load_from_keychain(),
         }
     }
 
@@ -186,10 +150,102 @@ impl CodexAuthState {
 
         match &self.source {
             AuthSource::File(path) => save_file_document(path, &self.document),
-            #[cfg(target_os = "macos")]
-            AuthSource::Keychain => save_keychain_document(&self.document),
         }
     }
+}
+
+fn load_file_candidates_from_paths(paths: &[PathBuf]) -> (Vec<CodexAuthState>, bool) {
+    let mut candidates = Vec::new();
+    let mut api_key_only = false;
+    for path in paths {
+        if !path.is_file() {
+            continue;
+        }
+        let Ok(text) = fs::read_to_string(path) else {
+            continue;
+        };
+        let Some(document) = parse_auth_document(&text) else {
+            continue;
+        };
+        let access_token = document
+            .pointer("/tokens/access_token")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        if let Some(access_token) = access_token {
+            candidates.push(CodexAuthState {
+                source: AuthSource::File(path.clone()),
+                refresh_token: string_at(&document, "/tokens/refresh_token"),
+                account_id: string_at(&document, "/tokens/account_id"),
+                last_refresh: string_at(&document, "/last_refresh"),
+                document,
+                access_token,
+            });
+            continue;
+        }
+        api_key_only |= document
+            .get("OPENAI_API_KEY")
+            .and_then(Value::as_str)
+            .is_some_and(|value| !value.is_empty());
+    }
+    (candidates, api_key_only)
+}
+
+#[cfg(target_os = "macos")]
+fn load_macos_file_candidates_from_paths(
+    paths: &[PathBuf],
+) -> Result<Vec<CodexAuthState>, CodexError> {
+    let mut candidates = Vec::new();
+    let mut api_key_only = false;
+    let mut unreadable = false;
+    let mut malformed = false;
+    for path in paths {
+        let text = match fs::read_to_string(path) {
+            Ok(text) => text,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(_) => {
+                unreadable = true;
+                continue;
+            }
+        };
+        let Some(document) = parse_auth_document(&text) else {
+            malformed = true;
+            continue;
+        };
+        let access_token = document
+            .pointer("/tokens/access_token")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .map(str::to_owned);
+        if let Some(access_token) = access_token {
+            candidates.push(CodexAuthState {
+                source: AuthSource::File(path.clone()),
+                refresh_token: string_at(&document, "/tokens/refresh_token"),
+                account_id: string_at(&document, "/tokens/account_id"),
+                last_refresh: string_at(&document, "/last_refresh"),
+                document,
+                access_token,
+            });
+        } else {
+            api_key_only |= document
+                .get("OPENAI_API_KEY")
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.is_empty());
+        }
+    }
+    if !candidates.is_empty() {
+        return Ok(candidates);
+    }
+    if api_key_only {
+        return Err(CodexError::ApiKeyOnly);
+    }
+    if malformed {
+        return Err(CodexError::InvalidAuth);
+    }
+    if unreadable {
+        return Err(CodexError::CredentialRead);
+    }
+    Err(CodexError::NotLoggedIn)
 }
 
 fn load_from_path(path: &Path) -> Result<CodexAuthState, CodexError> {
@@ -218,61 +274,6 @@ fn save_file_document(path: &Path, document: &Value) -> Result<(), CodexError> {
     temporary.flush().map_err(|_| CodexError::AuthWrite)?;
     temporary.persist(path).map_err(|_| CodexError::AuthWrite)?;
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn keychain_document() -> Option<Value> {
-    let bytes = read_external_password("codex", "Codex Auth", "")
-        .ok()
-        .flatten()?;
-    parse_auth_document(std::str::from_utf8(&bytes).ok()?)
-}
-
-#[cfg(target_os = "macos")]
-fn load_keychain_candidate() -> Option<CodexAuthState> {
-    let document = keychain_document()?;
-    let access_token =
-        string_at(&document, "/tokens/access_token").filter(|value| !value.is_empty())?;
-    Some(CodexAuthState {
-        source: AuthSource::Keychain,
-        refresh_token: string_at(&document, "/tokens/refresh_token"),
-        account_id: string_at(&document, "/tokens/account_id"),
-        last_refresh: string_at(&document, "/last_refresh"),
-        document,
-        access_token,
-    })
-}
-
-#[cfg(not(target_os = "macos"))]
-fn load_keychain_candidate() -> Option<CodexAuthState> {
-    None
-}
-
-#[cfg(not(target_os = "macos"))]
-fn keychain_document() -> Option<Value> {
-    None
-}
-
-#[cfg(target_os = "macos")]
-fn load_from_keychain() -> Result<CodexAuthState, CodexError> {
-    let document = keychain_document().ok_or(CodexError::NotLoggedIn)?;
-    let access_token = string_at(&document, "/tokens/access_token")
-        .filter(|value| !value.is_empty())
-        .ok_or(CodexError::NotLoggedIn)?;
-    Ok(CodexAuthState {
-        source: AuthSource::Keychain,
-        refresh_token: string_at(&document, "/tokens/refresh_token"),
-        account_id: string_at(&document, "/tokens/account_id"),
-        last_refresh: string_at(&document, "/last_refresh"),
-        document,
-        access_token,
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn save_keychain_document(document: &Value) -> Result<(), CodexError> {
-    let bytes = serde_json::to_vec(document).map_err(|_| CodexError::AuthWrite)?;
-    write_external_password("codex", "Codex Auth", "", &bytes).map_err(|_| CodexError::AuthWrite)
 }
 
 pub fn auth_paths() -> Vec<PathBuf> {
@@ -367,7 +368,10 @@ fn set_string(document: &mut Value, pointer: &str, value: &str) -> Result<(), Co
 
 #[cfg(test)]
 mod tests {
-    use std::{fs, path::Path};
+    use std::{
+        fs,
+        path::{Path, PathBuf},
+    };
 
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
     use chrono::{Duration, TimeZone, Utc};
@@ -386,6 +390,117 @@ mod tests {
             candidate_paths(Path::new("/users/me"), Some(Path::new("/custom/codex"))),
             vec![Path::new("/custom/codex/auth.json")]
         );
+    }
+
+    #[test]
+    fn file_candidate_loading_uses_only_the_supplied_auth_json_files() {
+        let directory = tempdir().unwrap();
+        let auth_path = directory.path().join("auth.json");
+        fs::write(
+            &auth_path,
+            serde_json::to_vec(&json!({
+                "tokens": {"access_token": "file-access", "refresh_token": "file-refresh"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let candidates =
+            CodexAuthState::load_candidates_from_paths(std::slice::from_ref(&auth_path)).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert!(
+            matches!(&candidates[0].source, AuthSource::File(path) if path.as_path() == auth_path.as_path())
+        );
+        match &candidates[0].source {
+            AuthSource::File(_) => {}
+        }
+        assert_eq!(candidates[0].access_token, "file-access");
+    }
+
+    #[test]
+    fn no_auth_files_means_no_file_candidate() {
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[]),
+            Err(CodexError::NotLoggedIn)
+        ));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_auth_loader_distinguishes_missing_unreadable_and_malformed_files() {
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing-auth.json");
+        let unreadable = directory.path().join("directory-auth.json");
+        fs::create_dir(&unreadable).unwrap();
+        let malformed = directory.path().join("malformed-auth.json");
+        fs::write(&malformed, b"not json").unwrap();
+
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[missing]),
+            Err(CodexError::NotLoggedIn)
+        ));
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[unreadable]),
+            Err(CodexError::CredentialRead)
+        ));
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[malformed]),
+            Err(CodexError::InvalidAuth)
+        ));
+    }
+
+    #[test]
+    fn codex_candidate_source_type_is_file_only() {
+        let path = PathBuf::from("auth.json");
+        let source = AuthSource::File(path);
+        match &source {
+            AuthSource::File(_) => {}
+        }
+    }
+
+    #[test]
+    fn local_detection_uses_only_file_candidates() {
+        let directory = tempdir().unwrap();
+        let auth_path = directory.path().join("auth.json");
+        fs::write(
+            &auth_path,
+            serde_json::to_vec(&json!({"tokens": {"access_token": "file-access"}})).unwrap(),
+        )
+        .unwrap();
+
+        assert!(CodexAuthState::has_file_credentials_from_paths(&[
+            auth_path
+        ]));
+        assert!(!CodexAuthState::has_file_credentials_from_paths(&[]));
+    }
+
+    #[test]
+    fn refreshed_tokens_write_back_to_the_same_auth_json_and_preserve_other_fields() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("auth.json");
+        let original = json!({
+            "tokens": {"access_token": "old-access", "refresh_token": "old-refresh"},
+            "other_setting": true
+        });
+        fs::write(&path, serde_json::to_vec(&original).unwrap()).unwrap();
+        let mut auth = super::load_from_path(&path).unwrap();
+
+        auth.update_and_save(
+            "new-access".into(),
+            Some("new-refresh".into()),
+            None,
+            Utc::now(),
+        )
+        .unwrap();
+
+        let saved: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved.pointer("/tokens/access_token").unwrap(), "new-access");
+        assert_eq!(
+            saved.pointer("/tokens/refresh_token").unwrap(),
+            "new-refresh"
+        );
+        assert_eq!(saved.get("other_setting").unwrap(), true);
     }
 
     #[test]

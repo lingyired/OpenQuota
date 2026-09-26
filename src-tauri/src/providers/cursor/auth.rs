@@ -1,3 +1,5 @@
+#![cfg_attr(target_os = "macos", allow(dead_code))]
+
 use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
@@ -5,8 +7,7 @@ use chrono::{DateTime, Duration, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension};
 use serde_json::Value;
 
-#[cfg(target_os = "macos")]
-use crate::providers::credential_store::generic_password_exists;
+#[cfg(not(target_os = "macos"))]
 use crate::providers::credential_store::{read_external_password, write_external_password};
 
 use super::CursorError;
@@ -14,14 +15,19 @@ use super::CursorError;
 const ACCESS_TOKEN_KEY: &str = "cursorAuth/accessToken";
 const REFRESH_TOKEN_KEY: &str = "cursorAuth/refreshToken";
 const MEMBERSHIP_TYPE_KEY: &str = "cursorAuth/stripeMembershipType";
+#[cfg(not(target_os = "macos"))]
 const ACCESS_TOKEN_SERVICE: &str = "cursor-access-token";
+#[cfg(not(target_os = "macos"))]
 const REFRESH_TOKEN_SERVICE: &str = "cursor-refresh-token";
 const REFRESH_BUFFER_MINUTES: i64 = 5;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CursorAuthSource {
     Sqlite(PathBuf),
-    Keychain { account: String },
+    #[cfg(not(target_os = "macos"))]
+    Keychain {
+        account: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,39 +39,29 @@ pub struct CursorAuthState {
 
 impl CursorAuthState {
     pub fn load() -> Result<Option<Self>, CursorError> {
-        let sqlite = state_database_paths()
-            .into_iter()
-            .find_map(|path| load_sqlite_auth(&path));
-        let keychain = load_keychain_auth();
-        Ok(select_auth_state(sqlite, keychain))
+        Self::load_from_database_paths(&state_database_paths())
+    }
+
+    pub(super) fn load_from_database_paths(paths: &[PathBuf]) -> Result<Option<Self>, CursorError> {
+        #[cfg(target_os = "macos")]
+        return sqlite_auth_from_paths_macos(paths);
+        #[cfg(not(target_os = "macos"))]
+        {
+            let sqlite = sqlite_auth_from_paths(paths);
+            Ok(select_auth_state(sqlite, load_keychain_auth()))
+        }
     }
 
     pub fn has_local_credentials() -> bool {
-        if state_database_paths()
-            .into_iter()
-            .any(|path| load_sqlite_auth(&path).is_some())
-        {
-            return true;
-        }
         #[cfg(target_os = "macos")]
         {
-            // Reading these entries makes macOS ask for Keychain authorization, so they only
-            // count as local credentials once the user turned the provider on by hand.
-            crate::providers::keychain_access::is_granted("cursor")
-                && keychain_accounts().into_iter().any(|account| {
-                    [ACCESS_TOKEN_SERVICE, REFRESH_TOKEN_SERVICE]
-                        .into_iter()
-                        .any(|service| {
-                            generic_password_exists(
-                                service,
-                                &account,
-                                std::time::Duration::from_secs(2),
-                            ) == Some(true)
-                        })
-                })
+            Self::load().is_ok_and(|state| state.is_some())
         }
         #[cfg(not(target_os = "macos"))]
         {
+            if has_sqlite_auth(&state_database_paths()) {
+                return true;
+            }
             load_keychain_auth().is_some()
         }
     }
@@ -82,6 +78,7 @@ impl CursorAuthState {
             CursorAuthSource::Sqlite(path) => {
                 write_state_value(path, ACCESS_TOKEN_KEY, &access_token)
             }
+            #[cfg(not(target_os = "macos"))]
             CursorAuthSource::Keychain { account } => write_external_password(
                 "cursor",
                 ACCESS_TOKEN_SERVICE,
@@ -95,6 +92,7 @@ impl CursorAuthState {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn select_auth_state(
     sqlite: Option<(CursorAuthState, Option<String>)>,
     keychain: Option<CursorAuthState>,
@@ -116,6 +114,14 @@ fn select_auth_state(
     keychain
 }
 
+fn sqlite_auth_from_paths(paths: &[PathBuf]) -> Option<(CursorAuthState, Option<String>)> {
+    paths.iter().find_map(|path| load_sqlite_auth(path))
+}
+
+fn has_sqlite_auth(paths: &[PathBuf]) -> bool {
+    sqlite_auth_from_paths(paths).is_some()
+}
+
 fn load_sqlite_auth(path: &Path) -> Option<(CursorAuthState, Option<String>)> {
     if !path.is_file() {
         return None;
@@ -135,6 +141,96 @@ fn load_sqlite_auth(path: &Path) -> Option<(CursorAuthState, Option<String>)> {
         },
         membership,
     ))
+}
+
+#[cfg(target_os = "macos")]
+fn sqlite_auth_from_paths_macos(paths: &[PathBuf]) -> Result<Option<CursorAuthState>, CursorError> {
+    let mut unreadable = false;
+    let mut malformed = false;
+    for path in paths {
+        match load_sqlite_auth_macos(path) {
+            Ok(Some((state, _membership))) => return Ok(Some(state)),
+            Ok(None) => (),
+            Err(CursorError::CredentialRead) => unreadable = true,
+            Err(_) => malformed = true,
+        }
+    }
+    if malformed {
+        return Err(CursorError::InvalidResponse);
+    }
+    if unreadable {
+        return Err(CursorError::CredentialRead);
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "macos")]
+fn load_sqlite_auth_macos(
+    path: &Path,
+) -> Result<Option<(CursorAuthState, Option<String>)>, CursorError> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(_) => return Err(CursorError::CredentialRead),
+    };
+    if !metadata.is_file() {
+        return Err(CursorError::CredentialRead);
+    }
+    let connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+    )
+    .map_err(classify_sqlite_read_error)?;
+    let access_token = read_state_value_from_connection(&connection, ACCESS_TOKEN_KEY)?;
+    let refresh_token = read_state_value_from_connection(&connection, REFRESH_TOKEN_KEY)?;
+    let membership = read_state_value_from_connection(&connection, MEMBERSHIP_TYPE_KEY)?
+        .map(|value| value.to_ascii_lowercase());
+    if access_token.is_none() && refresh_token.is_none() {
+        return Ok(None);
+    }
+    Ok(Some((
+        CursorAuthState {
+            access_token,
+            refresh_token,
+            source: CursorAuthSource::Sqlite(path.to_path_buf()),
+        },
+        membership,
+    )))
+}
+
+#[cfg(target_os = "macos")]
+fn read_state_value_from_connection(
+    connection: &Connection,
+    key: &str,
+) -> Result<Option<String>, CursorError> {
+    connection
+        .query_row(
+            "SELECT value FROM ItemTable WHERE key = ?1 LIMIT 1",
+            [key],
+            |row| row.get::<_, String>(0),
+        )
+        .optional()
+        .map(|value| value.and_then(non_empty))
+        .map_err(classify_sqlite_read_error)
+}
+
+#[cfg(target_os = "macos")]
+fn classify_sqlite_read_error(error: rusqlite::Error) -> CursorError {
+    use rusqlite::ffi::ErrorCode;
+    match error {
+        rusqlite::Error::SqliteFailure(error, _)
+            if matches!(
+                error.code,
+                ErrorCode::PermissionDenied
+                    | ErrorCode::ReadOnly
+                    | ErrorCode::SystemIoFailure
+                    | ErrorCode::CannotOpen
+            ) =>
+        {
+            CursorError::CredentialRead
+        }
+        _ => CursorError::InvalidResponse,
+    }
 }
 
 fn read_state_value(path: &Path, key: &str) -> Option<String> {
@@ -166,6 +262,7 @@ fn write_state_value(path: &Path, key: &str, value: &str) -> Result<(), CursorEr
     Ok(())
 }
 
+#[cfg(not(target_os = "macos"))]
 fn load_keychain_auth() -> Option<CursorAuthState> {
     for account in keychain_accounts() {
         let access_token = read_keychain_value(ACCESS_TOKEN_SERVICE, &account);
@@ -181,6 +278,7 @@ fn load_keychain_auth() -> Option<CursorAuthState> {
     None
 }
 
+#[cfg(not(target_os = "macos"))]
 fn read_keychain_value(service: &str, account: &str) -> Option<String> {
     read_external_password("cursor", service, account)
         .ok()
@@ -189,6 +287,7 @@ fn read_keychain_value(service: &str, account: &str) -> Option<String> {
         .and_then(non_empty)
 }
 
+#[cfg(not(target_os = "macos"))]
 fn keychain_accounts() -> Vec<String> {
     let current = std::env::var("USER")
         .ok()
@@ -231,7 +330,7 @@ fn non_empty(value: impl AsRef<str>) -> Option<String> {
     (!value.is_empty()).then(|| value.to_owned())
 }
 
-fn state_database_paths() -> Vec<PathBuf> {
+pub(super) fn state_database_paths() -> Vec<PathBuf> {
     if let Some(path) = std::env::var_os("QUOTA01_CURSOR_STATE_DB").map(PathBuf::from) {
         return vec![path];
     }
@@ -274,6 +373,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn free_sqlite_workspace_prefers_different_agent_subject() {
         let sqlite = state(
             CursorAuthSource::Sqlite("db".into()),
@@ -293,6 +393,62 @@ mod tests {
     }
 
     #[test]
+    fn detection_and_runtime_candidates_use_only_the_selected_sqlite_database() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("state.vscdb");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+                (ACCESS_TOKEN_KEY, "sqlite-access"),
+            )
+            .unwrap();
+        drop(connection);
+
+        let selected = sqlite_auth_from_paths(std::slice::from_ref(&path))
+            .unwrap()
+            .0;
+
+        #[cfg(target_os = "macos")]
+        match &selected.source {
+            CursorAuthSource::Sqlite(_) => {}
+        }
+        assert!(matches!(selected.source, CursorAuthSource::Sqlite(source) if source == path));
+        assert!(!has_sqlite_auth(&[]));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_sqlite_loader_distinguishes_missing_unreadable_and_malformed_databases() {
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing.vscdb");
+        let unreadable = directory.path().join("directory.vscdb");
+        std::fs::create_dir(&unreadable).unwrap();
+        let malformed = directory.path().join("malformed.vscdb");
+        std::fs::write(&malformed, b"not a sqlite database").unwrap();
+
+        assert_eq!(
+            CursorAuthState::load_from_database_paths(&[missing]).unwrap(),
+            None
+        );
+        assert!(matches!(
+            CursorAuthState::load_from_database_paths(&[unreadable]),
+            Err(CursorError::CredentialRead)
+        ));
+        assert!(matches!(
+            CursorAuthState::load_from_database_paths(&[malformed]),
+            Err(CursorError::InvalidResponse)
+        ));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
     fn sqlite_is_preferred_for_paid_or_same_subject_sessions() {
         let sqlite = state(
             CursorAuthSource::Sqlite("db".into()),
@@ -309,6 +465,21 @@ mod tests {
             selected.unwrap().source,
             CursorAuthSource::Sqlite(_)
         ));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn credential_store_only_auth_remains_available_off_macos() {
+        let credential_store = state(
+            CursorAuthSource::Keychain {
+                account: "legacy-account".into(),
+            },
+            &jwt("auth0|legacy", 100),
+        );
+
+        let selected = select_auth_state(None, Some(credential_store)).unwrap();
+
+        assert!(matches!(selected.source, CursorAuthSource::Keychain { .. }));
     }
 
     #[test]
@@ -330,7 +501,8 @@ mod tests {
             .unwrap();
         drop(connection);
 
-        let (mut auth, _) = load_sqlite_auth(&path).unwrap();
+        let (mut auth, _) = sqlite_auth_from_paths(std::slice::from_ref(&path)).unwrap();
+        assert!(matches!(&auth.source, CursorAuthSource::Sqlite(source) if source == &path));
         auth.save_access_token("new'quoted".into()).unwrap();
         assert_eq!(
             read_state_value(&path, ACCESS_TOKEN_KEY).as_deref(),

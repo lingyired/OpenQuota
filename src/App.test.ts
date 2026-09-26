@@ -105,7 +105,6 @@ function webviewAuthFixture() {
       enabled: true,
       detected: false,
       expanded: false,
-      keychainAccessGranted: false,
       metrics: [
         { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
@@ -165,7 +164,6 @@ function deviceCodeSignInFixture(errorKind: ProviderViewState['errorKind'] = 'au
       enabled: true,
       detected: false,
       expanded: false,
-      keychainAccessGranted: false,
       metrics: [
         { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
       ],
@@ -441,7 +439,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -463,7 +460,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'antigravity.geminiPro',
@@ -539,7 +535,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],
@@ -631,7 +626,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               {
                 id: `${providerId}.session`,
@@ -770,7 +764,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],
@@ -1361,7 +1354,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1449,7 +1441,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1518,7 +1509,6 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1617,6 +1607,33 @@ describe('Quota01 dashboard', () => {
     ).toBeInTheDocument();
   });
 
+  it('keeps local-source failures and the cached update time visible on the provider', async () => {
+    const failedCodex = structuredClone(codexState);
+    failedCodex.error = 'Codex credentials are unavailable. Check auth.json.';
+    failedCodex.errorKind = 'credentialsUnavailable';
+    failedCodex.stale = true;
+    failedCodex.snapshot!.refreshedAt = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    mockInvoke((command: string) => {
+      if (command === 'get_usage_state')
+        return Promise.resolve({ providers: { codex: failedCodex } });
+      if (command === 'get_app_settings') return Promise.resolve(settingsState);
+      return Promise.resolve();
+    });
+
+    render(App);
+
+    const provider = await screen.findByRole('group', { name: 'Codex provider' });
+    expect(within(provider).getByRole('heading', { name: 'Codex' })).toBeInTheDocument();
+    expect(within(provider).getByRole('alert')).toHaveTextContent(
+      'Codex credentials are unavailable. Check auth.json.',
+    );
+    expect(within(provider).getByText('Outdated')).toHaveAttribute(
+      'data-tooltip',
+      expect.stringMatching(/Last updated 3h/),
+    );
+    expect(settingsState.settings.providers.some((item) => item.id === 'codex')).toBe(true);
+  });
+
   it('offers configuration when an API-key provider needs authentication', async () => {
     const definition = providerCatalog.providers.find((provider) => provider.id === 'openrouter')!;
     const failedOpenRouter: ProviderViewState = {
@@ -1642,7 +1659,6 @@ describe('Quota01 dashboard', () => {
                 enabled: true,
                 detected: false,
                 expanded: false,
-                keychainAccessGranted: false,
                 metrics: definition.metrics.map((metric) => ({
                   id: metric.id,
                   enabled: metric.defaultEnabled,
@@ -2132,7 +2148,6 @@ describe('Quota01 Windows taskband focus', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],

@@ -76,7 +76,6 @@ function disabledClaude(state: SettingsViewState) {
           enabled: false,
           detected: true,
           expanded: false,
-          keychainAccessGranted: false,
           metrics: [
             {
               id: 'claude.session',

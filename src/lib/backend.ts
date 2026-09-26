@@ -43,6 +43,10 @@ export function claimCodexResetCredit(expiresAt: string, redeemRequestId: string
   return invoke<ResetClaimOutcome>('claim_codex_reset_credit', { expiresAt, redeemRequestId });
 }
 
+export function resetCredentialVault(): Promise<void> {
+  return invoke<void>('reset_credential_vault');
+}
+
 export function openProviderLink(providerId: string, linkIndex: number) {
   return invoke<void>('open_provider_link', { providerId, linkIndex });
 }

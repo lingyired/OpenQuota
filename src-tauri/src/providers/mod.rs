@@ -173,16 +173,6 @@ pub trait UsageProvider: Send + Sync {
     fn has_local_installation(&self) -> bool {
         false
     }
-    /// Whether this provider can read system credential store entries that belong to another
-    /// application.
-    ///
-    /// macOS prompts for authorization on those reads, so every such read must go through
-    /// `credential_store::read_external_password` (and writes through `write_external_password`),
-    /// which stays inert until the user enables the provider by hand. Detecting existence with
-    /// `generic_password_exists` does not prompt and stays ungated.
-    fn accesses_system_keychain(&self) -> bool {
-        false
-    }
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError>;
 
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {

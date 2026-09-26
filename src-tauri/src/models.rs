@@ -292,6 +292,9 @@ pub enum SnapshotSource {
 #[serde(rename_all = "camelCase")]
 pub enum ProviderErrorKind {
     Authentication,
+    CredentialsUnavailable,
+    LocalServiceUnavailable,
+    Unsupported,
     Permission,
     RateLimited,
     Network,
@@ -674,9 +677,7 @@ pub struct ProviderLayout {
     pub enabled: bool,
     pub detected: bool,
     pub expanded: bool,
-    /// Set when the user turns this provider on by hand. Automatic enablement (startup
-    /// probing, fallback defaults) never sets it, because reading another application's
-    /// Keychain entry prompts for authorization on macOS.
+    #[cfg(not(target_os = "macos"))]
     #[serde(default)]
     pub keychain_access_granted: bool,
     pub metrics: Vec<MetricLayout>,
@@ -1262,5 +1263,27 @@ mod tests {
                 ProviderLink::new("HTTP", "http://example.com/dashboard"),
             ]
         );
+    }
+
+    #[test]
+    fn local_credential_error_kinds_use_camel_case_names() {
+        let kinds = [
+            (
+                ProviderErrorKind::CredentialsUnavailable,
+                "credentialsUnavailable",
+            ),
+            (
+                ProviderErrorKind::LocalServiceUnavailable,
+                "localServiceUnavailable",
+            ),
+            (ProviderErrorKind::Unsupported, "unsupported"),
+        ];
+
+        for (kind, expected) in kinds {
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{expected}\"")
+            );
+        }
     }
 }

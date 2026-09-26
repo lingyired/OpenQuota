@@ -4,7 +4,7 @@ pub mod local_usage;
 pub mod mapper;
 pub mod reset_claim;
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use chrono::Utc;
 use reqwest::StatusCode;
@@ -141,6 +141,8 @@ pub enum CodexError {
     TokenExpired,
     #[error("Codex auth data is invalid. Run `codex` to sign in again.")]
     InvalidAuth,
+    #[error("Codex credentials could not be read from the local auth file.")]
+    CredentialRead,
     #[error("The Codex account changed while usage was refreshing. Refresh again.")]
     AccountChanged,
     #[error("Refreshed Codex credentials could not be saved.")]
@@ -191,7 +193,7 @@ impl CodexProvider {
 
     fn refresh_with_identity(&self) -> Result<(ProviderSnapshot, Option<String>), CodexError> {
         let now = Utc::now();
-        let candidates = CodexAuthState::load_candidates()?;
+        let candidates = load_refresh_candidates()?;
         crate::app_debug!(
             "auth:codex",
             "credential candidates loaded ({})",
@@ -336,6 +338,16 @@ impl CodexProvider {
     }
 }
 
+fn load_refresh_candidates() -> Result<Vec<CodexAuthState>, CodexError> {
+    load_refresh_candidates_from_paths(&auth::auth_paths())
+}
+
+fn load_refresh_candidates_from_paths(
+    paths: &[PathBuf],
+) -> Result<Vec<CodexAuthState>, CodexError> {
+    CodexAuthState::load_candidates_from_paths(paths)
+}
+
 fn account_identity_key(identity: &str) -> String {
     sha256_hex(identity.as_bytes())
 }
@@ -353,15 +365,16 @@ fn provider_error(error: CodexError) -> crate::providers::ProviderError {
     use crate::models::ProviderErrorKind as Kind;
 
     let kind = match error {
-        CodexError::NotLoggedIn
-        | CodexError::SessionExpired
+        CodexError::NotLoggedIn => Kind::CredentialsUnavailable,
+        CodexError::SessionExpired
         | CodexError::TokenConflict
         | CodexError::TokenRevoked
         | CodexError::TokenExpired
-        | CodexError::InvalidAuth
         | CodexError::AccountChanged => Kind::Authentication,
+        CodexError::InvalidAuth => Kind::InvalidResponse,
         CodexError::ApiKeyOnly => Kind::Permission,
         CodexError::AuthWrite => Kind::CredentialStorage,
+        CodexError::CredentialRead => Kind::CredentialStorage,
         CodexError::RequestFailed(429) => Kind::RateLimited,
         CodexError::RequestFailed(_) | CodexError::ConnectionFailed => Kind::Network,
         CodexError::InvalidResponse => Kind::InvalidResponse,
@@ -374,10 +387,6 @@ fn provider_error(error: CodexError) -> crate::providers::ProviderError {
 impl crate::providers::UsageProvider for CodexProvider {
     fn definition(&self) -> ProviderDefinition {
         definition()
-    }
-
-    fn accesses_system_keychain(&self) -> bool {
-        true
     }
 
     fn has_local_credentials(&self) -> bool {
@@ -421,16 +430,69 @@ impl crate::providers::UsageProvider for CodexProvider {
 
 #[cfg(test)]
 mod account_tests {
-    use std::sync::Arc;
+    use std::{fs, sync::Arc};
 
+    use serde_json::json;
     use tempfile::tempdir;
 
-    use super::{validate_account_identity, CodexClient, CodexError, CodexProvider};
+    use super::{
+        load_refresh_candidates_from_paths, provider_error, validate_account_identity, CodexClient,
+        CodexError, CodexProvider,
+    };
+
+    #[test]
+    fn local_credential_errors_map_to_stable_provider_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(CodexError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(CodexError::InvalidAuth).kind(),
+            Kind::InvalidResponse
+        );
+        assert_eq!(
+            provider_error(CodexError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(CodexError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(CodexError::CredentialRead).kind(),
+            Kind::CredentialStorage
+        );
+    }
     use crate::{
         pricing::PricingStore,
         providers::{CacheIdentity, UsageProvider},
         storage::Storage,
     };
+
+    #[test]
+    fn refresh_candidate_loader_uses_only_supplied_auth_files() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("auth.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "tokens": {"access_token": "file-access", "refresh_token": "file-refresh"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let candidates = load_refresh_candidates_from_paths(&[path]).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].access_token, "file-access");
+        assert!(matches!(
+            load_refresh_candidates_from_paths(&[]),
+            Err(CodexError::NotLoggedIn)
+        ));
+    }
 
     #[test]
     fn pinned_account_rejects_a_different_or_unreadable_login() {

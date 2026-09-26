@@ -1159,6 +1159,7 @@ mod tests {
             enabled: true,
             detected: false,
             expanded: false,
+            #[cfg(not(target_os = "macos"))]
             keychain_access_granted: false,
             metrics: Vec::new(),
         });

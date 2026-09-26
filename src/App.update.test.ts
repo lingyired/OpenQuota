@@ -88,7 +88,6 @@ describe('Quota01 update lifecycle', () => {
             enabled: true,
             detected: true,
             expanded: false,
-            keychainAccessGranted: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],

@@ -562,6 +562,7 @@ pub fn run() {
             commands::usage::refresh_selected_provider_if_due,
             commands::usage::claim_codex_reset_credit,
             commands::settings::get_app_settings,
+            commands::settings::reset_credential_vault,
             commands::settings::save_app_settings,
             commands::settings::reset_customization,
             commands::settings::reset_all_settings,
