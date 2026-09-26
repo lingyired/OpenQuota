@@ -30,8 +30,6 @@
     type PanelHeightMode,
     type PanelResizeEdge,
   } from './lib/backend';
-  import CustomizeProviderDetail from './lib/CustomizeProviderDetail.svelte';
-  import CustomizeProviderList from './lib/CustomizeProviderList.svelte';
   import ConfirmationSheet from './lib/ConfirmationSheet.svelte';
   import { restoreCustomization } from './lib/customizationHistory';
   import ProviderDataView from './lib/ProviderDataView.svelte';
@@ -52,7 +50,7 @@
     renderProviderShareCard,
     renderTotalSpendShareCard,
   } from './lib/shareCard';
-  import SettingsScreen from './lib/SettingsScreen.svelte';
+  import SettingsWorkspace from './lib/SettingsWorkspace.svelte';
   import { SettingsController } from './lib/settingsController.svelte';
   import type { SpendProjection } from './lib/totalSpend';
   import type { AppSettings, UsageViewState } from './lib/types';
@@ -944,7 +942,7 @@
         >
           <Icon name="back" size={16} strokeWidth={2.2} />
         </button>
-        <h1>{topBarTitleText}</h1>
+        <span class="screen-header__title" aria-hidden="true">{topBarTitleText}</span>
         {#if screen === 'customize'}
           <button
             class="text-button"
@@ -952,16 +950,6 @@
             onclick={requestCustomizationReset}
             aria-label={$tStore('app.resetAllCustomization')}
             data-tooltip={$tStore('app.resetAllCustomizationTooltip')}
-            ><Icon name="reset" size={15} strokeWidth={2} /></button
-          >
-        {:else if screen.startsWith('provider:')}
-          <button
-            class="text-button"
-            type="button"
-            disabled={resettingProviderId !== null}
-            onclick={() => resetProviderCustomization(screen.slice(9))}
-            aria-label={$tStore('app.resetProvider', { name: topBarTitleText })}
-            data-tooltip={$tStore('app.resetProvider', { name: topBarTitleText })}
             ><Icon name="reset" size={15} strokeWidth={2} /></button
           >
         {:else}
@@ -1013,45 +1001,28 @@
                   readOnlyPreview={false}
                 />
               {/if}
-            {:else if screen === 'settings'}
-              <SettingsScreen
+            {:else if screen === 'settings' || screen === 'customize' || screen.startsWith('provider:')}
+              <SettingsWorkspace
                 settingsView={settingsState}
+                {dashboardProps}
                 {platform}
                 {panelHeightMode}
-                onChange={saveSettings}
                 onPanelHeightModeChange={(mode) => void changePanelHeightMode(mode)}
                 onRequestNotifications={requestNotifications}
                 onOpenNotificationSettings={openNotificationSettings}
-                updateError={updates.error}
                 checkingUpdate={updates.checking}
                 onCheckForUpdates={() => void checkForUpdates(true)}
-                onCustomize={() => navigate('customize')}
                 onCopyLogPath={copyLogPath}
                 onOpenLogFolder={openLogFolder}
                 onResetAllSettings={() => (settingsResetConfirmationOpen = true)}
-              />
-            {:else if screen === 'customize'}
-              <CustomizeProviderList
-                settings={settingsState.settings}
-                {catalog}
-                onOpen={(id) => void openProviderCustomization(id)}
-                onChange={saveCustomization}
-                onReorderStart={beginCustomizationGesture}
-                onReorderEnd={endCustomizationGesture}
-                onSettings={() => navigate('settings')}
-                {reducedMotion}
-              />
-            {:else if screen.startsWith('provider:')}
-              <CustomizeProviderDetail
-                settings={settingsState.settings}
-                providerId={screen.slice(9)}
-                {catalog}
-                renamableProviderIds={settingsState.renamableProviderIds}
-                onChange={saveCustomization}
-                onNameChange={saveSettings}
-                onReorderStart={beginCustomizationGesture}
-                onReorderEnd={endCustomizationGesture}
-                {reducedMotion}
+                onResetProviderCustomization={resetProviderCustomization}
+                {resettingProviderId}
+                initialProviderId={screen.startsWith('provider:')
+                  ? screen.slice(9)
+                  : screen === 'customize'
+                    ? currentProviderId
+                    : null}
+                initialGeneral={screen === 'settings'}
               />
             {/if}
           </div>
@@ -1485,7 +1456,7 @@
       margin-bottom: 8px;
     }
 
-    .screen-header h1 {
+    .screen-header__title {
       margin: 0;
       font-size: 14px;
       text-align: center;
@@ -1742,7 +1713,7 @@
       padding: 0 14px;
     }
 
-    .screen-header h1 {
+    .screen-header__title {
       font-size: 13px;
       font-weight: 600;
     }

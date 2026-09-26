@@ -1,6 +1,6 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
-  import { tStore } from './i18n';
+  import { tBackendStore, tStore } from './i18n';
   import type { AppSettings, ProviderLayout } from './types';
   import type { ProviderCatalogIndex } from './metrics';
   import Icon from './Icon.svelte';
@@ -17,6 +17,11 @@
     onReorderEnd: (moved: boolean, cancelled?: boolean) => void;
     onSettings: () => void;
     reducedMotion: boolean;
+    workspace?: boolean;
+    selectedProviderId?: string | null;
+    generalSelected?: boolean;
+    onSelect?: (providerId: string) => void;
+    onGeneralSettings?: () => void;
   }
   let {
     settings,
@@ -27,6 +32,11 @@
     onReorderEnd,
     onSettings,
     reducedMotion,
+    workspace = false,
+    selectedProviderId = null,
+    generalSelected = false,
+    onSelect,
+    onGeneralSettings,
   }: Props = $props();
   const providerDisplayName = (id: string) => catalog.displayName(id, settings.providerNames);
   function updateProvider(provider: ProviderLayout) {
@@ -51,6 +61,19 @@
 </script>
 
 <section class="screen customize-screen" aria-label={$tStore('customize.title')}>
+  {#if workspace}
+    <button
+      class="workspace-general-entry"
+      class:workspace-general-entry--selected={generalSelected}
+      type="button"
+      aria-label={$tStore('customize.settings')}
+      aria-current={generalSelected ? 'true' : undefined}
+      onclick={onGeneralSettings}
+    >
+      <Icon name="gear" size={16} />
+      <span>{$tStore('customize.settings')}</span>
+    </button>
+  {/if}
   <div class="customize-list" role="list">
     {#each settings.providers.filter( (provider) => catalog.provider(provider.id) ) as provider (provider.id)}
       <div
@@ -83,13 +106,22 @@
           aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
           ><Icon name="grip-lines" size={16} strokeWidth={2} /></span
         >
-        <button class="provider-list-main" type="button" onclick={() => onOpen(provider.id)}
-          ><ProviderIcon providerId={provider.id} /><span
-            ><b>{providerDisplayName(provider.id)}</b><small
-              >{$tStore('customize.metricCount', { count: provider.metrics.length })}</small
-            ></span
-          ></button
+        <button
+          class="provider-list-main"
+          type="button"
+          aria-label={workspace ? providerDisplayName(provider.id) : undefined}
+          aria-current={workspace && selectedProviderId === provider.id ? 'true' : undefined}
+          onclick={() => (workspace ? onSelect?.(provider.id) : onOpen(provider.id))}
         >
+          <ProviderIcon providerId={provider.id} />
+          <span>
+            <b>{providerDisplayName(provider.id)}</b>
+            <small>{$tStore('customize.metricCount', { count: provider.metrics.length })}</small>
+            {#if workspace && settings.taskbandProviders[provider.id]?.enabled === false}
+              <small>{$tStore('customize.taskbar')} · {$tBackendStore('common.disabled')}</small>
+            {/if}
+          </span>
+        </button>
         <label class="switch"
           ><input
             aria-label={$tStore('customize.enableProvider', { id: provider.id })}
@@ -107,29 +139,59 @@
           class="chevron"
           type="button"
           aria-label={$tStore('customize.customizeProvider', { id: provider.id })}
-          onclick={() => onOpen(provider.id)}
+          onclick={() => (workspace ? onSelect?.(provider.id) : onOpen(provider.id))}
           ><Icon name="chevron-right" size={13} strokeWidth={2.2} /></button
         >
       </div>
     {/each}
   </div>
-  <button
-    class="screen-cross-link"
-    type="button"
-    aria-label={$tStore('customize.settings')}
-    onclick={onSettings}
-  >
-    <Icon name="gear" size={17} />
-    <span
-      ><b>{$tStore('customize.settings')}</b><small>{$tStore('customize.settingsDesc')}</small
-      ></span
+  {#if !workspace}
+    <button
+      class="screen-cross-link"
+      type="button"
+      aria-label={$tStore('customize.settings')}
+      onclick={onSettings}
     >
-    <Icon name="chevron-right" size={13} strokeWidth={2.2} />
-  </button>
+      <Icon name="gear" size={17} />
+      <span>
+        <b>{$tStore('customize.settings')}</b>
+        <small>{$tStore('customize.settingsDesc')}</small>
+      </span>
+      <Icon name="chevron-right" size={13} strokeWidth={2.2} />
+    </button>
+  {/if}
 </section>
 
 <style>
+  .workspace-general-entry {
+    display: flex;
+    min-height: 42px;
+    align-items: center;
+    gap: 9px;
+    padding: 7px 11px;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    color: var(--secondary);
+    background: transparent;
+    font: inherit;
+    text-align: start;
+    cursor: pointer;
+  }
+
+  .workspace-general-entry:focus-visible,
+  .workspace-general-entry--selected {
+    outline: 2px solid var(--meter-fill);
+    color: var(--text);
+    background: var(--button-hover);
+  }
+
   :global {
+    .provider-list-main[aria-current='true'] {
+      border-radius: 7px;
+      outline: 2px solid var(--meter-fill);
+      background: var(--button-hover);
+    }
+
     .provider-list-row {
       display: flex;
       min-height: 52px;

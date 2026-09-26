@@ -136,21 +136,26 @@
     settings.providers.filter((provider) => provider.enabled && catalog.provider(provider.id)),
   );
   const dashboardProviders = $derived(
-    enabledProviders.map((provider) => {
-      const state = viewState.providers[provider.id];
-      return {
-        provider,
-        state,
-        snapshot: state?.snapshot ?? emptyProviderSnapshot(provider.id),
-        alwaysMetrics: provider.metrics.filter(
-          (metric) => metric.enabled && metric.section === 'alwaysVisible',
-        ),
-        demandMetrics: provider.metrics.filter(
-          (metric) => metric.enabled && metric.section === 'onDemand',
-        ),
-        links: catalog.provider(provider.id)?.links ?? [],
-      };
-    }),
+    settings.providers
+      .filter(
+        (provider) =>
+          (provider.enabled || provider.id === focusedProviderId) && catalog.provider(provider.id),
+      )
+      .map((provider) => {
+        const state = viewState.providers[provider.id];
+        return {
+          provider,
+          state,
+          snapshot: state?.snapshot ?? emptyProviderSnapshot(provider.id),
+          alwaysMetrics: provider.metrics.filter(
+            (metric) => metric.enabled && metric.section === 'alwaysVisible',
+          ),
+          demandMetrics: provider.metrics.filter(
+            (metric) => metric.enabled && metric.section === 'onDemand',
+          ),
+          links: catalog.provider(provider.id)?.links ?? [],
+        };
+      }),
   );
   const displayProviders = $derived(
     focusedProviderId
