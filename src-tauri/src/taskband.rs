@@ -532,6 +532,7 @@ pub(crate) fn update(
 
     let locale = crate::i18n::resolve(settings.language);
     let mut desired_ids = HashSet::new();
+    let mut actual_provider_ids = HashSet::new();
     let mut failures = Vec::new();
     for provider_id in
         requested_provider_entries(settings, registry, NativeInstancePlatform::Windows)
@@ -593,6 +594,7 @@ pub(crate) fn update(
         taskband.register_click_listener(app, &instance_id, &provider.id);
         taskband.register_context_menu(app, &instance_id, &provider.id, &provider_name, locale);
         desired_ids.insert(instance_id);
+        actual_provider_ids.insert(provider.id.clone());
     }
 
     let stale = taskband
@@ -613,6 +615,9 @@ pub(crate) fn update(
         .is_empty();
     app.state::<DesktopIntegration>()
         .set_provider_instance_status(desired_ids.len(), failures);
+    if let Some(service) = app.try_state::<Arc<ProviderService>>() {
+        service.set_native_instance_ids(actual_provider_ids);
+    }
     ensure_taskband_runtime_entry(app, has_instances);
 }
 
@@ -620,6 +625,11 @@ pub(crate) fn update(
 fn ensure_taskband_runtime_entry(app: &AppHandle, has_instances: bool) {
     let integration = app.state::<DesktopIntegration>();
     integration.set_menu_entry_available(has_instances);
+    if !has_instances {
+        if let Some(service) = app.try_state::<Arc<ProviderService>>() {
+            service.set_native_instance_ids(Vec::new());
+        }
+    }
     if has_instances {
         let mode = app
             .try_state::<Arc<SettingsService>>()
@@ -932,6 +942,7 @@ mod tests {
             .into_iter()
             .collect(),
             last_full_refresh_at: None,
+            next_refresh_at: None,
         };
         pinned_provider_metrics(&state, &provider, &catalog_settings, &catalog)
     }

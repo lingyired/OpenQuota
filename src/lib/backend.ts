@@ -35,6 +35,10 @@ export function refreshProviderUsage(providerId: string) {
   return invoke<UsageViewState>('refresh_provider_usage', { providerId });
 }
 
+export function refreshSelectedProviderIfDue(providerId: string) {
+  return invoke<UsageViewState>('refresh_selected_provider_if_due', { providerId });
+}
+
 export function claimCodexResetCredit(expiresAt: string, redeemRequestId: string) {
   return invoke<ResetClaimOutcome>('claim_codex_reset_credit', { expiresAt, redeemRequestId });
 }

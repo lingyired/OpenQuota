@@ -8,6 +8,13 @@
   }
 
   let { providerId, readOnlyPreview = false, ...dashboardProps }: Props = $props();
+  let lastAutoRefreshProviderId: string | null = null;
+
+  $effect(() => {
+    if (providerId === lastAutoRefreshProviderId) return;
+    lastAutoRefreshProviderId = providerId;
+    void dashboardProps.onRefreshIfDue?.(providerId);
+  });
 </script>
 
 <div class="provider-data-view" class:provider-data-view--preview={readOnlyPreview}>

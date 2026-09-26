@@ -45,6 +45,7 @@
     onShare: (providerId: string) => void;
     onShareTotal: (projection: SpendProjection) => boolean | Promise<boolean>;
     onRefresh: (providerId: string) => void | Promise<void>;
+    onRefreshIfDue?: (providerId: string) => void | Promise<void>;
     onOpenProviderLink: (providerId: string, linkIndex: number) => void;
     onContentMorph: () => void;
     reducedMotion: boolean;

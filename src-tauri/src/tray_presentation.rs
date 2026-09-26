@@ -80,7 +80,6 @@ pub(crate) fn requested_provider_entries(
 #[derive(Debug, Clone, PartialEq)]
 #[cfg(any(not(target_os = "macos"), test))]
 struct TrayGroup {
-    #[cfg(test)]
     provider_id: String,
     metrics: Vec<TrayMetric>,
 }
@@ -106,9 +105,19 @@ pub fn update(
     #[cfg(not(target_os = "macos"))]
     {
         let Some(tray) = app.tray_by_id(TRAY_ID) else {
+            #[cfg(target_os = "linux")]
+            if let Some(service) =
+                app.try_state::<std::sync::Arc<crate::service::ProviderService>>()
+            {
+                service.set_native_instance_ids(Vec::new());
+            }
             return;
         };
         let groups = resolved_groups(state, settings, registry);
+        #[cfg(target_os = "linux")]
+        if let Some(service) = app.try_state::<std::sync::Arc<crate::service::ProviderService>>() {
+            service.set_native_instance_ids(groups.iter().map(|group| group.provider_id.clone()));
+        }
         let tooltip = if groups.is_empty() {
             "Quota01".to_owned()
         } else {
@@ -181,7 +190,6 @@ fn resolved_groups(
                 })
                 .collect::<Vec<_>>();
             (!metrics.is_empty()).then_some(TrayGroup {
-                #[cfg(test)]
                 provider_id: definition.id.clone(),
                 metrics,
             })
@@ -623,6 +631,7 @@ mod tests {
         let state = UsageViewState {
             providers: [("codex".into(), provider_state)].into_iter().collect(),
             last_full_refresh_at: None,
+            next_refresh_at: None,
         };
         let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
         let groups = resolved_groups(
@@ -794,6 +803,7 @@ mod tests {
         let state = UsageViewState {
             providers: [("codex".into(), provider_state)].into_iter().collect(),
             last_full_refresh_at: None,
+            next_refresh_at: None,
         };
         let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
         let settings = default_settings(&catalog, &HashSet::from(["codex".to_owned()]));

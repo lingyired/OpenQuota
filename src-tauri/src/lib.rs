@@ -559,6 +559,7 @@ pub fn run() {
             commands::provider_login::cancel_provider_login,
             commands::usage::refresh_usage,
             commands::usage::refresh_provider_usage,
+            commands::usage::refresh_selected_provider_if_due,
             commands::usage::claim_codex_reset_credit,
             commands::settings::get_app_settings,
             commands::settings::save_app_settings,

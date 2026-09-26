@@ -20,6 +20,7 @@
     openNotificationSettings as openSystemNotificationSettings,
     openLogFolder as openSystemLogFolder,
     quitApplication,
+    refreshSelectedProviderIfDue,
     refreshProviderUsage,
     refreshUsage,
     requestNotificationPermission,
@@ -100,10 +101,16 @@
   const providerStates = $derived(Object.values(viewState.providers));
   const anyRefreshing = $derived(providerStates.some((state) => state.refreshing));
   const lastFullRefresh = $derived(viewState.lastFullRefreshAt ?? undefined);
+  const nextRefreshAt = $derived(
+    viewState.nextRefreshAt ??
+      (lastFullRefresh
+        ? new Date(Date.parse(lastFullRefresh) + 5 * 60_000).toISOString()
+        : undefined),
+  );
   const currentLocale = $derived($locale);
   const nextUpdateLabelText = $derived.by(() => {
     void currentLocale;
-    return nextUpdateLabel(lastFullRefresh, now);
+    return nextUpdateLabel(nextRefreshAt, now);
   });
   const platform = desktopPlatform();
   const shortcuts = shortcutLabels(platform);
@@ -145,6 +152,7 @@
     onShare: shareProvider,
     onShareTotal: shareTotalSpend,
     onRefresh: refreshProvider,
+    onRefreshIfDue: refreshProviderIfDue,
     onOpenProviderLink: openProviderLink,
     onContentMorph: beginContentMorph,
     reducedMotion,
@@ -495,6 +503,15 @@
       settingsError = t('app.errors.providerUsageRefresh', {
         provider: providerDisplayName(providerId),
       });
+    }
+  }
+  async function refreshProviderIfDue(providerId: string) {
+    try {
+      const nextState = await refreshSelectedProviderIfDue(providerId);
+      if (nextState && typeof nextState === 'object' && nextState.providers) viewState = nextState;
+    } catch {
+      // Selection-triggered refresh is opportunistic. The existing snapshot and
+      // manual refresh path remain available when a provider is unavailable.
     }
   }
   function openProviderLink(providerId: string, linkIndex: number) {

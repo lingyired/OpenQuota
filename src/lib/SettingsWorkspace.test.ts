@@ -25,6 +25,7 @@ function props() {
     onShare: vi.fn(),
     onShareTotal: vi.fn(),
     onRefresh: vi.fn(),
+    onRefreshIfDue: vi.fn(),
     onOpenProviderLink: vi.fn(),
     onContentMorph: vi.fn(),
     reducedMotion: false,
@@ -113,6 +114,17 @@ describe('SettingsWorkspace', () => {
       'Settings',
     );
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument();
+  });
+
+  it('checks the selected provider preview for a due background refresh', async () => {
+    const input = props();
+    input.settingsView = disabledClaude(input.settingsView);
+    input.settingsView.settings.providers[0].enabled = true;
+    input.dashboardProps.settings = input.settingsView.settings;
+    render(SettingsWorkspace, input);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Claude' }));
+    expect(input.dashboardProps.onRefreshIfDue).toHaveBeenLastCalledWith('claude');
   });
 
   it('falls back after a selected provider is removed and updates the preview from new usage data', async () => {

@@ -731,6 +731,9 @@ fn apply_runtime_entry(app: &AppHandle, has_menu_entry: bool) -> RuntimeEntryOut
     let integration = app.state::<DesktopIntegration>();
     if !has_menu_entry {
         integration.set_menu_entry_available(false);
+        if let Some(service) = app.try_state::<Arc<ProviderService>>() {
+            service.set_native_instance_ids(Vec::new());
+        }
         if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
             let _ = crate::window::apply_window_mode(
                 &window,
@@ -846,6 +849,7 @@ pub(crate) fn update(
 fn apply_menubar_plan(app: &AppHandle, plan: MenubarPlan, locale: crate::i18n::Locale) {
     let menubar = app.state::<MenubarState>();
     let mut actual_ids = HashSet::new();
+    let mut actual_provider_ids = HashSet::new();
     let mut failures = Vec::new();
     for desired in plan.provider_instances {
         let DesiredProviderMenubar {
@@ -880,6 +884,7 @@ fn apply_menubar_plan(app: &AppHandle, plan: MenubarPlan, locale: crate::i18n::L
                     locale,
                 );
                 actual_ids.insert(instance_id);
+                actual_provider_ids.insert(provider_id);
             }
             Ok(false) => {
                 failures.push(format!("{provider_name}: not visible"));
@@ -912,6 +917,9 @@ fn apply_menubar_plan(app: &AppHandle, plan: MenubarPlan, locale: crate::i18n::L
 
     app.state::<DesktopIntegration>()
         .set_provider_instance_status(actual_ids.len(), failures);
+    if let Some(service) = app.try_state::<Arc<ProviderService>>() {
+        service.set_native_instance_ids(actual_provider_ids);
+    }
     apply_runtime_entry(app, !actual_ids.is_empty());
 }
 
