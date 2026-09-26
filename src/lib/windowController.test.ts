@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   currentMonitor: vi.fn(),
   getCurrentWindow: vi.fn(),
   fitPanelToContent: vi.fn(),
+  setPanelLayoutForScreen: vi.fn(),
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
@@ -14,6 +15,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 
 vi.mock('./backend', () => ({
   fitPanelToContent: mocks.fitPanelToContent,
+  setPanelLayoutForScreen: mocks.setPanelLayoutForScreen,
 }));
 
 import { createWindowController } from './windowController';
@@ -64,6 +66,7 @@ describe('hybrid window controller', () => {
       innerSize: vi.fn().mockResolvedValue({ width: 320, height: 200 }),
     });
     mocks.fitPanelToContent.mockResolvedValue(true);
+    mocks.setPanelLayoutForScreen.mockResolvedValue({ width: 440, height: 800 });
   });
 
   afterEach(() => {
@@ -196,6 +199,60 @@ describe('hybrid window controller', () => {
 
     await waitFor(() => expect(mocks.fitPanelToContent).toHaveBeenCalledTimes(2));
     expect(mocks.fitPanelToContent).toHaveBeenLastCalledWith(430);
+    expect(mocks.setPanelLayoutForScreen).toHaveBeenLastCalledWith('settings');
+
+    activeScreen = 'dashboard';
+    page.dataset.screen = 'dashboard';
+    controller.scheduleFit();
+    await waitFor(() =>
+      expect(mocks.setPanelLayoutForScreen).toHaveBeenLastCalledWith('dashboard'),
+    );
+    controller.dispose();
+  });
+
+  it('requests each native layout only once while switching repeatedly', async () => {
+    let activeScreen: 'dashboard' | 'settings' = 'dashboard';
+    const page = document.querySelector<HTMLElement>('.screen-page')!;
+    const controller = createWindowController({
+      screen: () => activeScreen,
+      refreshing: () => false,
+      reordering: () => false,
+      automatic: () => true,
+      reducedMotion: () => true,
+      onError: vi.fn(),
+    });
+
+    controller.scheduleFit();
+    await waitFor(() => expect(mocks.setPanelLayoutForScreen).toHaveBeenCalledWith('dashboard'));
+    activeScreen = 'settings';
+    page.dataset.screen = 'settings';
+    controller.scheduleFit();
+    await waitFor(() => expect(mocks.setPanelLayoutForScreen).toHaveBeenLastCalledWith('settings'));
+    activeScreen = 'dashboard';
+    page.dataset.screen = 'dashboard';
+    controller.scheduleFit();
+    await waitFor(() =>
+      expect(mocks.setPanelLayoutForScreen).toHaveBeenLastCalledWith('dashboard'),
+    );
+    expect(mocks.setPanelLayoutForScreen).toHaveBeenCalledTimes(3);
+    controller.dispose();
+  });
+
+  it('switches width while preserving the user-owned manual height', async () => {
+    const errors = vi.fn();
+    const controller = createWindowController({
+      screen: () => 'settings',
+      refreshing: () => false,
+      reordering: () => false,
+      automatic: () => false,
+      reducedMotion: () => false,
+      onError: errors,
+    });
+
+    controller.scheduleFit();
+    await waitFor(() => expect(mocks.setPanelLayoutForScreen).toHaveBeenCalledWith('settings'));
+    expect(mocks.fitPanelToContent).not.toHaveBeenCalled();
+    expect(errors).not.toHaveBeenCalled();
     controller.dispose();
   });
 

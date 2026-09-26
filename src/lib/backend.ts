@@ -173,6 +173,15 @@ export function fitPanelToContent(height: number) {
   return invoke<boolean>('fit_panel_to_content', { height });
 }
 
+export interface PanelLayout {
+  width: number;
+  height: number;
+}
+
+export function setPanelLayoutForScreen(screen: 'dashboard' | 'settings') {
+  return invoke<PanelLayout>('set_panel_layout_for_screen', { screen });
+}
+
 export function setPanelHeightAutomatic() {
   return invoke<void>('set_panel_height_automatic');
 }

@@ -579,6 +579,7 @@ pub fn run() {
             commands::window::dismiss_main_window,
             commands::window::get_panel_resize_edge,
             commands::window::get_panel_height_mode,
+            commands::window::set_panel_layout_for_screen,
             commands::window::fit_panel_to_content,
             commands::window::set_panel_height_automatic,
             commands::window::set_panel_height_manual,

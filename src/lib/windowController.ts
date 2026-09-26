@@ -1,5 +1,5 @@
 import { currentMonitor, getCurrentWindow } from '@tauri-apps/api/window';
-import { fitPanelToContent } from './backend';
+import { fitPanelToContent, setPanelLayoutForScreen } from './backend';
 import { springMotion } from './motion';
 import { panelTargetHeight, screenPanelHeight, shouldDeferPanelFit } from './panelSizing';
 
@@ -33,6 +33,32 @@ export function createWindowController(options: WindowControllerOptions) {
   let resizeInFlight = false;
   let pendingResizeHeight: number | null = null;
   let dashboardBodyHeight: number | null = null;
+  let appliedLayout: 'dashboard' | 'settings' | null = null;
+  let layoutSync: Promise<void> | null = null;
+  let layoutAvailable = true;
+
+  async function ensureLayout(target: 'dashboard' | 'settings') {
+    while (layoutAvailable && appliedLayout !== target) {
+      if (layoutSync) {
+        await layoutSync;
+        continue;
+      }
+      const currentTarget = options.screen() === 'dashboard' ? 'dashboard' : 'settings';
+      layoutSync = setPanelLayoutForScreen(currentTarget)
+        .then(() => {
+          appliedLayout = currentTarget;
+        })
+        .catch(() => {
+          layoutAvailable = false;
+          options.onError('Quota01 window layout could not be applied.');
+        })
+        .finally(() => {
+          layoutSync = null;
+        });
+      await layoutSync;
+    }
+    return layoutAvailable && appliedLayout === target;
+  }
 
   function isTransientlyDeferred() {
     return options.reordering() || shouldDeferPanelFit(options.screen(), options.refreshing());
@@ -102,6 +128,12 @@ export function createWindowController(options: WindowControllerOptions) {
   async function fit() {
     if (shouldDefer()) return;
     const screen = options.screen();
+    const targetLayout = screen === 'dashboard' ? 'dashboard' : 'settings';
+    if ('__TAURI_INTERNALS__' in window && layoutAvailable && appliedLayout !== targetLayout) {
+      if (!(await ensureLayout(targetLayout))) return;
+      window.requestAnimationFrame(scheduleFit);
+      return;
+    }
     const page = document.querySelector<HTMLElement>(`.screen-page[data-screen="${screen}"]`);
     const content = document.querySelector<HTMLElement>('.content');
     const stage = document.querySelector<HTMLElement>('.screen-stage');

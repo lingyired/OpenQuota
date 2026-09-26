@@ -25,6 +25,7 @@ use crate::{
 
 pub const MAIN_WINDOW: &str = "main";
 pub const PANEL_WIDTH: f64 = 440.0;
+pub const SETTINGS_WIDTH: f64 = 1000.0;
 pub const PANEL_MIN_HEIGHT: u32 = 360;
 const PANEL_MAX_HEIGHT: u32 = 800;
 const PANEL_DEFAULT_HEIGHT: u32 = 800;
@@ -32,6 +33,7 @@ const PANEL_SCREEN_FRACTION: f64 = 0.85;
 const PANEL_RESIZE_SAVE_DELAY: Duration = Duration::from_millis(120);
 const LIGHT_PANEL_SURFACE: Color = Color(0xff, 0xff, 0xff, 0xff);
 const DARK_PANEL_SURFACE: Color = Color(0x1d, 0x1d, 0x1f, 0xff);
+static POPUP_LAYOUT_POSITION: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MainWindowDismissAction {
@@ -697,10 +699,141 @@ pub fn open_screen(app: &AppHandle, screen: &str) {
     }
 }
 
+pub fn set_panel_layout(window: &WebviewWindow, screen: &str) -> Result<PanelLayout, String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|_| "Quota01 display is unavailable.")?
+        .ok_or("Quota01 display is unavailable.")?;
+    let scale = window
+        .scale_factor()
+        .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let work_area = monitor.work_area();
+    let work_width = logical_work_area_width(work_area.size.width, scale);
+    let target_width = panel_width_for_screen(screen, work_width);
+    let inner = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?;
+    let outer = window
+        .outer_size()
+        .map_err(|_| "Quota01 window size is unavailable.")?;
+    let position = window
+        .outer_position()
+        .map_err(|_| "Quota01 window position is unavailable.")?;
+    let frame_width = outer.width.saturating_sub(inner.width);
+    let target_outer_width = ((target_width * scale)
+        .round()
+        .clamp(1.0, f64::from(u32::MAX)) as u32)
+        .saturating_add(frame_width);
+    let saved_popup_position = if screen == "dashboard" {
+        POPUP_LAYOUT_POSITION
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take())
+    } else {
+        if let Ok(mut value) = POPUP_LAYOUT_POSITION.lock() {
+            value.get_or_insert((position.x, position.y));
+        }
+        None
+    };
+    let horizontal_origin = saved_popup_position.map_or(
+        HorizontalFrame {
+            left: position.x,
+            width: outer.width,
+        },
+        |(left, _)| HorizontalFrame {
+            left,
+            width: target_outer_width,
+        },
+    );
+    let horizontal = centered_horizontal_frame(
+        horizontal_origin,
+        work_area.position.x,
+        work_area.size.width,
+        target_outer_width,
+    );
+    let height = f64::from(inner.height) / scale;
+    let maximum = panel_maximum_height(window)?;
+    let minimum = PANEL_MIN_HEIGHT.min(maximum);
+    window
+        .set_min_size::<LogicalSize<f64>>(None)
+        .and_then(|_| window.set_max_size(Some(LogicalSize::new(target_width, f64::from(maximum)))))
+        .and_then(|_| window.set_size(LogicalSize::new(target_width, height)))
+        .and_then(|_| {
+            window.set_position(tauri::PhysicalPosition::new(
+                horizontal.left,
+                saved_popup_position.map_or(position.y, |(_, top)| top),
+            ))
+        })
+        .and_then(|_| window.set_min_size(Some(LogicalSize::new(target_width, f64::from(minimum)))))
+        .map_err(|_| "Quota01 panel size limits could not be applied.".to_owned())?;
+    let inner = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?;
+    Ok(PanelLayout {
+        width: f64::from(inner.width) / scale,
+        height: f64::from(inner.height) / scale,
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct VerticalFrame {
     top: i32,
     height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HorizontalFrame {
+    left: i32,
+    width: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PanelLayout {
+    pub width: f64,
+    pub height: f64,
+}
+
+fn panel_width_for_screen(screen: &str, work_area_width: f64) -> f64 {
+    let available = if work_area_width.is_finite() && work_area_width > 0.0 {
+        work_area_width
+    } else {
+        SETTINGS_WIDTH
+    };
+    let inset = if available > PANEL_WIDTH {
+        available - 32.0
+    } else {
+        available
+    };
+    if screen == "dashboard" {
+        PANEL_WIDTH
+    } else {
+        SETTINGS_WIDTH.min(inset)
+    }
+}
+
+fn logical_work_area_width(physical_width: u32, scale: f64) -> f64 {
+    if scale.is_finite() && scale > 0.0 {
+        f64::from(physical_width) / scale
+    } else {
+        f64::from(physical_width)
+    }
+}
+
+fn centered_horizontal_frame(
+    current: HorizontalFrame,
+    work_left: i32,
+    work_width: u32,
+    target_width: u32,
+) -> HorizontalFrame {
+    let center = i64::from(current.left) + i64::from(current.width) / 2;
+    let max_left =
+        i64::from(work_left) + i64::from(work_width).saturating_sub(i64::from(target_width));
+    let left = (center - i64::from(target_width) / 2)
+        .clamp(i64::from(work_left), max_left.max(i64::from(work_left)));
+    HorizontalFrame {
+        left: left.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        width: target_width,
+    }
 }
 
 fn panel_resize_edge_for_frames(
@@ -831,9 +964,10 @@ fn logical_panel_height(inner_cap: f64, scale: f64) -> u32 {
 fn configure_panel_size_constraints(window: &WebviewWindow) -> Result<u32, String> {
     let maximum = panel_maximum_height(window)?;
     let minimum = PANEL_MIN_HEIGHT.min(maximum);
+    let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
     window
-        .set_max_size(Some(LogicalSize::new(PANEL_WIDTH, f64::from(maximum))))
-        .and_then(|_| window.set_min_size(Some(LogicalSize::new(PANEL_WIDTH, f64::from(minimum)))))
+        .set_max_size(Some(LogicalSize::new(width, f64::from(maximum))))
+        .and_then(|_| window.set_min_size(Some(LogicalSize::new(width, f64::from(minimum)))))
         .map_err(|_| "Quota01 panel size limits could not be applied.".to_owned())?;
     Ok(maximum)
 }
@@ -867,8 +1001,9 @@ fn restore_fixed_panel_height(window: &WebviewWindow) -> Result<u32, String> {
         .and_then(|session| session.saved_height());
     let height = resolved_fixed_panel_height(saved, minimum, maximum);
     configure_panel_size_constraints(window)?;
+    let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
     window
-        .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+        .set_size(LogicalSize::new(width, f64::from(height)))
         .map_err(|_| "Quota01 window could not be resized.".to_owned())?;
     Ok(height)
 }
@@ -879,8 +1014,9 @@ fn resize_panel_for_context(window: &WebviewWindow, height: u32) -> Result<(), S
         .state::<DesktopIntegration>()
         .is_floating()
     {
+        let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
         return window
-            .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+            .set_size(LogicalSize::new(width, f64::from(height)))
             .map_err(|_| "Quota01 window could not be resized.".to_owned());
     }
     resize_popup_anchored(window, height)
@@ -945,9 +1081,10 @@ pub fn lock_native_panel_resize_axis(window: &WebviewWindow) -> Result<(), Strin
     let scale = window
         .scale_factor()
         .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let width = f64::from(size.width) / scale;
     let height = f64::from(size.height) / scale;
     window
-        .set_size(LogicalSize::new(PANEL_WIDTH, height))
+        .set_size(LogicalSize::new(width, height))
         .map_err(|_| "Quota01 panel resize could not be settled.".to_owned())
 }
 
@@ -959,6 +1096,12 @@ fn current_logical_height(window: &Window) -> Option<u32> {
             .round()
             .clamp(1.0, f64::from(u32::MAX)) as u32,
     )
+}
+
+fn current_logical_width(window: &WebviewWindow) -> Option<f64> {
+    let size = window.inner_size().ok()?;
+    let scale = window.scale_factor().ok()?;
+    Some(f64::from(size.width) / scale)
 }
 
 #[cfg(target_os = "windows")]
@@ -989,6 +1132,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         .round()
         .clamp(1.0, f64::from(u32::MAX));
     let target_outer_height = (target_inner_height as u32).saturating_add(frame_overhead);
+    let target_outer_width = inner_size.width.saturating_add(frame_width);
     let anchored = anchored_vertical_frame(
         VerticalFrame {
             top: outer_position.y,
@@ -1009,7 +1153,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
             std::ptr::null_mut(),
             outer_position.x,
             anchored.top,
-            i32::try_from(outer_size.width).unwrap_or(i32::MAX),
+            i32::try_from(target_outer_width).unwrap_or(i32::MAX),
             i32::try_from(anchored.height).unwrap_or(i32::MAX),
             SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
         )
@@ -1024,8 +1168,9 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
 pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if let Some((x, y)) = menu_bar_popup_position() {
+        let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
         return window
-            .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+            .set_size(LogicalSize::new(width, f64::from(height)))
             .and_then(|_| window.set_position(LogicalPosition::new(f64::from(x), f64::from(y))))
             .map_err(|_| "Quota01 window could not be resized.".into());
     }
@@ -1047,6 +1192,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
     let target_outer_height = (f64::from(height) * scale)
         .round()
         .clamp(1.0, f64::from(u32::MAX)) as u32;
+    let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
     let anchored = anchored_vertical_frame(
         VerticalFrame {
             top: outer_position.y,
@@ -1059,7 +1205,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         target_outer_height,
     );
     window
-        .set_size(tauri::LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+        .set_size(tauri::LogicalSize::new(width, f64::from(height)))
         .and_then(|_| {
             window.set_position(tauri::PhysicalPosition::new(outer_position.x, anchored.top))
         })
@@ -1155,15 +1301,77 @@ mod tests {
 
     use super::{
         anchored_menu_bar_position, anchored_taskband_position, anchored_vertical_frame,
-        logical_panel_height, main_window_dismiss_action, panel_resize_edge_for_context,
-        panel_resize_edge_for_frames, panel_surface_color, resolved_fixed_panel_height,
+        centered_horizontal_frame, logical_panel_height, logical_work_area_width,
+        main_window_dismiss_action, panel_resize_edge_for_context, panel_resize_edge_for_frames,
+        panel_surface_color, panel_width_for_screen, resolved_fixed_panel_height, HorizontalFrame,
         MainWindowDismissAction, MenuBarAnchor, PanelHeightMode, PanelResizeEdge,
         PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
-        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
+        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT, PANEL_WIDTH, SETTINGS_WIDTH,
     };
     use crate::models::ThemePreference;
     use crate::storage::Storage;
     use tauri::Theme;
+
+    #[test]
+    fn settings_layout_clamps_to_available_work_area_and_popup_restores_fixed_width() {
+        assert_eq!(panel_width_for_screen("dashboard", 1920.0), PANEL_WIDTH);
+        assert_eq!(panel_width_for_screen("settings", 1920.0), SETTINGS_WIDTH);
+        assert_eq!(panel_width_for_screen("settings", 760.0), 728.0);
+        assert_eq!(panel_width_for_screen("settings", 400.0), 400.0);
+        assert_eq!(
+            panel_width_for_screen("settings", logical_work_area_width(1520, 2.0)),
+            728.0
+        );
+    }
+
+    #[test]
+    fn settings_layout_centers_and_clamps_on_the_active_monitor() {
+        assert_eq!(
+            centered_horizontal_frame(
+                HorizontalFrame {
+                    left: 200,
+                    width: 440
+                },
+                0,
+                1920,
+                1000,
+            ),
+            HorizontalFrame {
+                left: 0,
+                width: 1000
+            }
+        );
+        assert_eq!(
+            centered_horizontal_frame(
+                HorizontalFrame {
+                    left: 1920,
+                    width: 440
+                },
+                1920,
+                1280,
+                1000,
+            ),
+            HorizontalFrame {
+                left: 1920,
+                width: 1000
+            }
+        );
+        assert_eq!(
+            centered_horizontal_frame(
+                HorizontalFrame {
+                    left: -800,
+                    width: 440
+                },
+                -1280,
+                1280,
+                1000,
+            ),
+            HorizontalFrame {
+                left: -1080,
+                width: 1000
+            }
+        );
+    }
 
     #[test]
     fn dismissing_a_no_menu_floating_window_exits_instead_of_hiding() {

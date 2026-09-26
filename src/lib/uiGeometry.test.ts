@@ -26,8 +26,8 @@ describe('popover geometry contract', () => {
     expect(tauriConfig.app.windows[0]).toMatchObject({
       width: 440,
       height: 800,
-      minWidth: 440,
-      maxWidth: 440,
+      minWidth: 320,
+      maxWidth: 1000,
       minHeight: 360,
       resizable: false,
     });
@@ -37,7 +37,7 @@ describe('popover geometry contract', () => {
 
   it('lets the webview shrink below its nominal width without creating horizontal focus scroll', () => {
     expect(componentCss).toMatch(
-      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 440px;/s,
+      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 1000px;/s,
     );
     expect(css).not.toMatch(/\.popover\s*{[^}]*\n\s*width: 440px;/s);
   });

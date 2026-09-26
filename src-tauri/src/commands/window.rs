@@ -3,8 +3,8 @@ use tauri::{AppHandle, Manager};
 use crate::window::{
     dismiss_or_hide_main_window, finish_native_panel_resize,
     fit_panel_to_content as fit_native_panel_to_content, lock_native_panel_resize_axis,
-    panel_resize_edge, prepare_native_panel_resize, set_manual_panel_height, PanelHeightMode,
-    PanelResizeEdge, PanelResizeSession, MAIN_WINDOW,
+    panel_resize_edge, prepare_native_panel_resize, set_manual_panel_height, set_panel_layout,
+    PanelHeightMode, PanelLayout, PanelResizeEdge, PanelResizeSession, MAIN_WINDOW,
 };
 
 #[tauri::command]
@@ -23,6 +23,14 @@ pub fn get_panel_resize_edge(app: AppHandle) -> Result<PanelResizeEdge, String> 
 #[tauri::command]
 pub fn get_panel_height_mode(app: AppHandle) -> PanelHeightMode {
     app.state::<std::sync::Arc<PanelResizeSession>>().mode()
+}
+
+#[tauri::command]
+pub fn set_panel_layout_for_screen(app: AppHandle, screen: String) -> Result<PanelLayout, String> {
+    let window = app
+        .get_webview_window(MAIN_WINDOW)
+        .ok_or("Quota01 window is unavailable.")?;
+    set_panel_layout(&window, &screen)
 }
 
 #[tauri::command]
