@@ -22,7 +22,8 @@ function settingsView(
     integrationError: null,
     trayAvailable: true,
     platformSummary: null,
-    appMenubarForced: false,
+    providerInstanceCount: 0,
+    providerInstanceFailures: [],
     settings: {
       schemaVersion: 9,
       providerNames: {},
@@ -30,7 +31,6 @@ function settingsView(
       providers: [],
       knownProviderIds: [],
       showTotalSpend: true,
-      showAppMenubar: true,
       theme,
       density: 'default',
       reduceAnimations: false,

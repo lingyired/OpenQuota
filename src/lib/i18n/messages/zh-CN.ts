@@ -30,6 +30,11 @@ export const zhCn = {
     refreshAll: '刷新所有提供方用量',
     refreshProvider: '刷新 {provider}',
     confirmations: {
+      leaveSettings: {
+        title: '要退出 Quota01 吗？',
+        message: '没有活动的提供商菜单栏或任务栏项目。要退出应用并关闭设置吗？',
+        confirm: '退出',
+      },
       resetAllCustomization: {
         title: '重置所有自定义？',
         message: '这会重新启用已安装的提供方，并恢复每个提供方的指标可见性与顺序。',
@@ -151,8 +156,6 @@ export const zhCn = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: '常规',
-    showAppMenubar: '显示 Quota01 菜单栏图标',
-    appMenubarForced: '当前没有 Provider 菜单栏图标，因此 Quota01 会保持显示。',
     showTotalSpend: '显示总消费',
     launchAtLogin: '登录时启动',
     globalShortcut: '全局快捷键',
@@ -253,6 +256,7 @@ export const zhCn = {
     shortcutCurrentlyUnavailable: '已保存的全局快捷键当前不可用。',
   },
   customize: {
+    nativeInstanceCount: '当前有 {count} 个提供商实例',
     title: '自定义',
     settings: '设置',
     settingsDesc: '通知、外观等',
@@ -275,6 +279,9 @@ export const zhCn = {
     name: '名称',
     nameFor: '{name} 的名称',
     taskbar: '任务栏',
+    menuBarInstance: '菜单栏实例',
+    showOnMenuBar: '在菜单栏显示',
+    showOnMenuBarDesc: '在 macOS 菜单栏中显示此提供商。',
     showOnTaskbar: '在任务栏显示',
     showOnTaskbarDesc: '在 Windows 任务栏上以标签显示此监控项。',
     position: '位置',

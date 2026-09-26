@@ -13,7 +13,6 @@ const settings: AppSettings = {
   language: 'en',
   knownProviderIds: ['codex', 'claude', 'antigravity'],
   showTotalSpend: false,
-  showAppMenubar: true,
   theme: 'system',
   density: 'default',
   reduceAnimations: false,

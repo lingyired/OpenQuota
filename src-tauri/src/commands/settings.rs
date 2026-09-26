@@ -546,22 +546,14 @@ fn settings_view_state_with_error(
         }
     }
     integration_error = merge_integration_errors(notification_error, integration_error);
-    #[cfg(target_os = "macos")]
-    let app_menubar_forced = crate::menubar::app_menubar_forced(
-        &app.state::<Arc<ProviderService>>().state(),
-        &service.get(),
-        service.registry(),
-        app.state::<crate::menubar::MenubarState>()
-            .allows_no_menubar(),
-    );
-    #[cfg(not(target_os = "macos"))]
-    let app_menubar_forced = false;
     let mut state = service.view_state(
         notification_permission(app),
         integration_error,
         app.state::<DesktopIntegration>().tray_available(),
         app.state::<DesktopIntegration>().platform_summary(),
-        app_menubar_forced,
+        app.state::<DesktopIntegration>().provider_instance_count(),
+        app.state::<DesktopIntegration>()
+            .provider_instance_failures(),
     );
     if let Some(enabled) = autostart {
         state.settings.launch_at_login = enabled;

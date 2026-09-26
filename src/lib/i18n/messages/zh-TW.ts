@@ -33,6 +33,11 @@ export const zhTw = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: '要退出 Quota01 吗？',
+        message: '没有活动的提供商菜单栏或任务栏项目。要退出应用并关闭设置吗？',
+        confirm: '退出',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -156,8 +161,6 @@ export const zhTw = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
-    showAppMenubar: '顯示 Quota01 選單列圖示',
-    appMenubarForced: '目前沒有 Provider 選單列圖示，因此 Quota01 會保持顯示。',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',
@@ -260,6 +263,7 @@ export const zhTw = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '目前有 {count} 個提供者實例',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -282,6 +286,9 @@ export const zhTw = {
     name: 'Name',
     nameFor: 'Name for {name}',
     taskbar: 'Taskbar',
+    menuBarInstance: '選單列項目',
+    showOnMenuBar: '在選單列顯示',
+    showOnMenuBarDesc: '在 macOS 選單列中顯示此提供商。',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

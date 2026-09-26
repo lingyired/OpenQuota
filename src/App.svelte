@@ -12,6 +12,7 @@
     onOpenScreen,
     onMainWindowHidden,
     onSettingsState,
+    onRequestLeaveSettings,
     onTaskbandOpen,
     onUpdateProgress,
     onUsageState,
@@ -84,6 +85,8 @@
   let confirmationMessage = $state<string | null>(null);
   let resetConfirmationOpen = $state(false);
   let settingsResetConfirmationOpen = $state(false);
+  let leaveSettingsConfirmationOpen = $state(false);
+  let leavingSettings = $state(false);
   let resettingCustomization = $state(false);
   let resettingAllSettings = $state(false);
   let resettingProviderId = $state<string | null>(null);
@@ -231,9 +234,54 @@
   }
 
   function closeMainWindow() {
+    if (
+      (platform === 'macos' || platform === 'windows') &&
+      settingsState?.trayAvailable === false
+    ) {
+      if (screen === 'dashboard') navigate('settings');
+      else leaveSettingsConfirmationOpen = true;
+      return;
+    }
+    if (requiresLeaveSettingsConfirmation()) {
+      leaveSettingsConfirmationOpen = true;
+      return;
+    }
     resetTransientUi();
     navigate('dashboard');
     void dismissMainWindow();
+  }
+  function requiresLeaveSettingsConfirmation() {
+    return (
+      screen !== 'dashboard' &&
+      (platform === 'macos' || platform === 'windows') &&
+      settingsState?.trayAvailable === false
+    );
+  }
+  function requestLeaveSettings() {
+    if (screen.startsWith('provider:')) {
+      if (providerReturnScreen !== 'dashboard') navigate(providerReturnScreen);
+      else if (requiresLeaveSettingsConfirmation()) leaveSettingsConfirmationOpen = true;
+      else navigate('dashboard');
+      return;
+    }
+    if (screen === 'dashboard') {
+      closeMainWindow();
+      return;
+    }
+    if (requiresLeaveSettingsConfirmation()) {
+      leaveSettingsConfirmationOpen = true;
+      return;
+    }
+    navigate('dashboard');
+  }
+  async function confirmLeaveSettings() {
+    leavingSettings = true;
+    await settingsController.waitForPendingMutations();
+    await quitApplication();
+  }
+  function cancelLeaveSettings() {
+    leaveSettingsConfirmationOpen = false;
+    leavingSettings = false;
   }
   function closeTransientLayers() {
     closeOptionsMenu();
@@ -298,9 +346,7 @@
     }
   }
   function back() {
-    if (screen.startsWith('provider:')) navigate(providerReturnScreen);
-    else if (screen !== 'dashboard') navigate('dashboard');
-    else closeMainWindow();
+    requestLeaveSettings();
   }
   function saveSettings(next: AppSettings) {
     settingsError = null;
@@ -814,7 +860,8 @@
         navigate('customize');
       } else if ((event.ctrlKey || event.metaKey) && event.key === ',') {
         event.preventDefault();
-        navigate(screen === 'settings' ? 'dashboard' : 'settings');
+        if (screen !== 'dashboard') requestLeaveSettings();
+        else navigate('settings');
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') {
         event.preventDefault();
         void refresh();
@@ -845,12 +892,26 @@
     listeners.add(
       onSettingsState((state) => {
         settingsController.acceptExternalState(state);
+        if (
+          (platform === 'macos' || platform === 'windows') &&
+          !state.trayAvailable &&
+          screen === 'dashboard'
+        ) {
+          navigate('settings');
+        }
+      }),
+    );
+    listeners.add(
+      onRequestLeaveSettings(() => {
+        if (screen === 'dashboard') navigate('settings');
+        else if (requiresLeaveSettingsConfirmation()) leaveSettingsConfirmationOpen = true;
       }),
     );
     listeners.add(
       onOpenScreen((target) => {
         if (target === 'dashboard') {
-          navigate('dashboard');
+          if (requiresLeaveSettingsConfirmation()) leaveSettingsConfirmationOpen = true;
+          else navigate('dashboard');
         } else if (target.startsWith('provider:')) {
           void openProviderCustomization(target.slice(9));
         } else navigate(target === 'settings' ? 'settings' : 'customize');
@@ -861,7 +922,12 @@
       onMainWindowHidden(() => {
         taskbandProviderId = null;
         resetTransientUi();
-        navigate('dashboard');
+        if (
+          (platform === 'macos' || platform === 'windows') &&
+          settingsState?.trayAvailable === false
+        ) {
+          navigate('settings');
+        } else navigate('dashboard');
       }),
     );
     listeners.add(
@@ -1168,6 +1234,17 @@
         pending={resettingAllSettings}
         onConfirm={() => void confirmAllSettingsReset()}
         onCancel={() => (settingsResetConfirmationOpen = false)}
+      />
+    {/if}
+
+    {#if leaveSettingsConfirmationOpen}
+      <ConfirmationSheet
+        title={t('app.confirmations.leaveSettings.title')}
+        message={t('app.confirmations.leaveSettings.message')}
+        confirmLabel={t('app.confirmations.leaveSettings.confirm')}
+        pending={leavingSettings}
+        onConfirm={() => void confirmLeaveSettings()}
+        onCancel={cancelLeaveSettings}
       />
     {/if}
 

@@ -33,6 +33,12 @@ export const ko = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -156,8 +162,6 @@ export const ko = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
-    showAppMenubar: 'Quota01 메뉴 막대 아이콘 표시',
-    appMenubarForced: '표시되는 Provider 메뉴 막대 아이콘이 없어 Quota01 아이콘이 계속 표시됩니다.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',
@@ -260,6 +264,7 @@ export const ko = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -282,6 +287,9 @@ export const ko = {
     name: 'Name',
     nameFor: 'Name for {name}',
     taskbar: 'Taskbar',
+    menuBarInstance: '메뉴 막대 항목',
+    showOnMenuBar: '메뉴 막대에 표시',
+    showOnMenuBarDesc: 'macOS 메뉴 막대에 이 제공자를 표시합니다.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

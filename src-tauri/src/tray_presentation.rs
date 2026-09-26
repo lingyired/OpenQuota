@@ -35,6 +35,47 @@ pub(crate) struct ResolvedTrayMetric {
     pub value: String,
 }
 
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NativeInstancePlatform {
+    MacOS,
+    Windows,
+}
+
+/// Providers that should have a native presentation instance. This derives
+/// solely from enabled settings and pinned metric definitions, so missing
+/// snapshots never remove an entry point.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+pub(crate) fn requested_provider_entries(
+    settings: &AppSettings,
+    registry: &ProviderRegistry,
+    platform: NativeInstancePlatform,
+) -> Vec<String> {
+    if platform == NativeInstancePlatform::Windows && !settings.taskband.enabled {
+        return Vec::new();
+    }
+    settings
+        .providers
+        .iter()
+        .filter(|provider| provider.enabled && registry.definition(&provider.id).is_some())
+        .filter(|provider| {
+            settings
+                .taskband_providers
+                .get(&provider.id)
+                .is_none_or(|layout| layout.enabled)
+        })
+        .filter(|provider| {
+            provider.metrics.iter().any(|metric| {
+                metric.pinned
+                    && registry
+                        .metric(&metric.id)
+                        .is_some_and(|definition| definition.tray.is_some())
+            })
+        })
+        .map(|provider| provider.id.clone())
+        .collect()
+}
+
 #[cfg(any(not(target_os = "macos"), test))]
 #[derive(Debug, Clone, PartialEq)]
 #[cfg(any(not(target_os = "macos"), test))]
@@ -157,13 +198,10 @@ pub(crate) fn pinned_provider_metrics(
     settings: &AppSettings,
     registry: &ProviderRegistry,
 ) -> Vec<ResolvedTrayMetric> {
-    let Some(snapshot) = state
+    let snapshot = state
         .providers
         .get(&provider.id)
-        .and_then(|state| state.snapshot.as_ref())
-    else {
-        return Vec::new();
-    };
+        .and_then(|state| state.snapshot.as_ref());
     provider
         .metrics
         .iter()
@@ -171,9 +209,12 @@ pub(crate) fn pinned_provider_metrics(
         .filter_map(|metric| {
             let definition = registry.metric(&metric.id)?;
             let tray = definition.tray.as_ref()?;
-            let value = tray_metric(definition, snapshot, settings.usage_display)
-                .map(|resolved| resolved.value)
-                .unwrap_or_else(|| "NA".to_owned());
+            let value = match snapshot {
+                Some(snapshot) => tray_metric(definition, snapshot, settings.usage_display)
+                    .map(|resolved| resolved.value)
+                    .unwrap_or_else(|| "NA".to_owned()),
+                None => "--".to_owned(),
+            };
             Some(ResolvedTrayMetric {
                 id: metric.id.clone(),
                 short_label: tray.short_label.clone(),
@@ -521,8 +562,9 @@ mod tests {
     };
 
     use super::{
-        format_tokens, mark_icon, pinned_provider_metrics, primary_gauge, resolved_groups,
-        TrayGauge, TrayGroup, TrayMetric,
+        format_tokens, mark_icon, pinned_provider_metrics, primary_gauge,
+        requested_provider_entries, resolved_groups, NativeInstancePlatform, TrayGauge, TrayGroup,
+        TrayMetric,
     };
     use crate::service::UsageViewState;
 
@@ -774,10 +816,29 @@ mod tests {
     }
 
     #[test]
-    fn pinned_metrics_without_a_snapshot_do_not_leave_placeholder_content() {
+    fn requested_provider_instances_and_placeholders_do_not_depend_on_snapshots() {
         let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
-        let settings = default_settings(&catalog, &HashSet::from(["codex".to_owned()]));
-        assert!(resolved_groups(&UsageViewState::default(), &settings, &catalog).is_empty());
+        let mut settings = default_settings(&catalog, &HashSet::from(["codex".to_owned()]));
+        assert_eq!(
+            requested_provider_entries(&settings, &catalog, NativeInstancePlatform::MacOS),
+            ["codex"]
+        );
+        let provider = settings
+            .providers
+            .iter()
+            .find(|item| item.id == "codex")
+            .unwrap();
+        let metrics =
+            pinned_provider_metrics(&UsageViewState::default(), provider, &settings, &catalog);
+        assert_eq!(metrics.len(), 2);
+        assert_eq!(metrics[0].value, "--");
+        assert_eq!(metrics[1].value, "--");
+
+        settings.providers[0].enabled = false;
+        assert!(
+            requested_provider_entries(&settings, &catalog, NativeInstancePlatform::MacOS)
+                .is_empty()
+        );
     }
 
     #[test]

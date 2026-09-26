@@ -9,9 +9,11 @@ use std::{
 };
 
 use serde::Serialize;
+#[cfg(target_os = "macos")]
+use tauri::LogicalPosition;
 use tauri::{
-    webview::Color, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Theme,
-    WebviewWindow, Window, WindowEvent,
+    webview::Color, AppHandle, Emitter, LogicalSize, Manager, Theme, WebviewWindow, Window,
+    WindowEvent,
 };
 use tauri_plugin_positioner::{Position, WindowExt};
 
@@ -550,17 +552,6 @@ pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: Menu
     }
     let _ = window.show();
     let _ = window.set_focus();
-}
-
-#[cfg(target_os = "macos")]
-pub fn toggle_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: MenuBarAnchor) {
-    let visible = window.is_visible().unwrap_or(false);
-    let minimized = window.is_minimized().unwrap_or(false);
-    if visible && !minimized {
-        dismiss_or_hide_main_window(window.app_handle());
-    } else {
-        show_main_window_below_menu_bar_item(window, anchor);
-    }
 }
 
 pub fn show_main_window(window: &WebviewWindow) {
@@ -1128,6 +1119,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         .ok_or("Quota01 display is unavailable.")?;
     let work_area = monitor.work_area();
     let frame_overhead = outer_size.height.saturating_sub(inner_size.height);
+    let frame_width = outer_size.width.saturating_sub(inner_size.width);
     let target_inner_height = (f64::from(height) * scale)
         .round()
         .clamp(1.0, f64::from(u32::MAX));
@@ -1262,6 +1254,15 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             }
         }
         WindowEvent::Focused(false)
+            if cfg!(any(target_os = "macos", target_os = "windows"))
+                && !window
+                    .app_handle()
+                    .state::<DesktopIntegration>()
+                    .tray_available() =>
+        {
+            let _ = window.app_handle().emit("request-leave-settings", ());
+        }
+        WindowEvent::Focused(false)
             if !window
                 .app_handle()
                 .state::<DesktopIntegration>()
@@ -1276,6 +1277,11 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             let _ = window.set_resizable(false);
             api.prevent_close();
             let integration = window.app_handle().state::<DesktopIntegration>();
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if !integration.tray_available() {
+                let _ = window.app_handle().emit("request-leave-settings", ());
+                return;
+            }
             match main_window_dismiss_action(integration.exits_on_close()) {
                 MainWindowDismissAction::Exit => {
                     window.app_handle().exit(0);

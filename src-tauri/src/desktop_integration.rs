@@ -1,6 +1,6 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
-    Arc,
+    Arc, Mutex,
 };
 
 use crate::models::WindowMode;
@@ -34,6 +34,8 @@ pub struct DesktopIntegration {
     tray_available: Arc<AtomicBool>,
     floating_window: Arc<AtomicBool>,
     platform_label: Option<String>,
+    provider_instance_count: Arc<Mutex<usize>>,
+    provider_instance_failures: Arc<Mutex<Vec<String>>>,
 }
 
 impl DesktopIntegration {
@@ -45,12 +47,27 @@ impl DesktopIntegration {
             let tray_available = status_notifier_host_available();
             linux_integration(session, desktop, tray_available)
         }
-        #[cfg(not(target_os = "linux"))]
+        #[cfg(any(target_os = "macos", target_os = "windows"))]
+        {
+            Self {
+                // Until provider instances are reconciled, there is no
+                // confirmed native entry point. This keeps startup and close
+                // handling safe when every native instance is disabled.
+                tray_available: Arc::new(AtomicBool::new(false)),
+                floating_window: Arc::new(AtomicBool::new(true)),
+                platform_label: None,
+                provider_instance_count: Arc::new(Mutex::new(0)),
+                provider_instance_failures: Arc::new(Mutex::new(Vec::new())),
+            }
+        }
+        #[cfg(not(any(target_os = "linux", target_os = "macos", target_os = "windows")))]
         {
             Self {
                 tray_available: Arc::new(AtomicBool::new(true)),
                 floating_window: Arc::new(AtomicBool::new(false)),
                 platform_label: None,
+                provider_instance_count: Arc::new(Mutex::new(0)),
+                provider_instance_failures: Arc::new(Mutex::new(Vec::new())),
             }
         }
     }
@@ -85,6 +102,31 @@ impl DesktopIntegration {
         if !available {
             self.set_floating(true);
         }
+    }
+
+    pub fn set_provider_instance_status(&self, count: usize, failures: Vec<String>) {
+        *self
+            .provider_instance_count
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = count;
+        *self
+            .provider_instance_failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = failures;
+    }
+
+    pub fn provider_instance_count(&self) -> usize {
+        *self
+            .provider_instance_count
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub fn provider_instance_failures(&self) -> Vec<String> {
+        self.provider_instance_failures
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     #[cfg(any(target_os = "macos", test))]
@@ -170,6 +212,8 @@ fn linux_integration(
         tray_available: Arc::new(AtomicBool::new(tray_available)),
         floating_window: Arc::new(AtomicBool::new(!tray_available)),
         platform_label: Some(format!("{desktop} · {session}")),
+        provider_instance_count: Arc::new(Mutex::new(0)),
+        provider_instance_failures: Arc::new(Mutex::new(Vec::new())),
     }
 }
 
@@ -297,6 +341,18 @@ mod tests {
         assert_eq!(
             integration.platform_summary().as_deref(),
             Some("GNOME · Wayland · standalone window")
+        );
+    }
+
+    #[test]
+    fn provider_instance_status_reports_actual_count_and_failures() {
+        let integration =
+            super::linux_integration(LinuxSessionType::Unknown, LinuxDesktop::Other, false);
+        integration.set_provider_instance_status(2, vec!["Claude: not visible".to_owned()]);
+        assert_eq!(integration.provider_instance_count(), 2);
+        assert_eq!(
+            integration.provider_instance_failures(),
+            vec!["Claude: not visible"]
         );
     }
 

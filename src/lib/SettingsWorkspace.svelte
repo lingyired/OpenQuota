@@ -155,6 +155,12 @@
         ? $tStore('settings.title')
         : $tStore('customize.customizeProvider', { id: selectedProviderName })}
     </h2>
+    <p class="settings-workspace__instance-status" aria-live="polite">
+      {$tStore('customize.nativeInstanceCount', { count: settingsView.providerInstanceCount })}
+      {#each settingsView.providerInstanceFailures as failure (failure)}
+        <span class="settings-workspace__instance-failure">{failure}</span>
+      {/each}
+    </p>
     {#if !generalSelected && selectedProvider}
       <button
         class="settings-workspace__reset-provider"
@@ -274,6 +280,19 @@
     font: inherit;
     font-size: 10px;
     cursor: pointer;
+  }
+
+  .settings-workspace__instance-status {
+    margin: 0;
+    padding: 0 10px 8px;
+    color: var(--secondary);
+    font-size: 10px;
+    line-height: 1.4;
+  }
+
+  .settings-workspace__instance-failure {
+    display: block;
+    color: var(--danger, var(--secondary));
   }
 
   .settings-workspace__providers :global(.customize-screen),

@@ -36,9 +36,7 @@ use std::sync::Arc;
 use popup::PopupDismissGuard;
 use service::ProviderService;
 use settings::{CredentialDetectionPlan, SettingsService};
-#[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -49,7 +47,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use crate::window::open_screen;
 use crate::{
     desktop_integration::DesktopIntegration,
@@ -71,7 +69,7 @@ use crate::{
     },
 };
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn install_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Settings are managed before install_tray runs; the tray menu is built
     // once at startup from the initial language preference.
@@ -475,9 +473,7 @@ pub fn run() {
                 let _ = register_shortcut(app.handle(), &shortcut);
             }
 
-            #[cfg(target_os = "macos")]
-            let tray_installed = true;
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "linux")]
             let tray_installed = if desktop_integration.tray_available() {
                 match install_tray(app) {
                     Ok(()) => {
@@ -516,9 +512,6 @@ pub fn run() {
             if tray_installed {
                 spawn_status_notifier_monitor(app.handle().clone());
             }
-            #[cfg(not(target_os = "linux"))]
-            let _ = tray_installed;
-
             // Windows 任务栏对账执行第三方插件代码，其内部 panic 会静默杀死进程。
             // 用 catch_unwind 捕获（写入日志）并让启动继续，避免「托盘出现即消失」。
             if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {

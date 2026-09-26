@@ -33,6 +33,12 @@ export const it = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -156,8 +162,6 @@ export const it = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
-    showAppMenubar: 'Mostra l’icona Quota01 nella barra dei menu',
-    appMenubarForced: 'Nessuna icona Provider è visibile, quindi Quota01 rimane visibile.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',
@@ -260,6 +264,7 @@ export const it = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -282,6 +287,9 @@ export const it = {
     name: 'Name',
     nameFor: 'Name for {name}',
     taskbar: 'Taskbar',
+    menuBarInstance: 'Elemento della barra dei menu',
+    showOnMenuBar: 'Mostra nella barra dei menu',
+    showOnMenuBarDesc: 'Mostra questo provider nella barra dei menu di macOS.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.svelte';
 import type { SettingsViewState, UpdateProgress } from './lib/types';
@@ -353,5 +353,47 @@ describe('Quota01 update lifecycle', () => {
     expect(screen.getByRole('button', { name: 'Try Again' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'View Release' }));
     expect(mocks.invoke).toHaveBeenCalledWith('open_update_page');
+  });
+
+  it('keeps the no-instance Settings workspace open when leaving is cancelled', async () => {
+    let openScreen: ((event: { payload: string }) => void) | undefined;
+    let requestLeave: ((event: { payload: void }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'open-screen') openScreen = callback;
+      if (event === 'request-leave-settings') requestLeave = callback;
+      return Promise.resolve(vi.fn());
+    });
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh)');
+    const noInstances: SettingsViewState = { ...settingsState, trayAvailable: false };
+    mockInvoke((command) => {
+      if (command === 'get_usage_state') return Promise.resolve(liveState);
+      if (command === 'get_app_settings') return Promise.resolve(noInstances);
+      if (command === 'save_app_settings') return Promise.resolve(noInstances);
+      return Promise.resolve();
+    });
+
+    render(App);
+    await screen.findByText('Plus');
+    await waitFor(() => expect(openScreen).toBeDefined());
+    openScreen?.({ payload: 'settings' });
+    await screen.findByRole('heading', { name: 'Settings' });
+    requestLeave?.({ payload: undefined });
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(dialog).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+
+    await fireEvent.keyDown(document, { key: 'Escape' });
+    const escapeDialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
+    await fireEvent.click(within(escapeDialog).getByRole('button', { name: 'Cancel' }));
+
+    openScreen?.({ payload: 'dashboard' });
+    const routeDialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
+    await fireEvent.click(within(routeDialog).getByRole('button', { name: 'Cancel' }));
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    expect(await screen.findByRole('alertdialog', { name: 'Quit Quota01?' })).toBeInTheDocument();
   });
 });

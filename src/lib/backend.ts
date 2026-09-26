@@ -234,6 +234,10 @@ export function onMainWindowHidden(handler: PayloadHandler<void>) {
   return onEvent('main-window-hidden', handler);
 }
 
+export function onRequestLeaveSettings(handler: PayloadHandler<void>) {
+  return onEvent('request-leave-settings', handler);
+}
+
 export function onUpdateProgress(handler: PayloadHandler<UpdateProgress>) {
   return onEvent('update-progress', handler);
 }

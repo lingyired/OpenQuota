@@ -678,7 +678,8 @@ impl SettingsService {
         integration_error: Option<String>,
         tray_available: bool,
         platform_summary: Option<String>,
-        app_menubar_forced: bool,
+        provider_instance_count: usize,
+        provider_instance_failures: Vec<String>,
     ) -> SettingsViewState {
         let (settings, settings_revision, account_revision) = self.get_with_revisions();
         let mut renamable_provider_ids = self.registry.observed_account_provider_ids();
@@ -700,7 +701,8 @@ impl SettingsService {
             integration_error,
             tray_available,
             platform_summary,
-            app_menubar_forced,
+            provider_instance_count,
+            provider_instance_failures,
         }
     }
 }
@@ -1106,17 +1108,6 @@ mod tests {
         assert_eq!(settings.schema_version, 9);
     }
 
-    #[test]
-    fn view_state_exposes_app_menubar_forced() {
-        let directory = tempdir().unwrap();
-        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
-        let service = SettingsService::new_for_test(storage, catalog(), &HashSet::new()).unwrap();
-
-        let state = service.view_state("prompt", None, false, None, true);
-
-        assert!(state.app_menubar_forced);
-    }
-
     struct CatalogProvider(ProviderDefinition);
 
     impl UsageProvider for CatalogProvider {
@@ -1501,7 +1492,7 @@ mod tests {
         drop(first);
 
         let (second, _) = SettingsService::new_deferred(storage, registry).unwrap();
-        let state = second.view_state("prompt", None, false, None, false);
+        let state = second.view_state("prompt", None, false, None, 0, Vec::new());
 
         assert_eq!(
             state
@@ -1683,7 +1674,7 @@ mod tests {
         assert_eq!(service.settings_revision(), revision);
         assert_eq!(
             service
-                .view_state("prompt", None, true, None, false)
+                .view_state("prompt", None, true, None, 0, Vec::new())
                 .settings_revision,
             revision
         );
