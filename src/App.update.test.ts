@@ -117,6 +117,48 @@ describe('Quota01 update lifecycle', () => {
     });
   });
 
+  it('rechecks a due provider whenever the popup reopens with the same selection', async () => {
+    let openScreen: ((event: { payload: string }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'open-screen') openScreen = callback;
+      return Promise.resolve(vi.fn());
+    });
+    render(App);
+    await screen.findByText('Plus');
+    await waitFor(() => expect(openScreen).toBeDefined());
+    mocks.invoke.mockClear();
+
+    openScreen?.({ payload: 'dashboard' });
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('refresh_selected_provider_if_due', {
+        providerId: 'codex',
+      }),
+    );
+    openScreen?.({ payload: 'dashboard' });
+    await waitFor(() =>
+      expect(
+        mocks.invoke.mock.calls.filter(
+          ([command]) => command === 'refresh_selected_provider_if_due',
+        ),
+      ).toHaveLength(2),
+    );
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() =>
+      expect(
+        mocks.invoke.mock.calls.filter(
+          ([command]) => command === 'refresh_selected_provider_if_due',
+        ),
+      ).toHaveLength(3),
+    );
+
+    openScreen?.({ payload: 'settings' });
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument());
+    expect(
+      mocks.invoke.mock.calls.filter(([command]) => command === 'refresh_selected_provider_if_due'),
+    ).toHaveLength(3);
+  });
+
   it('falls back to the first enabled provider when the selected provider is removed', async () => {
     let taskbandOpen: ((event: { payload: string }) => void) | undefined;
     let settingsStateChanged: ((event: { payload: SettingsViewState }) => void) | undefined;

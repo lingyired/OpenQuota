@@ -191,17 +191,19 @@
       />
     {:else if selectedProvider}
       <div class="settings-workspace__settings-detail">
-        <CustomizeProviderDetail
-          settings={settingsView.settings}
-          providerId={selectedProvider.id}
-          catalog={dashboardProps.catalog}
-          renamableProviderIds={settingsView.renamableProviderIds}
-          onChange={dashboardProps.onCustomizationChange}
-          onNameChange={dashboardProps.onSettingsChange}
-          onReorderStart={dashboardProps.onReorderStart}
-          onReorderEnd={dashboardProps.onReorderEnd}
-          reducedMotion={dashboardProps.reducedMotion}
-        />
+        {#key selectedProvider.id}
+          <CustomizeProviderDetail
+            settings={settingsView.settings}
+            providerId={selectedProvider.id}
+            catalog={dashboardProps.catalog}
+            renamableProviderIds={settingsView.renamableProviderIds}
+            onChange={dashboardProps.onCustomizationChange}
+            onNameChange={dashboardProps.onSettingsChange}
+            onReorderStart={dashboardProps.onReorderStart}
+            onReorderEnd={dashboardProps.onReorderEnd}
+            reducedMotion={dashboardProps.reducedMotion}
+          />
+        {/key}
       </div>
     {/if}
   </section>

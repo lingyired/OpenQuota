@@ -41,10 +41,16 @@ static POPUP_LAYOUT_POSITION: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 enum MainWindowDismissAction {
     Hide,
     Exit,
+    RequestLeaveSettings,
 }
 
-fn main_window_dismiss_action(exits_on_close: bool) -> MainWindowDismissAction {
-    if exits_on_close {
+fn main_window_dismiss_action(
+    exits_on_close: bool,
+    request_leave_settings: bool,
+) -> MainWindowDismissAction {
+    if request_leave_settings {
+        MainWindowDismissAction::RequestLeaveSettings
+    } else if exits_on_close {
         MainWindowDismissAction::Exit
     } else {
         MainWindowDismissAction::Hide
@@ -657,12 +663,19 @@ pub fn dismiss_or_hide_main_window(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
     };
-    match main_window_dismiss_action(app.state::<DesktopIntegration>().exits_on_close()) {
+    let integration = app.state::<DesktopIntegration>();
+    match main_window_dismiss_action(
+        integration.exits_on_close(),
+        cfg!(any(target_os = "macos", target_os = "windows")) && !integration.tray_available(),
+    ) {
         MainWindowDismissAction::Exit => {
             finish_native_panel_resize(&window);
             app.exit(0);
         }
         MainWindowDismissAction::Hide => hide_main_window(&window),
+        MainWindowDismissAction::RequestLeaveSettings => {
+            let _ = app.emit("request-leave-settings", ());
+        }
     }
 }
 
@@ -1282,12 +1295,12 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
                 let _ = window.app_handle().emit("request-leave-settings", ());
                 return;
             }
-            match main_window_dismiss_action(integration.exits_on_close()) {
+            match main_window_dismiss_action(integration.exits_on_close(), false) {
                 MainWindowDismissAction::Exit => {
                     window.app_handle().exit(0);
                     return;
                 }
-                MainWindowDismissAction::Hide => {}
+                MainWindowDismissAction::Hide | MainWindowDismissAction::RequestLeaveSettings => {}
             }
             window
                 .app_handle()
@@ -1382,12 +1395,20 @@ mod tests {
     #[test]
     fn dismissing_a_no_menu_floating_window_exits_instead_of_hiding() {
         assert_eq!(
-            main_window_dismiss_action(true),
+            main_window_dismiss_action(true, false),
             MainWindowDismissAction::Exit
         );
         assert_eq!(
-            main_window_dismiss_action(false),
+            main_window_dismiss_action(false, false),
             MainWindowDismissAction::Hide
+        );
+    }
+
+    #[test]
+    fn dismissing_settings_without_a_provider_entry_requests_confirmed_exit() {
+        assert_eq!(
+            main_window_dismiss_action(false, true),
+            MainWindowDismissAction::RequestLeaveSettings
         );
     }
 

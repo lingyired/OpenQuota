@@ -38,12 +38,13 @@
       })}
     </button>
   {/if}
-  <div class="provider-data-view__dashboard" inert={readOnlyPreview}>
+  <div class="provider-data-view__dashboard">
     <Dashboard
       {...dashboardProps}
       focusedProviderId={providerId}
       showGlobalContent={false}
       showProviderContent={true}
+      {readOnlyPreview}
     />
   </div>
 </div>

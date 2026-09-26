@@ -828,13 +828,24 @@ pub(crate) fn update(
                 return;
             }
 
-            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                apply_menubar_plan(&reconcile_app, plan, locale);
-            }));
-            if let Err(payload) = result {
-                crate::app_error!("menubar", "menubar reconciliation panicked: {payload:?}");
-                apply_runtime_entry(&reconcile_app, false);
-            }
+            let _ = reconcile_then_publish(
+                || {
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        apply_menubar_plan(&reconcile_app, plan, locale);
+                    }));
+                    if let Err(payload) = result {
+                        crate::app_error!(
+                            "menubar",
+                            "menubar reconciliation panicked: {payload:?}"
+                        );
+                        apply_runtime_entry(&reconcile_app, false);
+                        Err(())
+                    } else {
+                        Ok(())
+                    }
+                },
+                || emit_authoritative_settings_state(&reconcile_app),
+            );
         });
     if let Err(error) = spawn {
         crate::app_warn!(
@@ -842,6 +853,27 @@ pub(crate) fn update(
             "could not start menubar reconciliation worker: {error}"
         );
         apply_runtime_entry(app, false);
+        emit_authoritative_settings_state(app);
+    }
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn reconcile_then_publish<T, E>(
+    reconcile: impl FnOnce() -> Result<T, E>,
+    publish: impl FnOnce(),
+) -> Result<T, E> {
+    let result = reconcile();
+    publish();
+    result
+}
+
+#[cfg(target_os = "macos")]
+fn emit_authoritative_settings_state(app: &AppHandle) {
+    if let Some(settings) = app.try_state::<Arc<SettingsService>>() {
+        let _ = app.emit(
+            "settings-state",
+            crate::commands::settings::settings_view_state(app, settings.inner().as_ref()),
+        );
     }
 }
 
@@ -1114,7 +1146,9 @@ fn open_provider_settings(app: &AppHandle, provider_id: &str) {
 
 #[cfg(test)]
 mod tests {
-    use super::{disable_provider_layout, plan_menubar, DesiredProviderMenubar};
+    use super::{
+        disable_provider_layout, plan_menubar, reconcile_then_publish, DesiredProviderMenubar,
+    };
     use crate::models::{AppSettings, ProviderLayout, TaskbandLayout};
 
     #[test]
@@ -1142,5 +1176,14 @@ mod tests {
     fn no_requested_provider_instances_produces_an_empty_menu_plan() {
         let plan = plan_menubar(Vec::<DesiredProviderMenubar>::new());
         assert!(plan.provider_instances.is_empty());
+    }
+
+    #[test]
+    fn settings_state_is_published_after_reconciliation_even_when_it_fails() {
+        let mut published = false;
+        let result =
+            reconcile_then_publish(|| Err::<(), _>("partial failure"), || published = true);
+        assert_eq!(result, Err("partial failure"));
+        assert!(published);
     }
 }

@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, HashSet},
+    future::Future,
     sync::{atomic::AtomicU64, Arc},
     time::{Duration, Instant},
 };
@@ -54,28 +55,57 @@ pub fn spawn(
                 Instant::now(),
             );
             if !due_provider_ids.is_empty() {
-                let progress_app = app.clone();
-                let progress_settings = settings.clone();
-                let observed_account_revision =
-                    Arc::new(AtomicU64::new(settings.account_revision()));
-                let progress_account_revision = observed_account_revision.clone();
-                let state = service
-                    .refresh_enabled_with_progress(&due_provider_ids, false, move |state| {
+                let batch_app = app.clone();
+                let batch_service = service.clone();
+                let batch_settings = settings.clone();
+                let batch_notifications = notifications.clone();
+                spawn_refresh_batch(
+                    |future| {
+                        drop(tauri::async_runtime::spawn(future));
+                    },
+                    async move {
+                        let progress_app = batch_app.clone();
+                        let progress_settings = batch_settings.clone();
+                        let progress_notifications = batch_notifications.clone();
+                        let observed_account_revision =
+                            Arc::new(AtomicU64::new(batch_settings.account_revision()));
+                        let progress_account_revision = observed_account_revision.clone();
+                        let state = batch_service
+                            .refresh_enabled_with_progress(&due_provider_ids, false, move |state| {
+                                emit_settings_if_account_changed(
+                                    &progress_app,
+                                    &progress_settings,
+                                    &progress_account_revision,
+                                );
+                                let _ = progress_app.emit("usage-state", state);
+                                finish_refresh(
+                                    &progress_app,
+                                    state,
+                                    &progress_settings,
+                                    &progress_notifications,
+                                );
+                            })
+                            .await;
                         emit_settings_if_account_changed(
-                            &progress_app,
-                            &progress_settings,
-                            &progress_account_revision,
+                            &batch_app,
+                            &batch_settings,
+                            &observed_account_revision,
                         );
-                        let _ = progress_app.emit("usage-state", state);
-                    })
-                    .await;
-                emit_settings_if_account_changed(&app, &settings, &observed_account_revision);
-                let _ = app.emit("usage-state", &state);
-                finish_refresh(&app, &state, &settings, &notifications);
+                        let _ = batch_app.emit("usage-state", &state);
+                    },
+                );
             }
             tokio::time::sleep(Duration::from_secs(5)).await;
         }
     });
+}
+
+fn spawn_refresh_batch<F, S>(spawn: S, batch: F)
+where
+    F: Future<Output = ()> + Send + 'static,
+    S: FnOnce(F),
+{
+    spawn(batch);
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -248,5 +278,45 @@ mod tests {
             ),
             vec!["failed"]
         );
+    }
+
+    #[test]
+    fn slow_refresh_batch_is_dispatched_without_blocking_the_scheduler() {
+        tauri::async_runtime::block_on(async {
+            let (started_tx, started_rx) = tokio::sync::oneshot::channel();
+            let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+            let (finished_tx, mut finished_rx) = tokio::sync::oneshot::channel();
+            let mut schedule = HashMap::new();
+            let other_interval = intervals(&[("other", FAST_REFRESH_INTERVAL)]);
+            spawn_refresh_batch(
+                |future| {
+                    tokio::spawn(future);
+                },
+                async move {
+                    let _ = started_tx.send(());
+                    let _ = release_rx.await;
+                    let _ = finished_tx.send(());
+                },
+            );
+
+            let next_tick = async {
+                started_rx.await.unwrap();
+                assert_eq!(
+                    due_provider_ids(
+                        &mut schedule,
+                        &other_interval,
+                        &HashMap::new(),
+                        &HashMap::new(),
+                        Instant::now(),
+                    ),
+                    vec!["other"]
+                );
+                assert!(finished_rx.try_recv().is_err());
+            };
+            tokio::time::timeout(Duration::from_millis(100), next_tick)
+                .await
+                .expect("scheduler tick must run before the slow batch completes");
+            let _ = release_tx.send(());
+        });
     }
 }

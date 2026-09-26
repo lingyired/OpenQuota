@@ -1680,73 +1680,76 @@ mod tests {
     }
 
     #[test]
-    fn progress_reports_every_provider_completion() {
+    fn progress_reports_fast_provider_before_a_slow_provider_finishes() {
         let directory = tempdir().unwrap();
         let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
         let active = Arc::new(AtomicUsize::new(0));
         let maximum = Arc::new(AtomicUsize::new(0));
         let calls = Arc::new(AtomicUsize::new(0));
-        let providers = [
-            ("slow", Duration::from_millis(160)),
-            ("fast", Duration::ZERO),
-        ]
-        .into_iter()
-        .map(|(id, delay)| {
-            Arc::new(SlowProvider {
-                id,
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let providers = vec![
+            Arc::new(GatedProvider {
+                id: "slow",
                 calls: calls.clone(),
                 active: active.clone(),
                 maximum: maximum.clone(),
-                delay,
-            }) as Arc<dyn UsageProvider>
-        })
-        .collect();
+                gate: gate.clone(),
+            }) as Arc<dyn UsageProvider>,
+            Arc::new(SlowProvider {
+                id: "fast",
+                calls: calls.clone(),
+                active: active.clone(),
+                maximum: maximum.clone(),
+                delay: Duration::ZERO,
+            }) as Arc<dyn UsageProvider>,
+        ];
         let registry = Arc::new(ProviderRegistry::new(providers).unwrap());
         let service = Arc::new(ProviderService::with_refresh_timeout(
             registry,
             storage.clone(),
-            Duration::from_millis(40),
+            Duration::from_secs(3),
         ));
-        let observations = Arc::new(Mutex::new(Vec::new()));
-        let observed = observations.clone();
+        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+        let refresh_service = service.clone();
+        let batch = tauri::async_runtime::spawn(async move {
+            refresh_service
+                .refresh_enabled_with_progress(
+                    &["slow".into(), "fast".into()],
+                    true,
+                    move |state| {
+                        let _ = progress_tx.send(state.clone());
+                    },
+                )
+                .await
+        });
 
-        let final_state = tauri::async_runtime::block_on(service.refresh_enabled_with_progress(
-            &["slow".into(), "fast".into()],
-            true,
-            move |state| {
-                observed.lock().unwrap().push(state.clone());
-            },
-        ));
-
-        let observations = observations.lock().unwrap();
-        assert_eq!(observations.len(), 2);
-        let completed = observations.last().unwrap();
-        assert!(completed
+        // This is the state the refresh loop emits to the native tray and
+        // notification evaluator. It must arrive before the slow worker ends.
+        let first_progress = progress_rx
+            .recv_timeout(TEST_WAIT_TIMEOUT)
+            .expect("fast provider completion should publish before the slow provider finishes");
+        assert!(first_progress
             .providers
             .get("fast")
             .and_then(|state| state.snapshot.as_ref())
             .is_some());
-        assert_eq!(
-            completed
-                .providers
-                .get("slow")
-                .and_then(|state| state.error.as_deref()),
-            Some("Provider refresh timed out.")
-        );
+        assert!(first_progress
+            .providers
+            .get("slow")
+            .is_some_and(|state| state.refreshing));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let (released, signal) = &*gate;
+        assert!(!*released.lock().unwrap());
+        *released.lock().unwrap() = true;
+        signal.notify_all();
+        let final_state = tauri::async_runtime::block_on(batch).unwrap();
+        assert!(final_state
+            .providers
+            .get("slow")
+            .and_then(|state| state.snapshot.as_ref())
+            .is_some());
         assert!(storage.load_snapshot("fast").unwrap().is_some());
-        assert_eq!(
-            final_state
-                .providers
-                .get("slow")
-                .and_then(|state| state.error.as_deref()),
-            Some("Provider refresh timed out.")
-        );
-        drop(observations);
-
-        wait_until("timed-out progress worker should drain", || {
-            active.load(Ordering::SeqCst) == 0 && refresh_runner_is_idle(&service, "slow")
-        });
-        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert!(storage.load_snapshot("slow").unwrap().is_some());
     }
 
     #[test]

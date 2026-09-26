@@ -65,7 +65,10 @@ export function createWindowController(options: WindowControllerOptions) {
   }
 
   function shouldDefer() {
-    return isTransientlyDeferred() || (options.fixedHeight?.() ?? false);
+    return (
+      isTransientlyDeferred() ||
+      (options.screen() === 'dashboard' && (options.fixedHeight?.() ?? false))
+    );
   }
 
   function clearDeferredFitTimer() {

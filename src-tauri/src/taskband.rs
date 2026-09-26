@@ -624,6 +624,19 @@ pub(crate) fn update(
 #[cfg(target_os = "windows")]
 fn ensure_taskband_runtime_entry(app: &AppHandle, has_instances: bool) {
     let integration = app.state::<DesktopIntegration>();
+    let had_instances = integration.tray_available();
+    let was_floating = integration.is_floating();
+    let desired_mode = app
+        .try_state::<Arc<SettingsService>>()
+        .map(|settings| settings.get().window_mode)
+        .unwrap_or_default();
+    let desired_floating = !has_instances || desired_mode == crate::models::WindowMode::Floating;
+    let should_apply_mode = should_apply_runtime_window_mode(
+        had_instances,
+        has_instances,
+        was_floating,
+        desired_floating,
+    );
     integration.set_menu_entry_available(has_instances);
     if !has_instances {
         if let Some(service) = app.try_state::<Arc<ProviderService>>() {
@@ -631,18 +644,21 @@ fn ensure_taskband_runtime_entry(app: &AppHandle, has_instances: bool) {
         }
     }
     if has_instances {
-        let mode = app
-            .try_state::<Arc<SettingsService>>()
-            .map(|settings| settings.get().window_mode)
-            .unwrap_or_default();
-        if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-            let _ = crate::window::apply_window_mode(&window, mode, false);
+        if should_apply_mode {
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                let _ = crate::window::apply_window_mode(&window, desired_mode, false);
+            }
         }
     } else if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        let _ =
-            crate::window::apply_window_mode(&window, crate::models::WindowMode::Floating, true);
-        show_main_window(&window);
-        open_screen(app, "settings");
+        if had_instances || !window.is_visible().unwrap_or(false) {
+            let _ = crate::window::apply_window_mode(
+                &window,
+                crate::models::WindowMode::Floating,
+                true,
+            );
+            show_main_window(&window);
+            open_screen(app, "settings");
+        }
     }
     if let Some(settings) = app.try_state::<Arc<SettingsService>>() {
         let _ = app.emit(
@@ -650,6 +666,16 @@ fn ensure_taskband_runtime_entry(app: &AppHandle, has_instances: bool) {
             crate::commands::settings::settings_view_state(app, settings.inner().as_ref()),
         );
     }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn should_apply_runtime_window_mode(
+    had_instances: bool,
+    has_instances: bool,
+    is_floating: bool,
+    desired_floating: bool,
+) -> bool {
+    has_instances && (!had_instances || is_floating != desired_floating)
 }
 
 #[cfg(target_os = "windows")]
@@ -849,7 +875,10 @@ mod tests {
         tray_presentation::{pinned_provider_metrics, ResolvedTrayMetric},
     };
 
-    use super::{hide_taskband_instance_settings, leading_icon_size_for, metric_lines};
+    use super::{
+        hide_taskband_instance_settings, leading_icon_size_for, metric_lines,
+        should_apply_runtime_window_mode,
+    };
 
     fn metric(id: &str, value: &str) -> ResolvedTrayMetric {
         ResolvedTrayMetric {
@@ -1005,5 +1034,12 @@ mod tests {
         assert_eq!(top, "");
         assert_eq!(bottom, "");
         assert!(!bottom_visible);
+    }
+
+    #[test]
+    fn runtime_entry_does_not_reapply_window_mode_without_a_transition() {
+        assert!(!should_apply_runtime_window_mode(true, true, false, false));
+        assert!(should_apply_runtime_window_mode(false, true, true, false));
+        assert!(should_apply_runtime_window_mode(true, true, false, true));
     }
 }

@@ -176,7 +176,8 @@
     screen: () => screen,
     refreshing: () => anyRefreshing,
     reordering: () => reordering,
-    fixedHeight: () => platform === 'macos' && taskbandProviderId !== null,
+    fixedHeight: () =>
+      platform === 'macos' && taskbandProviderId !== null && screen === 'dashboard',
     automatic: () => panelHeightMode === 'automatic',
     reducedMotion: () => reducedMotion,
     onError: (message) => (settingsError = message),
@@ -335,6 +336,7 @@
     navigate('dashboard');
     await selectDashboardProvider(providerId);
     taskbandProviderId = providerId;
+    void refreshProviderIfDue(providerId);
   }
   async function selectDashboardProvider(providerId: string) {
     taskbandProviderId = null;
@@ -838,6 +840,8 @@
     motionQuery.addEventListener('change', updateMotionPreference);
     const refreshWindowState = () => {
       void settingsController.refreshIfIdle();
+      if (screen === 'dashboard' && selectedProviderId)
+        void refreshProviderIfDue(selectedProviderId);
       updatePanelResizeEdge();
       updatePanelHeightMode();
       scheduleWindowFit();
@@ -928,7 +932,11 @@
       onOpenScreen((target) => {
         if (target === 'dashboard') {
           if (requiresLeaveSettingsConfirmation()) leaveSettingsConfirmationOpen = true;
-          else navigate('dashboard');
+          else {
+            navigate('dashboard');
+            if (screen === 'dashboard' && selectedProviderId)
+              void refreshProviderIfDue(selectedProviderId);
+          }
         } else if (target.startsWith('provider:')) {
           void openProviderCustomization(target.slice(9));
         } else navigate(target === 'settings' ? 'settings' : 'customize');

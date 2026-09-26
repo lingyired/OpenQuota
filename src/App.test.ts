@@ -2015,7 +2015,7 @@ describe('Quota01 dashboard', () => {
     });
     expect(screen.getByRole('menuitem', { name: 'Share Screenshot' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Customize…' }));
-    expect(screen.getByRole('heading', { name: 'Codex' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();

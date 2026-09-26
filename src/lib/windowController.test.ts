@@ -210,6 +210,25 @@ describe('hybrid window controller', () => {
     controller.dispose();
   });
 
+  it('switches native layout to Settings while a taskband provider is focused', async () => {
+    const activeScreen = 'settings';
+    const controller = createWindowController({
+      screen: () => activeScreen,
+      refreshing: () => false,
+      reordering: () => false,
+      fixedHeight: () => true,
+      automatic: () => true,
+      reducedMotion: () => true,
+      onError: vi.fn(),
+    });
+
+    document.querySelector<HTMLElement>('.screen-page')!.dataset.screen = 'settings';
+    controller.scheduleFit();
+
+    await waitFor(() => expect(mocks.setPanelLayoutForScreen).toHaveBeenCalledWith('settings'));
+    controller.dispose();
+  });
+
   it('requests each native layout only once while switching repeatedly', async () => {
     let activeScreen: 'dashboard' | 'settings' = 'dashboard';
     const page = document.querySelector<HTMLElement>('.screen-page')!;

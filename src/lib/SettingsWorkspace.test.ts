@@ -1,11 +1,22 @@
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import SettingsWorkspace from './SettingsWorkspace.svelte';
 import type { DashboardProps } from './Dashboard.svelte';
 import type { SettingsViewState, UsageViewState } from './types';
-import { codexState, liveState, providerCatalogIndex, settingsState } from '../test/appFixtures';
+import { ProviderCatalogIndex } from './metrics';
+import {
+  codexState,
+  liveState,
+  providerCatalog,
+  providerCatalogIndex,
+  settingsState,
+} from '../test/appFixtures';
+
+const apiKeyMocks = vi.hoisted(() => ({ invoke: vi.fn() }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: apiKeyMocks.invoke }));
 
 afterEach(cleanup);
+beforeEach(() => apiKeyMocks.invoke.mockResolvedValue(null));
 
 function props() {
   const viewState: UsageViewState = structuredClone(liveState);
@@ -90,6 +101,18 @@ describe('SettingsWorkspace', () => {
     expect(workspace.querySelectorAll('[data-workspace-column]')).toHaveLength(3);
     expect(screen.getByRole('progressbar', { name: 'Session used' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh Codex' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('progressbar', { name: 'Session used' }).closest('[inert]'),
+    ).not.toBeInTheDocument();
+    expect(
+      document.querySelector('[data-provider-preview] .provider-data-view__dashboard'),
+    ).not.toHaveAttribute('inert');
+    expect(
+      document.querySelector('[data-provider-preview] .provider-settings-button'),
+    ).not.toBeInTheDocument();
+    expect(
+      document.querySelector('[data-provider-preview] .metric__reading button'),
+    ).not.toBeInTheDocument();
     expect(input.dashboardProps.onRefresh).not.toHaveBeenCalled();
     await fireEvent.click(screen.getByRole('button', { name: 'Refresh Codex' }));
     expect(input.dashboardProps.onRefresh).toHaveBeenCalledWith('codex');
@@ -125,6 +148,44 @@ describe('SettingsWorkspace', () => {
 
     await fireEvent.click(screen.getByRole('button', { name: 'Claude' }));
     expect(input.dashboardProps.onRefreshIfDue).toHaveBeenLastCalledWith('claude');
+  });
+
+  it('remounts provider credentials when switching providers', async () => {
+    apiKeyMocks.invoke.mockImplementation((command: string, args?: { providerId?: string }) => {
+      if (command === 'get_provider_api_key_state')
+        return Promise.resolve({ providerId: args?.providerId, status: 'notSet' });
+      return Promise.resolve(null);
+    });
+    const input = props();
+    input.dashboardProps.catalog = new ProviderCatalogIndex({
+      ...providerCatalog,
+      apiKeyProviderIds: ['openrouter', 'codex'],
+    });
+    const openRouterLayout = {
+      ...input.settingsView.settings.providers[0],
+      id: 'openrouter',
+      enabled: true,
+      metrics: [],
+    };
+    input.settingsView.settings.providers.push(openRouterLayout);
+    input.dashboardProps.settings = input.settingsView.settings;
+    render(SettingsWorkspace, input);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'OpenRouter' }));
+    await screen.findByRole('region', { name: 'OpenRouter API Key' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Add' }));
+    await fireEvent.input(screen.getByLabelText('OpenRouter API key'), {
+      target: { value: 'unsaved-openrouter-key' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: 'Codex' }));
+
+    expect(await screen.findByRole('region', { name: 'Codex API Key' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(apiKeyMocks.invoke).toHaveBeenCalledWith('get_provider_api_key_state', {
+        providerId: 'codex',
+      }),
+    );
+    expect(screen.queryByDisplayValue('unsaved-openrouter-key')).not.toBeInTheDocument();
   });
 
   it('falls back after a selected provider is removed and updates the preview from new usage data', async () => {
