@@ -34,7 +34,8 @@
   import CustomizeProviderList from './lib/CustomizeProviderList.svelte';
   import ConfirmationSheet from './lib/ConfirmationSheet.svelte';
   import { restoreCustomization } from './lib/customizationHistory';
-  import Dashboard from './lib/Dashboard.svelte';
+  import ProviderDataView from './lib/ProviderDataView.svelte';
+  import Dashboard, { type DashboardProps } from './lib/Dashboard.svelte';
   import Icon from './lib/Icon.svelte';
   import { createListenerRegistry } from './lib/listenerRegistry';
   import { emptyProviderCatalog, ProviderCatalogIndex } from './lib/metrics';
@@ -67,9 +68,10 @@
 
   let viewState = $state<UsageViewState>(emptyView);
   let catalog = $state<ProviderCatalogIndex>(emptyProviderCatalog);
-  // Set by a Windows taskband click: while the popup is open, the dashboard
-  // shows only this agent (other agents stay hidden).
-  let focusedProviderId = $state<string | null>(null);
+  // The popup selection survives hiding the window and is restored on reopen.
+  const lastProviderStorageKey = 'quota01.lastSelectedProviderId';
+  let currentProviderId = $state<string | null>(readLastSelectedProvider());
+  let taskbandProviderId = $state<string | null>(null);
   let screen = $state<Screen>('dashboard');
   let providerReturnScreen: Screen = 'customize';
   let now = $state(Date.now());
@@ -106,6 +108,16 @@
   const shortcuts = shortcutLabels(platform);
   const settingsController = new SettingsController((message) => (settingsError = message));
   const settingsState = $derived(settingsController.state);
+  const enabledProviderIds = $derived(
+    settingsState?.settings.providers
+      .filter((provider) => provider.enabled && catalog.provider(provider.id))
+      .map((provider) => provider.id) ?? [],
+  );
+  const selectedProviderId = $derived(
+    currentProviderId && enabledProviderIds.includes(currentProviderId)
+      ? currentProviderId
+      : (enabledProviderIds[0] ?? null),
+  );
   const reducedMotion = $derived(
     systemReducedMotion || Boolean(settingsState?.settings.reduceAnimations),
   );
@@ -116,6 +128,33 @@
   const providerDisplayName = (id: string) =>
     catalog.displayName(id, settingsState?.settings.providerNames);
   const updates = new UpdateController();
+  const dashboardProps: DashboardProps = $derived({
+    viewState,
+    catalog,
+    renamableProviderIds: settingsState?.renamableProviderIds ?? [],
+    settings: settingsState?.settings ?? ({} as AppSettings),
+    now,
+    onSettingsChange: saveSettings,
+    onCustomizationChange: saveCustomization,
+    onReorderStart: beginCustomizationGesture,
+    onReorderEnd: endCustomizationGesture,
+    onCustomize: () => navigate('customize'),
+    onOpenProviderCustomize: (id: string) => void openProviderCustomization(id, true),
+    onRenameProvider: openRenameProvider,
+    onShare: shareProvider,
+    onShareTotal: shareTotalSpend,
+    onRefresh: refreshProvider,
+    onOpenProviderLink: openProviderLink,
+    onContentMorph: beginContentMorph,
+    reducedMotion,
+    updateStatus: updates.status,
+    installingUpdate: updates.installing,
+    updateProgress: updates.progress,
+    updateError: updates.error,
+    onInstallUpdate: () => updates.install(),
+    onOpenUpdatePage: () => updates.openDownloadPage(),
+  });
+
   let resizeEdge = $state<PanelResizeEdge>(platform === 'windows' ? 'top' : 'bottom');
   const renderedResizeEdge = $derived(floatingWindow ? 'bottom' : resizeEdge);
   let panelHeightMode = $state<PanelHeightMode>('automatic');
@@ -128,7 +167,7 @@
     screen: () => screen,
     refreshing: () => anyRefreshing,
     reordering: () => reordering,
-    fixedHeight: () => platform === 'macos' && focusedProviderId !== null,
+    fixedHeight: () => platform === 'macos' && taskbandProviderId !== null,
     automatic: () => panelHeightMode === 'automatic',
     reducedMotion: () => reducedMotion,
     onError: (message) => (settingsError = message),
@@ -152,9 +191,15 @@
   });
 
   $effect(() => {
-    if (!settingsState || !focusedProviderId) return;
-    const provider = settingsState.settings.providers.find((item) => item.id === focusedProviderId);
-    if (!provider || !provider.enabled) focusedProviderId = null;
+    if (!settingsState) return;
+    if (selectedProviderId !== currentProviderId) currentProviderId = selectedProviderId;
+    try {
+      if (selectedProviderId)
+        window.localStorage.setItem(lastProviderStorageKey, selectedProviderId);
+      else window.localStorage.removeItem(lastProviderStorageKey);
+    } catch {
+      // The popup still chooses the first enabled provider when browser storage is unavailable.
+    }
   });
 
   $effect(() => {
@@ -170,6 +215,14 @@
       if (interval) clearInterval(interval);
     };
   });
+
+  function readLastSelectedProvider(): string | null {
+    try {
+      return window.localStorage.getItem(lastProviderStorageKey);
+    } catch {
+      return null;
+    }
+  }
 
   function scheduleWindowFit() {
     windowController.scheduleFit();
@@ -227,9 +280,11 @@
   async function focusTaskbandProvider(providerId: string) {
     navigate('dashboard');
     await selectDashboardProvider(providerId);
+    taskbandProviderId = providerId;
   }
-  async function selectDashboardProvider(providerId: string | null) {
-    focusedProviderId = providerId;
+  async function selectDashboardProvider(providerId: string) {
+    taskbandProviderId = null;
+    currentProviderId = providerId;
     await tick();
     scrollScreenToTop();
     // The filtered dashboard has a different natural height; fit immediately instead of relying on
@@ -797,7 +852,6 @@
     listeners.add(
       onOpenScreen((target) => {
         if (target === 'dashboard') {
-          focusedProviderId = null;
           navigate('dashboard');
         } else if (target.startsWith('provider:')) {
           void openProviderCustomization(target.slice(9));
@@ -807,8 +861,8 @@
     listeners.add(onTaskbandOpen((providerId) => void focusTaskbandProvider(providerId)));
     listeners.add(
       onMainWindowHidden(() => {
+        taskbandProviderId = null;
         resetTransientUi();
-        focusedProviderId = null;
         navigate('dashboard');
       }),
     );
@@ -924,13 +978,15 @@
           {$tBackendStore(settingsError)}
         </div>{/if}
       {#if screen === 'dashboard'}
-        <ProviderRail
-          {viewState}
-          settings={settingsState.settings}
-          {catalog}
-          selectedProviderId={focusedProviderId}
-          onSelect={selectDashboardProvider}
-        />
+        {#if selectedProviderId}
+          <ProviderRail
+            {viewState}
+            settings={settingsState.settings}
+            {catalog}
+            {selectedProviderId}
+            onSelect={selectDashboardProvider}
+          />
+        {/if}
       {/if}
       <div class="screen-stage">
         {#key screen}
@@ -945,32 +1001,18 @@
           >
             {#if screen === 'dashboard'}
               <Dashboard
-                {viewState}
-                {catalog}
-                renamableProviderIds={settingsState.renamableProviderIds}
-                settings={settingsState.settings}
-                {now}
-                onSettingsChange={saveSettings}
-                onCustomizationChange={saveCustomization}
-                onReorderStart={beginCustomizationGesture}
-                onReorderEnd={endCustomizationGesture}
-                onCustomize={() => navigate('customize')}
-                onOpenProviderCustomize={(id) => void openProviderCustomization(id, true)}
-                onRenameProvider={openRenameProvider}
-                onShare={shareProvider}
-                onShareTotal={shareTotalSpend}
-                onRefresh={refreshProvider}
-                onOpenProviderLink={openProviderLink}
-                onContentMorph={beginContentMorph}
-                {reducedMotion}
-                updateStatus={updates.status}
-                installingUpdate={updates.installing}
-                updateProgress={updates.progress}
-                updateError={updates.error}
-                onInstallUpdate={() => updates.install()}
-                onOpenUpdatePage={() => updates.openDownloadPage()}
-                {focusedProviderId}
+                {...dashboardProps}
+                focusedProviderId={null}
+                showGlobalContent={true}
+                showProviderContent={false}
               />
+              {#if selectedProviderId}
+                <ProviderDataView
+                  {...dashboardProps}
+                  providerId={selectedProviderId}
+                  readOnlyPreview={false}
+                />
+              {/if}
             {:else if screen === 'settings'}
               <SettingsScreen
                 settingsView={settingsState}

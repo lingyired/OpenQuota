@@ -1,6 +1,5 @@
 <script lang="ts">
   import { locale } from 'svelte-i18n';
-  import Icon from './Icon.svelte';
   import { t, tBackend, tStore } from './i18n';
   import { railLineFontSize } from './metricFormat';
   import { providerIconColor } from './providerIconPaths';
@@ -13,15 +12,14 @@
     viewState: UsageViewState;
     settings: AppSettings;
     catalog: ProviderCatalogIndex;
-    selectedProviderId: string | null;
-    onSelect: (providerId: string | null) => void | Promise<void>;
+    selectedProviderId: string;
+    onSelect: (providerId: string) => void | Promise<void>;
   }
 
-  type TabId = string | null;
   interface TabItem {
-    id: TabId;
+    id: string;
     name: string;
-    provider: ProviderLayout | null;
+    provider: ProviderLayout;
     readings: ProviderTabReading[];
   }
 
@@ -33,20 +31,17 @@
   );
   const tabs = $derived.by(() => {
     void currentLocale;
-    return [
-      { id: null, name: t('dashboard.all'), provider: null, readings: [] },
-      ...enabledProviders.map((provider) => ({
-        id: provider.id,
-        name: catalog.displayName(provider.id, settings.providerNames),
+    return enabledProviders.map((provider) => ({
+      id: provider.id,
+      name: catalog.displayName(provider.id, settings.providerNames),
+      provider,
+      readings: providerTabReadings(
         provider,
-        readings: providerTabReadings(
-          provider,
-          viewState.providers[provider.id]?.snapshot ?? null,
-          settings,
-          catalog,
-        ),
-      })),
-    ] satisfies TabItem[];
+        viewState.providers[provider.id]?.snapshot ?? null,
+        settings,
+        catalog,
+      ),
+    })) satisfies TabItem[];
   });
   const activeIndex = $derived(
     Math.max(
@@ -66,7 +61,6 @@
 
   function tabLabel(tab: TabItem) {
     void currentLocale;
-    if (!tab.provider) return t('dashboard.all');
     const readings = tab.readings.length
       ? tab.readings.map((reading) => `${tBackend(reading.label)}: ${reading.reading}`).join(', ')
       : t('metric.noData');
@@ -95,7 +89,7 @@
 
 <nav class="provider-rail" aria-label={$tStore('dashboard.providerTabs')}>
   <div class="provider-rail__scroller" role="tablist" aria-orientation="vertical">
-    {#each tabs as tab, index (tab.id ?? 'all')}
+    {#each tabs as tab, index (tab.id)}
       <button
         class="provider-rail__tab"
         class:provider-rail__tab--active={tab.id === selectedProviderId}
@@ -104,38 +98,28 @@
         aria-selected={tab.id === selectedProviderId}
         aria-label={tabLabel(tab)}
         tabindex={index === activeIndex ? 0 : -1}
-        style={tab.provider
-          ? `--provider-rail-accent: ${providerAccent(tab.provider.id)}`
-          : undefined}
+        style={`--provider-rail-accent: ${providerAccent(tab.provider.id)}`}
         bind:this={tabElements[index]}
         onclick={() => void onSelect(tab.id)}
         onkeydown={(event) => handleKeydown(event, index)}
       >
         <span class="provider-rail__icon">
-          {#if tab.provider}
-            <ProviderIcon providerId={tab.provider.id} size={22} />
-          {:else}
-            <Icon name="grid" size={22} strokeWidth={1.8} />
-          {/if}
+          <ProviderIcon providerId={tab.provider.id} size={22} />
         </span>
         <span class="provider-rail__values" aria-hidden="true">
-          {#if tab.provider}
-            {#if tab.readings.length > 0}
-              {#each tab.readings as reading, readingIndex (reading.id)}
-                {#each reading.lines as line, lineIndex (`${reading.id}-${lineIndex}`)}
-                  <span
-                    class="provider-rail__reading"
-                    class:provider-rail__reading--empty={!reading.available}
-                    class:provider-rail__reading--first={readingIndex > 0 && lineIndex === 0}
-                    style={`font-size: ${railLineFontSize(line)}px`}>{line}</span
-                  >
-                {/each}
+          {#if tab.readings.length > 0}
+            {#each tab.readings as reading, readingIndex (reading.id)}
+              {#each reading.lines as line, lineIndex (`${reading.id}-${lineIndex}`)}
+                <span
+                  class="provider-rail__reading"
+                  class:provider-rail__reading--empty={!reading.available}
+                  class:provider-rail__reading--first={readingIndex > 0 && lineIndex === 0}
+                  style={`font-size: ${railLineFontSize(line)}px`}>{line}</span
+                >
               {/each}
-            {:else}
-              <span class="provider-rail__reading provider-rail__reading--empty">--</span>
-            {/if}
+            {/each}
           {:else}
-            <span class="provider-rail__all">ALL</span>
+            <span class="provider-rail__reading provider-rail__reading--empty">--</span>
           {/if}
         </span>
       </button>
@@ -255,13 +239,6 @@
   /* Separates consecutive metrics; a metric's own values stay stacked tight. */
   .provider-rail__reading--first {
     margin-block-start: 3px;
-  }
-
-  .provider-rail__all {
-    color: var(--secondary);
-    font-size: 8px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
   }
 
   @media (pointer: coarse) {

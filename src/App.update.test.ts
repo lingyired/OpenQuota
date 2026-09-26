@@ -36,6 +36,7 @@ function mockInvoke(implementation: InvokeImplementation) {
 
 describe('Quota01 update lifecycle', () => {
   beforeEach(() => {
+    localStorage.clear();
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
       workArea: { size: { width: 1280, height: 700 } },
@@ -64,7 +65,117 @@ describe('Quota01 update lifecycle', () => {
   });
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it('selects the provider opened from its native taskbar instance', async () => {
+    let taskbandOpen: ((event: { payload: string }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'taskband-open') taskbandOpen = callback;
+      return Promise.resolve(vi.fn());
+    });
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    );
+    const multiSettings: SettingsViewState = {
+      ...settingsState,
+      settings: {
+        ...settingsState.settings,
+        providers: [
+          {
+            id: 'claude',
+            enabled: true,
+            detected: true,
+            expanded: false,
+            keychainAccessGranted: false,
+            metrics: [
+              { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          },
+          ...settingsState.settings.providers,
+        ],
+      },
+    };
+    mockInvoke((command) => {
+      if (command === 'get_usage_state') return Promise.resolve(liveState);
+      if (command === 'get_app_settings') return Promise.resolve(multiSettings);
+      if (command === 'save_app_settings') return Promise.resolve(multiSettings);
+      return Promise.resolve();
+    });
+    render(App);
+    await screen.findByRole('tab', { name: /Claude/ });
+    await waitFor(() => expect(taskbandOpen).toBeDefined());
+
+    taskbandOpen?.({ payload: 'claude' });
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-screen="dashboard"] [data-provider-id="claude"]'),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Claude/ })).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
+  it('falls back to the first enabled provider when the selected provider is removed', async () => {
+    let taskbandOpen: ((event: { payload: string }) => void) | undefined;
+    let settingsStateChanged: ((event: { payload: SettingsViewState }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'taskband-open') taskbandOpen = callback;
+      if (event === 'settings-state') settingsStateChanged = callback;
+      return Promise.resolve(vi.fn());
+    });
+    const claude = {
+      id: 'claude',
+      enabled: true,
+      detected: true,
+      expanded: false,
+      keychainAccessGranted: false,
+      metrics: [
+        { id: 'claude.session', enabled: true, section: 'alwaysVisible' as const, pinned: true },
+      ],
+    };
+    const multiSettings: SettingsViewState = {
+      ...settingsState,
+      settings: {
+        ...settingsState.settings,
+        providers: [claude, ...settingsState.settings.providers],
+      },
+    };
+    mockInvoke((command, args) => {
+      if (command === 'get_usage_state') return Promise.resolve(liveState);
+      if (command === 'get_app_settings') return Promise.resolve(multiSettings);
+      if (command === 'save_app_settings')
+        return Promise.resolve({
+          ...multiSettings,
+          settings: args?.settings ?? multiSettings.settings,
+        });
+      return Promise.resolve();
+    });
+    render(App);
+    await waitFor(() => expect(taskbandOpen).toBeDefined());
+    taskbandOpen?.({ payload: 'claude' });
+    await screen.findByRole('group', { name: 'Claude provider' });
+    await waitFor(() => expect(settingsStateChanged).toBeDefined());
+
+    settingsStateChanged?.({
+      payload: {
+        ...multiSettings,
+        settingsRevision: multiSettings.settingsRevision + 1,
+        settings: {
+          ...multiSettings.settings,
+          providers: multiSettings.settings.providers.filter(
+            (provider) => provider.id !== 'claude',
+          ),
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Codex/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+    });
   });
 
   it('checks for updates manually and reports when up to date', async () => {

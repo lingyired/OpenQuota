@@ -29,7 +29,7 @@
   } from './types';
   import { tBackend, tStore, tBackendStore } from './i18n';
 
-  interface Props {
+  export interface DashboardProps {
     viewState: UsageViewState;
     settings: AppSettings;
     now: number;
@@ -56,6 +56,8 @@
     onOpenUpdatePage: () => void;
     /** When set (Windows taskband click), only this agent is shown. */
     focusedProviderId?: string | null;
+    showGlobalContent?: boolean;
+    showProviderContent?: boolean;
   }
   let {
     viewState,
@@ -83,7 +85,9 @@
     onInstallUpdate,
     onOpenUpdatePage,
     focusedProviderId = null,
-  }: Props = $props();
+    showGlobalContent = true,
+    showProviderContent = true,
+  }: DashboardProps = $props();
   const metricDefinition = (id: string) => catalog.metric(id);
   const currentLocale = $derived($locale);
   const metricDisplayLabel = (id: string) => {
@@ -92,8 +96,7 @@
   };
   const providerDisplayName = (id: string) => catalog.displayName(id, settings.providerNames);
   const providerSupportsSpend = (id: string) => catalog.supportsSpend(id);
-  const providerExpanded = (provider: ProviderLayout) =>
-    provider.expanded || provider.id === focusedProviderId;
+  const providerExpanded = (provider: ProviderLayout) => provider.expanded;
   const emptyUsage: UsageHistory = {
     today: null,
     yesterday: null,
@@ -353,7 +356,7 @@
   }}
 />
 
-{#if updateStatus?.available && updateStatus.version !== settings.dismissedUpdateVersion}
+{#if showGlobalContent && updateStatus?.available && updateStatus.version !== settings.dismissedUpdateVersion}
   <section class="hint-card update-banner" aria-label={$tStore('dashboard.updateAvailable')}>
     <span class="hint-card__icon"><Icon name="refresh" size={16} strokeWidth={2} /></span>
     <div>
@@ -427,7 +430,7 @@
   </section>
 {/if}
 
-{#if !settings.detectionNoticeDismissed}
+{#if showGlobalContent && !settings.detectionNoticeDismissed}
   <section class="detection-card" out:scale={{ start: 0.95, ...springMotion(reducedMotion) }}>
     <div>
       <strong>{$tStore('dashboard.welcome')}</strong><span>{$tStore('dashboard.welcomeBody')}</span>
@@ -442,7 +445,17 @@
   </section>
 {/if}
 
-{#if settings.showTotalSpend && providerUsage.length > 0 && !focusedProviderId}
+{#if showGlobalContent && enabledProviders.length === 0 && settings.detectionNoticeDismissed}
+  <section class="detection-card dashboard-empty" aria-label={$tStore('dashboard.welcome')}>
+    <div>
+      <strong>{$tStore('dashboard.welcome')}</strong><span>{$tStore('dashboard.welcomeBody')}</span>
+      <span>{$tStore('dashboard.empty')}</span>
+    </div>
+    <button type="button" onclick={onCustomize}>{$tStore('dashboard.openCustomize')}</button>
+  </section>
+{/if}
+
+{#if settings.showTotalSpend && providerUsage.length > 0 && (!focusedProviderId || showGlobalContent)}
   <TotalSpend
     providers={providerUsage}
     {settings}
@@ -452,216 +465,220 @@
   />
 {/if}
 
-{#each displayProviders as { provider, state, snapshot, alwaysMetrics, demandMetrics, links } (provider.id)}
-  <div
-    class="provider-reorder-shell"
-    class:provider-reorder-shell--content-morph={demandMorphing}
-    animate:flip={reorderFlip(reducedMotion || demandMorphing)}
-  >
-    <section
-      class="provider-section"
-      data-provider-id={provider.id}
-      data-reorder-group="dashboard-providers"
-      data-reorder-id={provider.id}
-      role="group"
-      tabindex="-1"
-      aria-label={$tStore('dashboard.providerGroup', {
-        provider: providerDisplayName(provider.id),
-      })}
-      use:pointerReorder={{
-        id: provider.id,
-        group: 'dashboard-providers',
-        label: providerDisplayName(provider.id),
-        gripOnly: true,
-        touchGripOnly: true,
-        onReorder: (targetId) => reorderProvider(provider.id, targetId),
-        onStart: onReorderStart,
-        onEnd: onReorderEnd,
-      }}
-      oncontextmenu={(event) => openProviderMenu(event, provider.id)}
+{#if showProviderContent}
+  {#each displayProviders as { provider, state, snapshot, alwaysMetrics, demandMetrics, links } (provider.id)}
+    <div
+      class="provider-reorder-shell"
+      class:provider-reorder-shell--content-morph={demandMorphing}
+      animate:flip={reorderFlip(reducedMotion || demandMorphing)}
     >
-      <header
-        class="provider-header"
-        data-reorder-handle
-        role="group"
-        aria-label={$tStore('dashboard.dragProvider', {
-          provider: providerDisplayName(provider.id),
-        })}
-      >
-        <span
-          class="drag-grip"
-          data-reorder-handle
-          data-reorder-touch-handle
-          role="button"
-          tabindex="0"
-          aria-label={$tStore('dashboard.moveProvider', {
-            name: providerDisplayName(provider.id),
-          })}
-          aria-describedby="reorder-instructions"
-          aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"><Icon name="grip-dots" size={13} /></span
-        >
-        <h1>{providerDisplayName(provider.id)}</h1>
-        {#if snapshot.plan}<span class="plan">{$tBackendStore(snapshot.plan)}</span>{/if}
-        {#if state?.snapshot && state.stale}<span
-            class="status-badge"
-            data-tooltip={$tStore(...stalenessTooltipArgs(snapshot.refreshedAt))}
-            >{$tStore('dashboard.outdated')}<span class="sr-only"
-              >. {$tStore(...stalenessTooltipArgs(snapshot.refreshedAt))}</span
-            ></span
-          >{/if}
-        <span
-          class="provider-status-slot"
-          class:active={Boolean(state?.refreshing || state?.error || snapshot.warnings.length > 0)}
-        >
-          {#if state?.refreshing}
-            <span class="provider-refreshing" aria-label={$tStore('dashboard.refreshing')}
-              ><Icon name="refresh" size={12} strokeWidth={2} /></span
-            >
-          {:else if state?.error}
-            <span
-              class="provider-warning"
-              data-tooltip={$tBackendStore(state.error)}
-              aria-hidden="true"><Icon name="warning" size={12} strokeWidth={2} /></span
-            >
-          {:else if snapshot.warnings.length > 0}
-            <span
-              class="provider-warning"
-              role="status"
-              data-tooltip={snapshot.warnings.map((warning) => $tBackendStore(warning)).join('\n')}
-              aria-label={snapshot.warnings.map((warning) => $tBackendStore(warning)).join(' ')}
-              ><Icon name="warning" size={12} strokeWidth={2} /><span class="sr-only"
-                >{snapshot.warnings.map((warning) => $tBackendStore(warning)).join(' ')}</span
-              ></span
-            >
-          {/if}
-        </span>
-        <span class="provider-mark"><ProviderIcon providerId={provider.id} size={17} /></span>
-        <button
-          class="provider-settings-button"
-          type="button"
-          aria-label={$tStore('dashboard.providerSettings', {
-            provider: providerDisplayName(provider.id),
-          })}
-          data-tooltip={$tStore('dashboard.providerSettings', {
-            provider: providerDisplayName(provider.id),
-          })}
-          onpointerdown={(event) => event.stopPropagation()}
-          oncontextmenu={(event) => event.stopPropagation()}
-          onclick={(event) => {
-            event.stopPropagation();
-            onOpenProviderCustomize(provider.id);
-          }}><Icon name="gear" size={14} strokeWidth={1.8} /></button
-        >
-      </header>
       <section
-        class="provider-card"
-        aria-label={$tStore('dashboard.providerUsage', {
+        class="provider-section"
+        data-provider-id={provider.id}
+        data-reorder-group="dashboard-providers"
+        data-reorder-id={provider.id}
+        role="group"
+        tabindex="-1"
+        aria-label={$tStore('dashboard.providerGroup', {
           provider: providerDisplayName(provider.id),
         })}
-        aria-busy={state?.refreshing ? 'true' : undefined}
+        use:pointerReorder={{
+          id: provider.id,
+          group: 'dashboard-providers',
+          label: providerDisplayName(provider.id),
+          gripOnly: true,
+          touchGripOnly: true,
+          onReorder: (targetId) => reorderProvider(provider.id, targetId),
+          onStart: onReorderStart,
+          onEnd: onReorderEnd,
+        }}
+        oncontextmenu={(event) => openProviderMenu(event, provider.id)}
       >
-        {#each snapshot.notices as notice (notice.id)}
-          <ProviderNoticeRow {notice} />
-        {/each}
-        {#if state?.error}
-          <div class="provider-error-row">
-            <span class="provider-error-row__icon" aria-hidden="true"
-              ><Icon name="warning" size={12} strokeWidth={2} /></span
-            >
-            <span class="provider-error-row__message" role="alert"
-              >{$tBackendStore(state.error)}</span
-            >
-            <div class="provider-error-row__actions">
-              {#if catalog.supportsDeviceCodeSignIn(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'credentialStorage')}
-                <ProviderDeviceCodeLogin
-                  providerId={provider.id}
-                  providerName={providerDisplayName(provider.id)}
-                  compact
-                />
-              {/if}
-              {#if catalog.supportsWebviewAuth(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'permission' || state.errorKind === 'credentialStorage')}
-                <ProviderSessionActions
-                  providerId={provider.id}
-                  providerName={providerDisplayName(provider.id)}
-                  compact
-                />
-              {/if}
-              {#if catalog.supportsApiKeyConfiguration(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'permission' || state.errorKind === 'credentialStorage')}
+        <header
+          class="provider-header"
+          data-reorder-handle
+          role="group"
+          aria-label={$tStore('dashboard.dragProvider', {
+            provider: providerDisplayName(provider.id),
+          })}
+        >
+          <span
+            class="drag-grip"
+            data-reorder-handle
+            data-reorder-touch-handle
+            role="button"
+            tabindex="0"
+            aria-label={$tStore('dashboard.moveProvider', {
+              name: providerDisplayName(provider.id),
+            })}
+            aria-describedby="reorder-instructions"
+            aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"><Icon name="grip-dots" size={13} /></span
+          >
+          <h1>{providerDisplayName(provider.id)}</h1>
+          {#if snapshot.plan}<span class="plan">{$tBackendStore(snapshot.plan)}</span>{/if}
+          {#if state?.snapshot && state.stale}<span
+              class="status-badge"
+              data-tooltip={$tStore(...stalenessTooltipArgs(snapshot.refreshedAt))}
+              >{$tStore('dashboard.outdated')}<span class="sr-only"
+                >. {$tStore(...stalenessTooltipArgs(snapshot.refreshedAt))}</span
+              ></span
+            >{/if}
+          <span
+            class="provider-status-slot"
+            class:active={Boolean(
+              state?.refreshing || state?.error || snapshot.warnings.length > 0,
+            )}
+          >
+            {#if state?.refreshing}
+              <span class="provider-refreshing" aria-label={$tStore('dashboard.refreshing')}
+                ><Icon name="refresh" size={12} strokeWidth={2} /></span
+              >
+            {:else if state?.error}
+              <span
+                class="provider-warning"
+                data-tooltip={$tBackendStore(state.error)}
+                aria-hidden="true"><Icon name="warning" size={12} strokeWidth={2} /></span
+              >
+            {:else if snapshot.warnings.length > 0}
+              <span
+                class="provider-warning"
+                role="status"
+                data-tooltip={snapshot.warnings
+                  .map((warning) => $tBackendStore(warning))
+                  .join('\n')}
+                aria-label={snapshot.warnings.map((warning) => $tBackendStore(warning)).join(' ')}
+                ><Icon name="warning" size={12} strokeWidth={2} /><span class="sr-only"
+                  >{snapshot.warnings.map((warning) => $tBackendStore(warning)).join(' ')}</span
+                ></span
+              >
+            {/if}
+          </span>
+          <span class="provider-mark"><ProviderIcon providerId={provider.id} size={17} /></span>
+          <button
+            class="provider-settings-button"
+            type="button"
+            aria-label={$tStore('dashboard.providerSettings', {
+              provider: providerDisplayName(provider.id),
+            })}
+            data-tooltip={$tStore('dashboard.providerSettings', {
+              provider: providerDisplayName(provider.id),
+            })}
+            onpointerdown={(event) => event.stopPropagation()}
+            oncontextmenu={(event) => event.stopPropagation()}
+            onclick={(event) => {
+              event.stopPropagation();
+              onOpenProviderCustomize(provider.id);
+            }}><Icon name="gear" size={14} strokeWidth={1.8} /></button
+          >
+        </header>
+        <section
+          class="provider-card"
+          aria-label={$tStore('dashboard.providerUsage', {
+            provider: providerDisplayName(provider.id),
+          })}
+          aria-busy={state?.refreshing ? 'true' : undefined}
+        >
+          {#each snapshot.notices as notice (notice.id)}
+            <ProviderNoticeRow {notice} />
+          {/each}
+          {#if state?.error}
+            <div class="provider-error-row">
+              <span class="provider-error-row__icon" aria-hidden="true"
+                ><Icon name="warning" size={12} strokeWidth={2} /></span
+              >
+              <span class="provider-error-row__message" role="alert"
+                >{$tBackendStore(state.error)}</span
+              >
+              <div class="provider-error-row__actions">
+                {#if catalog.supportsDeviceCodeSignIn(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'credentialStorage')}
+                  <ProviderDeviceCodeLogin
+                    providerId={provider.id}
+                    providerName={providerDisplayName(provider.id)}
+                    compact
+                  />
+                {/if}
+                {#if catalog.supportsWebviewAuth(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'permission' || state.errorKind === 'credentialStorage')}
+                  <ProviderSessionActions
+                    providerId={provider.id}
+                    providerName={providerDisplayName(provider.id)}
+                    compact
+                  />
+                {/if}
+                {#if catalog.supportsApiKeyConfiguration(provider.id) && (state.errorKind === 'authentication' || state.errorKind === 'permission' || state.errorKind === 'credentialStorage')}
+                  <button
+                    type="button"
+                    aria-label={$tStore('dashboard.configureProvider', {
+                      provider: providerDisplayName(provider.id),
+                    })}
+                    onclick={() => onOpenProviderCustomize(provider.id)}
+                    >{$tStore('dashboard.configure')}</button
+                  >
+                {/if}
                 <button
                   type="button"
-                  aria-label={$tStore('dashboard.configureProvider', {
-                    provider: providerDisplayName(provider.id),
-                  })}
-                  onclick={() => onOpenProviderCustomize(provider.id)}
-                  >{$tStore('dashboard.configure')}</button
+                  aria-label={$tStore(
+                    state.refreshing ? 'dashboard.retryingProvider' : 'dashboard.retryProvider',
+                    { provider: providerDisplayName(provider.id) },
+                  )}
+                  aria-disabled={state.refreshing}
+                  onclick={(event) => void retryProvider(event, provider.id, state.refreshing)}
+                  >{$tStore(state.refreshing ? 'dashboard.retrying' : 'dashboard.retry')}</button
                 >
-              {/if}
-              <button
-                type="button"
-                aria-label={$tStore(
-                  state.refreshing ? 'dashboard.retryingProvider' : 'dashboard.retryProvider',
-                  { provider: providerDisplayName(provider.id) },
-                )}
-                aria-disabled={state.refreshing}
-                onclick={(event) => void retryProvider(event, provider.id, state.refreshing)}
-                >{$tStore(state.refreshing ? 'dashboard.retrying' : 'dashboard.retry')}</button
-              >
+              </div>
             </div>
-          </div>
-        {/if}
-        {#if links.length > 0}
-          <ProviderLinks
-            {links}
-            onOpen={(linkIndex) => onOpenProviderLink(provider.id, linkIndex)}
-          />
-        {/if}
-        {#each alwaysMetrics as metric (metric.id)}
-          <div
-            class="metric-context-target"
-            class:metric-context-target--content-morph={demandMorphing}
-            data-reorder-group={`dashboard-metrics:${provider.id}`}
-            data-reorder-id={metric.id}
-            role="group"
-            aria-label={$tStore('dashboard.metricOptions', {
-              label: metricDisplayLabel(metric.id),
-            })}
-            use:pointerReorder={{
-              id: metric.id,
-              group: `dashboard-metrics:${provider.id}`,
-              label: metricDisplayLabel(metric.id),
-              touchGripOnly: true,
-              onReorder: (targetId) => reorderMetricToTarget(metric.id, provider.id, targetId),
-              onStart: onReorderStart,
-              onEnd: onReorderEnd,
-            }}
-            animate:flip={reorderFlip(reducedMotion || demandMorphing)}
-            oncontextmenu={(event) => openMetricMenu(event, provider.id, metric.id)}
-          >
-            <button
-              class="metric-reorder-handle"
-              data-reorder-handle
-              data-reorder-touch-handle
-              type="button"
-              aria-label={$tStore('dashboard.moveMetric', {
+          {/if}
+          {#if links.length > 0}
+            <ProviderLinks
+              {links}
+              onOpen={(linkIndex) => onOpenProviderLink(provider.id, linkIndex)}
+            />
+          {/if}
+          {#each alwaysMetrics as metric (metric.id)}
+            <div
+              class="metric-context-target"
+              class:metric-context-target--content-morph={demandMorphing}
+              data-reorder-group={`dashboard-metrics:${provider.id}`}
+              data-reorder-id={metric.id}
+              role="group"
+              aria-label={$tStore('dashboard.metricOptions', {
                 label: metricDisplayLabel(metric.id),
               })}
-              aria-describedby="reorder-instructions"
-              aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-              ><Icon name="grip-lines" size={13} strokeWidth={2} /></button
+              use:pointerReorder={{
+                id: metric.id,
+                group: `dashboard-metrics:${provider.id}`,
+                label: metricDisplayLabel(metric.id),
+                touchGripOnly: true,
+                onReorder: (targetId) => reorderMetricToTarget(metric.id, provider.id, targetId),
+                onStart: onReorderStart,
+                onEnd: onReorderEnd,
+              }}
+              animate:flip={reorderFlip(reducedMotion || demandMorphing)}
+              oncontextmenu={(event) => openMetricMenu(event, provider.id, metric.id)}
             >
-            <MetricRenderer
-              layout={metric}
-              {snapshot}
-              {settings}
-              {now}
-              {catalog}
-              {onSettingsChange}
-              expanded={providerExpanded(provider)}
-            />
-          </div>
-        {/each}
-        {#if demandMetrics.length > 0}
-          {#if provider.id !== focusedProviderId}
+              <button
+                class="metric-reorder-handle"
+                data-reorder-handle
+                data-reorder-touch-handle
+                type="button"
+                aria-label={$tStore('dashboard.moveMetric', {
+                  label: metricDisplayLabel(metric.id),
+                })}
+                aria-describedby="reorder-instructions"
+                aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                ><Icon name="grip-lines" size={13} strokeWidth={2} /></button
+              >
+              <MetricRenderer
+                layout={metric}
+                {snapshot}
+                {settings}
+                {now}
+                {catalog}
+                {onSettingsChange}
+                expanded={providerExpanded(provider)}
+              />
+            </div>
+          {/each}
+          {#if demandMetrics.length > 0}
             <button
               class="demand-divider"
               data-reorder-group={`dashboard-metrics:${provider.id}`}
@@ -677,159 +694,158 @@
                 strokeWidth={2.2}
               />
             </button>
-          {/if}
-          {#if provider.id === focusedProviderId || provider.expanded}
-            <div class="demand-metrics" transition:slide={springMotion(reducedMotion)}>
-              {#each demandMetrics as metric (metric.id)}
-                <div
-                  class="metric-context-target"
-                  class:metric-context-target--content-morph={demandMorphing}
-                  data-reorder-group={`dashboard-metrics:${provider.id}`}
-                  data-reorder-id={metric.id}
-                  role="group"
-                  aria-label={$tStore('dashboard.metricOptions', {
-                    label: metricDisplayLabel(metric.id),
-                  })}
-                  use:pointerReorder={{
-                    id: metric.id,
-                    group: `dashboard-metrics:${provider.id}`,
-                    label: metricDisplayLabel(metric.id),
-                    touchGripOnly: true,
-                    onReorder: (targetId) =>
-                      reorderMetricToTarget(metric.id, provider.id, targetId),
-                    onStart: onReorderStart,
-                    onEnd: onReorderEnd,
-                  }}
-                  animate:flip={reorderFlip(reducedMotion || demandMorphing)}
-                  oncontextmenu={(event) => openMetricMenu(event, provider.id, metric.id)}
-                >
-                  <button
-                    class="metric-reorder-handle"
-                    data-reorder-handle
-                    data-reorder-touch-handle
-                    type="button"
-                    aria-label={$tStore('dashboard.moveMetric', {
+            {#if provider.expanded}
+              <div class="demand-metrics" transition:slide={springMotion(reducedMotion)}>
+                {#each demandMetrics as metric (metric.id)}
+                  <div
+                    class="metric-context-target"
+                    class:metric-context-target--content-morph={demandMorphing}
+                    data-reorder-group={`dashboard-metrics:${provider.id}`}
+                    data-reorder-id={metric.id}
+                    role="group"
+                    aria-label={$tStore('dashboard.metricOptions', {
                       label: metricDisplayLabel(metric.id),
                     })}
-                    aria-describedby="reorder-instructions"
-                    aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
-                    ><Icon name="grip-lines" size={13} strokeWidth={2} /></button
+                    use:pointerReorder={{
+                      id: metric.id,
+                      group: `dashboard-metrics:${provider.id}`,
+                      label: metricDisplayLabel(metric.id),
+                      touchGripOnly: true,
+                      onReorder: (targetId) =>
+                        reorderMetricToTarget(metric.id, provider.id, targetId),
+                      onStart: onReorderStart,
+                      onEnd: onReorderEnd,
+                    }}
+                    animate:flip={reorderFlip(reducedMotion || demandMorphing)}
+                    oncontextmenu={(event) => openMetricMenu(event, provider.id, metric.id)}
                   >
-                  <MetricRenderer
-                    layout={metric}
-                    {snapshot}
-                    {settings}
-                    {now}
-                    {catalog}
-                    {onSettingsChange}
-                    expanded={providerExpanded(provider)}
-                  />
-                </div>
-              {/each}
-            </div>
+                    <button
+                      class="metric-reorder-handle"
+                      data-reorder-handle
+                      data-reorder-touch-handle
+                      type="button"
+                      aria-label={$tStore('dashboard.moveMetric', {
+                        label: metricDisplayLabel(metric.id),
+                      })}
+                      aria-describedby="reorder-instructions"
+                      aria-keyshortcuts="Alt+ArrowUp Alt+ArrowDown"
+                      ><Icon name="grip-lines" size={13} strokeWidth={2} /></button
+                    >
+                    <MetricRenderer
+                      layout={metric}
+                      {snapshot}
+                      {settings}
+                      {now}
+                      {catalog}
+                      {onSettingsChange}
+                      expanded={providerExpanded(provider)}
+                    />
+                  </div>
+                {/each}
+              </div>
+            {/if}
           {/if}
-        {/if}
+        </section>
       </section>
-    </section>
-  </div>
-{/each}
-
-{#if providerMenu}
-  {@const menuProvider = settings.providers.find((provider) => provider.id === providerMenu?.id)}
-  {#if menuProvider}
-    <div
-      class="context-menu"
-      style={`left:${providerMenu.x}px;top:${providerMenu.y}px`}
-      role="menu"
-      tabindex="-1"
-      onkeydown={handleContextMenuKey}
-    >
-      <button
-        class="danger"
-        type="button"
-        role="menuitem"
-        onclick={() => hideProvider(menuProvider.id)}
-        ><Icon name="power" size={15} />{$tStore('dashboard.hideProvider', {
-          provider: providerDisplayName(menuProvider.id),
-        })}</button
-      >
-      <hr />
-      <button type="button" role="menuitem" onclick={() => onRefresh(menuProvider.id)}
-        ><Icon name="refresh" size={15} />{$tStore('dashboard.refreshProvider', {
-          provider: providerDisplayName(menuProvider.id),
-        })}</button
-      >
-      {#if canRenameProvider(menuProvider.id, renamableProviderIds)}
-        <button type="button" role="menuitem" onclick={() => onRenameProvider(menuProvider.id)}
-          ><Icon name="edit" size={15} />{$tStore('dashboard.rename')}</button
-        >
-      {/if}
-      <button type="button" role="menuitem" onclick={() => onOpenProviderCustomize(menuProvider.id)}
-        ><Icon name="sliders" size={15} />{$tStore('dashboard.customize')}</button
-      >
-      <hr />
-      <button type="button" role="menuitem" onclick={() => onShare(menuProvider.id)}
-        ><Icon name="share" size={15} />{$tStore('dashboard.shareScreenshot')}</button
-      >
     </div>
-  {/if}
-{/if}
+  {/each}
 
-{#if metricMenu}
-  {@const metricProvider = settings.providers.find(
-    (provider) => provider.id === metricMenu?.providerId,
-  )}
-  {@const menuMetric = metricProvider?.metrics.find((metric) => metric.id === metricMenu?.metricId)}
-  {#if metricProvider && menuMetric}
-    <div
-      class="context-menu"
-      style={`left:${metricMenu.x}px;top:${metricMenu.y}px`}
-      role="menu"
-      tabindex="-1"
-      onkeydown={handleContextMenuKey}
-    >
-      <button
-        class="danger"
-        type="button"
-        role="menuitem"
-        onclick={() => patchMetric(metricProvider.id, menuMetric.id, { enabled: false })}
-        ><Icon name="power" size={15} />{$tStore('dashboard.hideMetric')}</button
+  {#if providerMenu}
+    {@const menuProvider = settings.providers.find((provider) => provider.id === providerMenu?.id)}
+    {#if menuProvider}
+      <div
+        class="context-menu"
+        style={`left:${providerMenu.x}px;top:${providerMenu.y}px`}
+        role="menu"
+        tabindex="-1"
+        onkeydown={handleContextMenuKey}
       >
-      {#if metricDefinition(menuMetric.id)?.pinnable}
+        <button
+          class="danger"
+          type="button"
+          role="menuitem"
+          onclick={() => hideProvider(menuProvider.id)}
+          ><Icon name="power" size={15} />{$tStore('dashboard.hideProvider', {
+            provider: providerDisplayName(menuProvider.id),
+          })}</button
+        >
+        <hr />
+        <button type="button" role="menuitem" onclick={() => onRefresh(menuProvider.id)}
+          ><Icon name="refresh" size={15} />{$tStore('dashboard.refreshProvider', {
+            provider: providerDisplayName(menuProvider.id),
+          })}</button
+        >
+        {#if canRenameProvider(menuProvider.id, renamableProviderIds)}
+          <button type="button" role="menuitem" onclick={() => onRenameProvider(menuProvider.id)}
+            ><Icon name="edit" size={15} />{$tStore('dashboard.rename')}</button
+          >
+        {/if}
         <button
           type="button"
           role="menuitem"
-          disabled={!menuMetric.pinned &&
-            metricProvider.metrics.filter((metric) => metric.pinned).length >= 2}
-          onclick={() =>
-            patchMetric(metricProvider.id, menuMetric.id, {
-              pinned: !menuMetric.pinned,
-            })}
-          ><Icon name={menuMetric.pinned ? 'star-filled' : 'star'} size={15} />{menuMetric.pinned
-            ? $tStore('dashboard.unstar')
-            : $tStore('dashboard.starForMenuBar')}</button
+          onclick={() => onOpenProviderCustomize(menuProvider.id)}
+          ><Icon name="sliders" size={15} />{$tStore('dashboard.customize')}</button
         >
-      {/if}
-      <hr />
-      <button type="button" role="menuitem" onclick={() => onRefresh(metricProvider.id)}
-        ><Icon name="refresh" size={15} />{$tStore('dashboard.refreshProvider', {
-          provider: providerDisplayName(metricProvider.id),
-        })}</button
-      >
-      <button
-        type="button"
-        role="menuitem"
-        onclick={() => onOpenProviderCustomize(metricProvider.id)}
-        ><Icon name="sliders" size={15} />{$tStore('dashboard.customize')}</button
-      >
-    </div>
+        <hr />
+        <button type="button" role="menuitem" onclick={() => onShare(menuProvider.id)}
+          ><Icon name="share" size={15} />{$tStore('dashboard.shareScreenshot')}</button
+        >
+      </div>
+    {/if}
   {/if}
-{/if}
 
-{#if enabledProviders.length === 0}
-  <section class="empty-dashboard">
-    <span>{$tStore('dashboard.empty')}</span>
-  </section>
+  {#if metricMenu}
+    {@const metricProvider = settings.providers.find(
+      (provider) => provider.id === metricMenu?.providerId,
+    )}
+    {@const menuMetric = metricProvider?.metrics.find(
+      (metric) => metric.id === metricMenu?.metricId,
+    )}
+    {#if metricProvider && menuMetric}
+      <div
+        class="context-menu"
+        style={`left:${metricMenu.x}px;top:${metricMenu.y}px`}
+        role="menu"
+        tabindex="-1"
+        onkeydown={handleContextMenuKey}
+      >
+        <button
+          class="danger"
+          type="button"
+          role="menuitem"
+          onclick={() => patchMetric(metricProvider.id, menuMetric.id, { enabled: false })}
+          ><Icon name="power" size={15} />{$tStore('dashboard.hideMetric')}</button
+        >
+        {#if metricDefinition(menuMetric.id)?.pinnable}
+          <button
+            type="button"
+            role="menuitem"
+            disabled={!menuMetric.pinned &&
+              metricProvider.metrics.filter((metric) => metric.pinned).length >= 2}
+            onclick={() =>
+              patchMetric(metricProvider.id, menuMetric.id, {
+                pinned: !menuMetric.pinned,
+              })}
+            ><Icon name={menuMetric.pinned ? 'star-filled' : 'star'} size={15} />{menuMetric.pinned
+              ? $tStore('dashboard.unstar')
+              : $tStore('dashboard.starForMenuBar')}</button
+          >
+        {/if}
+        <hr />
+        <button type="button" role="menuitem" onclick={() => onRefresh(metricProvider.id)}
+          ><Icon name="refresh" size={15} />{$tStore('dashboard.refreshProvider', {
+            provider: providerDisplayName(metricProvider.id),
+          })}</button
+        >
+        <button
+          type="button"
+          role="menuitem"
+          onclick={() => onOpenProviderCustomize(metricProvider.id)}
+          ><Icon name="sliders" size={15} />{$tStore('dashboard.customize')}</button
+        >
+      </div>
+    {/if}
+  {/if}
 {/if}
 
 <style>

@@ -190,6 +190,7 @@ function deviceCodeSignInFixture(errorKind: ProviderViewState['errorKind'] = 'au
 
 describe('Quota01 dashboard', () => {
   beforeEach(() => {
+    localStorage.clear();
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
       workArea: { size: { width: 1280, height: 700 } },
@@ -241,7 +242,10 @@ describe('Quota01 dashboard', () => {
       return Promise.reject(new Error(`unexpected command ${command}`));
     });
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
 
   it('renders quota, total spend, and the 30-day trend from backend data', async () => {
     const { container } = render(App);
@@ -259,6 +263,34 @@ describe('Quota01 dashboard', () => {
     );
     expect(screen.getByText(`Quota01 ${import.meta.env.APP_VERSION}`)).toBeInTheDocument();
     expect(container.querySelector('.floating-chrome')).not.toBeInTheDocument();
+  });
+
+  it('offers a customization action when no provider is enabled', async () => {
+    const emptySettings: SettingsViewState = {
+      ...settingsState,
+      settings: { ...settingsState.settings, providers: [], detectionNoticeDismissed: true },
+    };
+    mockInvoke((command: string) => {
+      if (command === 'get_usage_state') return Promise.resolve({ providers: {} });
+      if (command === 'get_app_settings') return Promise.resolve(emptySettings);
+      if (command === 'check_for_updates')
+        return Promise.resolve({
+          available: false,
+          currentVersion: '0.1.0',
+          version: null,
+          body: null,
+          installable: true,
+          releaseUrl: 'https://github.com/deviffyy/OpenQuota/releases/latest',
+        });
+      return Promise.resolve();
+    });
+
+    render(App);
+
+    expect(await screen.findByRole('button', { name: 'Customize' })).toBeInTheDocument();
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    expect(await screen.findByRole('heading', { name: 'Customize' })).toBeInTheDocument();
   });
 
   it('toggles floating window mode from the footer pin when a tray is available', async () => {
@@ -398,7 +430,7 @@ describe('Quota01 dashboard', () => {
     }
   });
 
-  it('renders Claude and Antigravity independently with provider-specific quota formats', async () => {
+  it('shows enabled provider summaries while switching the selected data view', async () => {
     const multiProviderSettings = {
       ...settingsState,
       settings: {
@@ -470,9 +502,12 @@ describe('Quota01 dashboard', () => {
 
     render(App);
     expect(await screen.findByRole('heading', { name: 'Claude' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Antigravity' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Antigravity' })).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: '$37.5 left' })).toBeInTheDocument();
-    expect(screen.getAllByRole('progressbar')).toHaveLength(6);
+    expect(screen.getAllByRole('tab')).toHaveLength(3);
+    expect(screen.getByRole('tab', { name: /Codex.*68%/ })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Antigravity.*100%/ })).toBeInTheDocument();
+    expect(screen.getAllByRole('progressbar')).toHaveLength(2);
     expect(
       within(screen.getByRole('region', { name: 'Total Spend' })).getByRole('img', {
         name: 'Only includes Claude and Codex',
@@ -480,18 +515,16 @@ describe('Quota01 dashboard', () => {
     ).toBeInTheDocument();
 
     const claudeTab = screen.getByRole('tab', { name: /Claude/ });
-    expect(claudeTab).toHaveAttribute('aria-selected', 'false');
-    await fireEvent.click(claudeTab);
+    expect(claudeTab).toHaveAttribute('aria-selected', 'true');
+    await fireEvent.click(screen.getByRole('tab', { name: /Antigravity/ }));
     await waitFor(() => {
-      expect(screen.getByRole('tab', { name: /Claude/ })).toHaveAttribute('aria-selected', 'true');
-      expect(screen.queryByRole('group', { name: 'Codex provider' })).not.toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Antigravity/ })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      expect(screen.getByRole('heading', { name: 'Antigravity' })).toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
     });
-    expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
-
-    await fireEvent.click(screen.getByRole('tab', { name: 'All' }));
-    await waitFor(() =>
-      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument(),
-    );
     expect(screen.getByRole('region', { name: 'Total Spend' })).toBeInTheDocument();
   });
 
@@ -711,7 +744,11 @@ describe('Quota01 dashboard', () => {
   it('reveals On Demand metrics without losing their saved order', async () => {
     render(App);
     await screen.findByText('Plus');
-    expect(screen.queryByText('$3.8 · 2.1M tokens')).not.toBeInTheDocument();
+    expect(
+      within(screen.getByRole('group', { name: 'Codex provider' })).queryByText(
+        '$3.8 · 2.1M tokens',
+      ),
+    ).not.toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
     expect(screen.getByText('$3.8 · 2.1M tokens')).toBeInTheDocument();
     await waitFor(() =>
@@ -719,7 +756,7 @@ describe('Quota01 dashboard', () => {
     );
   });
 
-  it('keeps neighboring provider values mounted while Codex On Demand morphs', async () => {
+  it('shows only the selected provider while Codex On Demand morphs', async () => {
     const multiUsage: UsageViewState = {
       providers: { claude: claudeState, codex: codexState },
     };
@@ -754,23 +791,15 @@ describe('Quota01 dashboard', () => {
     });
 
     render(App);
-    const claude = await screen.findByRole('group', { name: 'Claude provider' });
-    const codex = screen.getByRole('group', { name: 'Codex provider' });
-    const claudeReading = within(claude).getByText('80% left');
-
+    await screen.findByRole('group', { name: 'Claude provider' });
+    await fireEvent.click(screen.getByRole('tab', { name: /Codex/ }));
+    const codex = await screen.findByRole('group', { name: 'Codex provider' });
+    expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
     await fireEvent.click(within(codex).getByRole('button', { name: 'Show more' }));
-
-    expect(claudeReading.isConnected).toBe(true);
-    expect(within(claude).getByText('80% left')).toBe(claudeReading);
-    expect(claude.closest('.provider-reorder-shell')).toHaveClass(
-      'provider-reorder-shell--content-morph',
-    );
+    expect(within(codex).getByText('Spark')).toBeInTheDocument();
     expect(codex.closest('.provider-reorder-shell')).toHaveClass(
       'provider-reorder-shell--content-morph',
     );
-    for (const metric of claude.querySelectorAll('.metric-context-target')) {
-      expect(metric).toHaveClass('metric-context-target--content-morph');
-    }
   });
 
   it('keeps quick links visible while the compact caret controls on-demand metrics', async () => {
@@ -1353,9 +1382,8 @@ describe('Quota01 dashboard', () => {
     });
 
     render(App);
-    await screen.findByRole('group', { name: 'Claude provider' });
-    const codex = screen.getByRole('group', { name: 'Codex provider' });
-    const claude = screen.getByRole('group', { name: 'Claude provider' });
+    const codex = await screen.findByRole('group', { name: 'Codex provider' });
+    expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
     expect(screen.getByText('Next update in 1m')).toBeInTheDocument();
     await fireEvent.contextMenu(codex, {
       clientX: 120,
@@ -1365,7 +1393,7 @@ describe('Quota01 dashboard', () => {
 
     expect(mocks.invoke).toHaveBeenCalledWith('refresh_provider_usage', { providerId: 'codex' });
     expect(within(codex).getByLabelText('Refreshing')).toBeInTheDocument();
-    expect(within(claude).queryByLabelText('Refreshing')).not.toBeInTheDocument();
+    expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
     expect(screen.getByText('Updating…')).toBeInTheDocument();
 
     finishRefresh?.(multiProviderState);
@@ -2085,7 +2113,10 @@ describe('Quota01 Windows taskband focus', () => {
     eventHandlers.clear();
     mocks.invoke.mockReset();
   });
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    localStorage.clear();
+  });
 
   it('hides other agents and keeps only the clicked agent when a taskband item is opened', async () => {
     const multiUsage: UsageViewState = {
@@ -2139,8 +2170,8 @@ describe('Quota01 Windows taskband focus', () => {
     });
     try {
       render(App);
-      await screen.findByRole('group', { name: 'Codex provider' });
-      expect(screen.getByRole('group', { name: 'Claude provider' })).toBeInTheDocument();
+      await screen.findByRole('group', { name: 'Claude provider' });
+      expect(screen.queryByRole('group', { name: 'Codex provider' })).not.toBeInTheDocument();
       const fitCallsBeforeOpen = mocks.invoke.mock.calls.filter(
         ([command]) => command === 'fit_panel_to_content',
       ).length;
@@ -2155,13 +2186,13 @@ describe('Quota01 Windows taskband focus', () => {
       const codex = screen.getByRole('group', { name: 'Codex provider' });
       expect(codex).toBeInTheDocument();
       expect(screen.getByRole('tab', { name: /Codex/ })).toHaveAttribute('aria-selected', 'true');
-      expect(within(codex).queryByRole('button', { name: 'Show more' })).not.toBeInTheDocument();
+      expect(within(codex).getByRole('button', { name: 'Show more' })).toBeInTheDocument();
       expect(within(codex).queryByRole('button', { name: 'Show less' })).not.toBeInTheDocument();
-      expect(within(codex).getByText('Spark')).toBeInTheDocument();
+      expect(within(codex).queryByText('Spark')).not.toBeInTheDocument();
       expect(
         within(codex).getByRole('button', { name: 'Status, opens in browser' }),
       ).toBeInTheDocument();
-      expect(screen.queryByRole('region', { name: 'Total Spend' })).not.toBeInTheDocument();
+      expect(screen.getByRole('region', { name: 'Total Spend' })).toBeInTheDocument();
       expect(mocks.invoke).not.toHaveBeenCalledWith('save_app_settings', expect.anything());
       await waitFor(() =>
         expect(
