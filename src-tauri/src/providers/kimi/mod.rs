@@ -19,7 +19,7 @@ use self::{
     mapper::map_usage,
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -111,8 +111,12 @@ impl KimiProvider {
         }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let response = required_response(self.client.fetch(api_key))?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let response = required_response(self.client.fetch(context, api_key))?;
         let mapped = map_usage(&response.body)?;
         Ok(ProviderSnapshot {
             credit_packages: Vec::new(),
@@ -139,12 +143,19 @@ impl UsageProvider for KimiProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(KimiError::MissingKey))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
