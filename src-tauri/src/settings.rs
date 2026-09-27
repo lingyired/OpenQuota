@@ -694,7 +694,11 @@ impl SettingsService {
             }
         }
         let mut enabled_instances_per_family = HashMap::<&str, usize>::new();
-        for provider in settings.providers.iter().filter(|provider| provider.enabled) {
+        for provider in settings
+            .providers
+            .iter()
+            .filter(|provider| provider.enabled)
+        {
             *enabled_instances_per_family
                 .entry(crate::providers::provider_family(&provider.id))
                 .or_default() += 1;

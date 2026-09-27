@@ -2,6 +2,8 @@ mod auth;
 mod client;
 mod mapper;
 
+use std::sync::Arc;
+
 use chrono::Utc;
 use thiserror::Error;
 
@@ -12,7 +14,7 @@ use crate::models::{
 
 use self::{auth::CommandCodeAuthStore, client::CommandCodeClient, mapper::map_billing};
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -116,12 +118,16 @@ impl CommandCodeProvider {
         Self { auth, client }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, CommandCodeError> {
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, CommandCodeError> {
         // The subscription is optional: it names the plan (Go / GOAT / Pro /
         // Max / Ultra) and dates the monthly reset, but a failure there must
         // not sink the credit report.
-        let credits = self.client.fetch_credits(api_key)?;
-        let subscription = self.client.fetch_subscription(api_key).ok();
+        let credits = self.client.fetch_credits(context, api_key)?;
+        let subscription = self.client.fetch_subscription(context, api_key).ok();
         let billing = map_billing(credits, subscription)?;
         Ok(ProviderSnapshot {
             credit_packages: Vec::new(),
@@ -148,12 +154,19 @@ impl UsageProvider for CommandCodeProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(CommandCodeError::MissingKey))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
             .map_err(ProviderError::from)
     }
 

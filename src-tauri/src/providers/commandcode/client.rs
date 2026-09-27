@@ -1,7 +1,9 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use reqwest::{blocking::Client, StatusCode};
 use serde_json::Value;
+
+use crate::providers::ProviderRequestContext;
 
 use super::CommandCodeError;
 
@@ -16,7 +18,7 @@ pub(super) struct BillingResponse {
 }
 
 pub(super) struct CommandCodeClient {
-    client: Client,
+    timeout: Duration,
     api_base: String,
 }
 
@@ -27,12 +29,7 @@ impl CommandCodeClient {
 
     fn with_base_url(test_base_url: Option<String>) -> Result<Self, CommandCodeError> {
         Ok(Self {
-            client: Client::builder()
-                .connect_timeout(Duration::from_secs(8))
-                .timeout(Duration::from_secs(15))
-                .user_agent(concat!("Quota01/", env!("CARGO_PKG_VERSION")))
-                .build()
-                .map_err(|_| CommandCodeError::ConnectionFailed)?,
+            timeout: Duration::from_secs(15),
             api_base: test_base_url
                 .unwrap_or_else(|| API_BASE.to_owned())
                 .trim_end_matches('/')
@@ -40,8 +37,32 @@ impl CommandCodeClient {
         })
     }
 
-    pub(super) fn fetch_credits(&self, api_key: &str) -> Result<BillingResponse, CommandCodeError> {
-        self.fetch(CREDITS_PATH, api_key, "credits")
+    fn http_client(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<Arc<Client>, CommandCodeError> {
+        context
+            .http_clients
+            .client(
+                "commandcode",
+                "default",
+                context.proxy_url.as_ref(),
+                |builder| {
+                    builder
+                        .connect_timeout(Duration::from_secs(8))
+                        .timeout(self.timeout)
+                        .user_agent(concat!("Quota01/", env!("CARGO_PKG_VERSION")))
+                },
+            )
+            .map_err(|_| CommandCodeError::ConnectionFailed)
+    }
+
+    pub(super) fn fetch_credits(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<BillingResponse, CommandCodeError> {
+        self.fetch(context, CREDITS_PATH, api_key, "credits")
     }
 
     /// The subscription carries the plan name (Go / GOAT / Pro / Max / Ultra)
@@ -49,20 +70,22 @@ impl CommandCodeClient {
     /// there degrades to a generic report instead of failing the refresh.
     pub(super) fn fetch_subscription(
         &self,
+        context: &ProviderRequestContext,
         api_key: &str,
     ) -> Result<BillingResponse, CommandCodeError> {
-        self.fetch(SUBSCRIPTIONS_PATH, api_key, "subscription")
+        self.fetch(context, SUBSCRIPTIONS_PATH, api_key, "subscription")
     }
 
     fn fetch(
         &self,
+        context: &ProviderRequestContext,
         path: &str,
         api_key: &str,
         endpoint: &str,
     ) -> Result<BillingResponse, CommandCodeError> {
+        let client = self.http_client(context)?;
         let started = std::time::Instant::now();
-        let response = self
-            .client
+        let response = client
             .get(format!("{}{path}", self.api_base))
             .bearer_auth(api_key)
             .header("Accept", "application/json")
@@ -92,5 +115,33 @@ impl CommandCodeClient {
     pub(super) fn for_test(base_url: &str) -> Self {
         Self::with_base_url(Some(base_url.to_owned()))
             .expect("test CommandCode endpoint should be valid")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use reqwest::Url;
+
+    use super::CommandCodeClient;
+    use crate::providers::{http::ProviderHttpClientFactory, test_http, ProviderRequestContext};
+
+    #[test]
+    fn provider_proxy_remaining_route_commandcode() {
+        let (url, request) = test_http::serve_once_capturing_request(200, r#"{"credits":{}}"#);
+        let proxy_url = url.replacen("http://", "http://proxy-user:proxy-pass@", 1);
+        let context = ProviderRequestContext {
+            proxy_url: Some(Url::parse(&proxy_url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        };
+        let client = CommandCodeClient::for_test(&url);
+
+        let response = client.fetch_credits(&context, "provider-api-key").unwrap();
+
+        assert_eq!(response.status.as_u16(), 200);
+        let request = request.join().unwrap().to_ascii_lowercase();
+        assert!(request.contains("proxy-authorization: basic "));
+        assert!(request.contains("authorization: bearer provider-api-key"));
     }
 }
