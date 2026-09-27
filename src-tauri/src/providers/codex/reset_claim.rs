@@ -174,11 +174,39 @@ fn outcome_from_consume(status: StatusCode, body: &Value) -> ResetClaimOutcome {
 
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use chrono::{TimeZone, Utc};
     use reqwest::StatusCode;
     use serde_json::json;
+    use tempfile::tempdir;
 
     use super::{credit_id_for_expiry, outcome_from_consume, ResetClaimOutcome};
+    use crate::providers::codex::CodexAuthState;
+
+    #[test]
+    fn reset_claim_candidates_are_loaded_only_from_auth_files() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("auth.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "tokens": {"access_token": "file-access", "account_id": "account-a"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let candidates =
+            CodexAuthState::load_candidates_from_paths(std::slice::from_ref(&path)).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].access_token, "file-access");
+        assert!(matches!(
+            CodexAuthState::load_candidates_from_paths(&[]),
+            Err(crate::providers::codex::CodexError::NotLoggedIn)
+        ));
+    }
 
     #[test]
     fn matches_only_an_available_credit_at_the_selected_expiry() {

@@ -8,12 +8,15 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
   currentMonitor: vi.fn(),
+  windowLabel: 'main',
 }));
+const appEventHandlers = new Map<string, (payload: unknown) => void>();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 vi.mock('@tauri-apps/api/window', () => ({
   currentMonitor: mocks.currentMonitor,
   getCurrentWindow: () => ({
+    label: mocks.windowLabel,
     scaleFactor: () => Promise.resolve(1),
     innerSize: () => Promise.resolve({ width: 320, height: 600 }),
   }),
@@ -30,17 +33,53 @@ function mockInvoke(implementation: InvokeImplementation) {
         implementation('get_app_settings', args),
       ]).then(([usage, settings]) => ({ usage, settings, catalog: providerCatalog }));
     }
+    if (command === 'open_settings_window') return Promise.resolve();
     return implementation(command, args);
   });
 }
 
+async function openSettingsWorkspace(targetScreen = 'settings') {
+  if (mocks.windowLabel !== 'settings') {
+    if (targetScreen === 'settings') {
+      await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+    } else {
+      await fireEvent.keyDown(document, { key: 'Enter' });
+    }
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: targetScreen }),
+    );
+    cleanup();
+    mocks.windowLabel = 'settings';
+    appEventHandlers.clear();
+    render(App);
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+    if (targetScreen !== 'settings') {
+      await waitFor(() =>
+        expect(appEventHandlers.get('settings-workspace-selection')).toBeDefined(),
+      );
+      appEventHandlers.get('settings-workspace-selection')?.({ payload: targetScreen });
+      await waitFor(() =>
+        expect(document.querySelector('.screen-page[data-screen="settings"]')).toBeTruthy(),
+      );
+    }
+  }
+  await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+}
+
 describe('Quota01 customization persistence and reorder', () => {
   beforeEach(() => {
+    mocks.windowLabel = 'main';
+    appEventHandlers.clear();
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
       workArea: { size: { width: 1280, height: 700 } },
     });
-    mocks.listen.mockReset().mockResolvedValue(vi.fn());
+    mocks.listen
+      .mockReset()
+      .mockImplementation((event: string, handler: (payload: unknown) => void) => {
+        appEventHandlers.set(event, handler);
+        return Promise.resolve(vi.fn());
+      });
     mocks.invoke.mockReset();
     mockInvoke((command: string, args?: InvokeArgs) => {
       if (
@@ -74,8 +113,7 @@ describe('Quota01 customization persistence and reorder', () => {
     const browserConfirm = vi.spyOn(window, 'confirm');
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    await openSettingsWorkspace('customize');
     await fireEvent.click(screen.getByRole('button', { name: 'Reset all customization' }));
 
     const dialog = screen.getByRole('alertdialog', { name: 'Reset All Customization?' });
@@ -100,8 +138,7 @@ describe('Quota01 customization persistence and reorder', () => {
   it('undoes the latest customization with Ctrl+Z', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
+    await openSettingsWorkspace('customize');
     const toggle = screen.getByRole('checkbox', { name: 'Enable codex' });
     await fireEvent.click(toggle);
     await waitFor(() =>
@@ -132,6 +169,7 @@ describe('Quota01 customization persistence and reorder', () => {
   });
 
   it('reloads persisted settings when a settings save fails', async () => {
+    mocks.windowLabel = 'settings';
     mockInvoke((command: string, args?: { settings?: SettingsViewState['settings'] }) => {
       if (command === 'get_usage_state') return Promise.resolve(liveState);
       if (command === 'get_app_settings') return Promise.resolve(settingsState);
@@ -139,9 +177,7 @@ describe('Quota01 customization persistence and reorder', () => {
       return Promise.reject(new Error(`unexpected command ${command} ${String(args)}`));
     });
     render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
     const launchAtLogin = screen.getByRole('checkbox', { name: 'Launch at Login' });
 
     await fireEvent.click(launchAtLogin);
@@ -267,7 +303,7 @@ describe('Quota01 customization persistence and reorder', () => {
     });
   });
 
-  it('does not let the global Enter shortcut steal an interactive control keypress', async () => {
+  it('opens Customize separately without rerouting the popup on Enter', async () => {
     render(App);
     await screen.findByText('Plus');
     const handle = screen.getByRole('button', { name: 'Move Session' });
@@ -279,7 +315,11 @@ describe('Quota01 customization persistence and reorder', () => {
 
     handle.blur();
     await fireEvent.keyDown(document, { key: 'Enter' });
-    expect(await screen.findByRole('heading', { name: 'Customize' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'customize' }),
+    );
+    expect(screen.getByText('Plus')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Customize' })).not.toBeInTheDocument();
   });
 
   it('restores the pre-drag layout when a reorder is cancelled', async () => {

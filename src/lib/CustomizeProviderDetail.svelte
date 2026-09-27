@@ -289,19 +289,35 @@
         </div>
       </div>
     {/each}
-    {#if platform === 'windows'}
-      <div class="taskband-section" role="group" aria-label={$tStore('customize.taskbar')}>
-        <h2>{$tStore('customize.taskbar')}</h2>
+    {#if platform === 'windows' || platform === 'macos'}
+      <div
+        class="taskband-section"
+        role="group"
+        aria-label={$tStore(
+          platform === 'macos' ? 'customize.menuBarInstance' : 'customize.taskbar',
+        )}
+      >
+        <h2>{$tStore(platform === 'macos' ? 'customize.menuBarInstance' : 'customize.taskbar')}</h2>
         <div class="taskband-row">
           <span class="taskband-row-label"
-            ><b>{$tStore('customize.showOnTaskbar')}</b><small
-              >{$tStore('customize.showOnTaskbarDesc')}</small
+            ><b
+              >{$tStore(
+                platform === 'macos' ? 'customize.showOnMenuBar' : 'customize.showOnTaskbar',
+              )}</b
+            ><small
+              >{$tStore(
+                platform === 'macos'
+                  ? 'customize.showOnMenuBarDesc'
+                  : 'customize.showOnTaskbarDesc',
+              )}</small
             ></span
           >
           <label class="switch"
             ><input
               type="checkbox"
-              aria-label={$tStore('customize.showOnTaskbar')}
+              aria-label={$tStore(
+                platform === 'macos' ? 'customize.showOnMenuBar' : 'customize.showOnTaskbar',
+              )}
               checked={taskband?.enabled ?? true}
               onchange={(event) => updateTaskband({ enabled: event.currentTarget.checked })}
             /><span></span></label

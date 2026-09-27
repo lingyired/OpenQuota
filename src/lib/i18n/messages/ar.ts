@@ -33,6 +33,12 @@ export const ar = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const ar = {
   },
   settings: {
     title: 'Settings',
+    providers: 'المزوّدون',
+    usagePreview: 'معاينة الاستخدام',
+    preferences: 'تفضيلات التطبيق',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,8 +165,6 @@ export const ar = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
-    showAppMenubar: 'إظهار أيقونة Quota01 في شريط القوائم',
-    appMenubarForced: 'لا تظهر أي أيقونات Provider، لذا تظل أيقونة Quota01 ظاهرة.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',
@@ -260,6 +267,7 @@ export const ar = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -282,6 +290,9 @@ export const ar = {
     name: 'Name',
     nameFor: 'Name for {name}',
     taskbar: 'Taskbar',
+    menuBarInstance: 'عنصر شريط القوائم',
+    showOnMenuBar: 'إظهار في شريط القوائم',
+    showOnMenuBarDesc: 'إظهار هذا المزوّد في شريط قوائم macOS.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

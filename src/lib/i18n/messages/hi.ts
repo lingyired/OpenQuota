@@ -33,6 +33,12 @@ export const hi = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const hi = {
   },
   settings: {
     title: 'Settings',
+    providers: 'प्रदाता',
+    usagePreview: 'उपयोग पूर्वावलोकन',
+    preferences: 'ऐप प्राथमिकताएँ',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,9 +165,6 @@ export const hi = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
-    showAppMenubar: 'Quota01 मेनू बार आइकन दिखाएँ',
-    appMenubarForced:
-      'कोई Provider मेनू बार आइकन दिखाई नहीं दे रहा, इसलिए Quota01 दिखाई देता रहेगा।',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',
@@ -261,6 +267,7 @@ export const hi = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -283,6 +290,9 @@ export const hi = {
     name: 'Name',
     nameFor: 'Name for {name}',
     taskbar: 'Taskbar',
+    menuBarInstance: 'मेनू बार आइटम',
+    showOnMenuBar: 'मेनू बार में दिखाएँ',
+    showOnMenuBarDesc: 'इस प्रदाता को macOS मेनू बार में दिखाएँ।',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

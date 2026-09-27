@@ -114,8 +114,9 @@ subscription limits require a ChatGPT login and are not available in API-key-onl
 - **Pacing alerts.** See whether your current usage is likely to last until the next reset.
 - **Custom layouts.** Reorder providers and metrics, hide rows, and choose what stays visible.
 - **Desktop integration.** Launch at login, use a global shortcut, and follow the system theme.
-- **Fast refresh.** Cached values appear immediately and providers refresh automatically in the
-  background.
+- **Scheduled refresh.** Cached values appear immediately. Providers with a menu bar or taskbar
+  instance, or enabled pacing alerts, refresh every 5 minutes; other enabled providers refresh every
+  15 minutes. Selecting cached data refreshes it after 5 minutes, and manual refresh always runs.
 
 Quota01 runs locally and has no account, cloud backend, analytics, or usage telemetry of its own.
 

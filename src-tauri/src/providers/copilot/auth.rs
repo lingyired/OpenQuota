@@ -1,11 +1,15 @@
 use std::{
     collections::HashSet,
     fs,
-    io::Read,
     ops::ControlFlow,
     path::{Path, PathBuf},
-    process::Stdio,
     sync::Arc,
+};
+
+#[cfg(not(target_os = "macos"))]
+use std::{
+    io::Read,
+    process::Stdio,
     thread,
     time::{Duration, Instant},
 };
@@ -13,13 +17,14 @@ use std::{
 use sha2::{Digest, Sha256};
 use zeroize::Zeroizing;
 
-#[cfg(target_os = "macos")]
-use crate::providers::credential_store::read_generic_password;
+#[cfg(not(target_os = "macos"))]
 use crate::{
     child_process::background_command, providers::credential_store::decode_go_keyring_value,
 };
 
+#[cfg(not(target_os = "macos"))]
 const GH_KEYRING_SERVICE: &str = "gh:github.com";
+#[cfg(not(target_os = "macos"))]
 const GH_COMMAND_TIMEOUT: Duration = Duration::from_secs(3);
 const MAX_CONFIG_BYTES: u64 = 1024 * 1024;
 const MAX_TOKEN_BYTES: usize = 4096;
@@ -55,6 +60,11 @@ impl CopilotToken {
 
 trait TextFileAccess: Send + Sync {
     fn read_text(&self, path: &Path) -> Option<String>;
+
+    #[cfg(target_os = "macos")]
+    fn read_text_checked(&self, path: &Path) -> Result<Option<String>, super::CopilotError> {
+        Ok(self.read_text(path))
+    }
 }
 
 #[derive(Default)]
@@ -68,66 +78,65 @@ impl TextFileAccess for LocalTextFiles {
         }
         fs::read_to_string(path).ok()
     }
+
+    #[cfg(target_os = "macos")]
+    fn read_text_checked(&self, path: &Path) -> Result<Option<String>, super::CopilotError> {
+        let metadata = match fs::metadata(path) {
+            Ok(metadata) => metadata,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(_) => return Err(super::CopilotError::CredentialRead),
+        };
+        if !metadata.is_file() {
+            return Err(super::CopilotError::CredentialRead);
+        }
+        if metadata.len() > MAX_CONFIG_BYTES {
+            return Err(super::CopilotError::InvalidResponse);
+        }
+        match fs::read_to_string(path) {
+            Ok(text) => Ok(Some(text)),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
+            Err(error) if error.kind() == std::io::ErrorKind::InvalidData => {
+                Err(super::CopilotError::InvalidResponse)
+            }
+            Err(_) => Err(super::CopilotError::CredentialRead),
+        }
+    }
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
+#[allow(dead_code)]
 trait GhTokenCommand: Send + Sync {
     fn token(&self) -> Option<CopilotToken>;
 }
 
+#[cfg(not(target_os = "macos"))]
 #[derive(Default)]
 struct LocalGhTokenCommand;
 
+#[cfg(not(target_os = "macos"))]
 impl GhTokenCommand for LocalGhTokenCommand {
     fn token(&self) -> Option<CopilotToken> {
         run_gh_token_command(GH_COMMAND_TIMEOUT)
     }
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
+#[allow(dead_code)]
 trait CredentialAccess: Send + Sync {
     fn read(&self, service: &str, account: &str) -> Option<Vec<u8>>;
     fn read_service(&self, service: &str) -> Option<Vec<u8>>;
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 #[derive(Default)]
-struct SystemCredentials;
+struct EmptyCredentials;
 
-impl CredentialAccess for SystemCredentials {
-    #[cfg(target_os = "macos")]
-    fn read(&self, service: &str, account: &str) -> Option<Vec<u8>> {
-        // Reading GitHub CLI's keychain entry makes macOS ask for authorization, so it stays
-        // untouched until the user turns this provider on by hand.
-        if !crate::providers::keychain_access::is_granted("copilot") {
-            return None;
-        }
-        read_generic_password(service, account).ok().flatten()
-    }
-
-    #[cfg(target_os = "macos")]
-    fn read_service(&self, service: &str) -> Option<Vec<u8>> {
-        use security_framework::passwords::{generic_password, PasswordOptions};
-
-        if !crate::providers::keychain_access::is_granted("copilot") {
-            return None;
-        }
-        // `PasswordOptions` has no service-only constructor. Its generic-password
-        // constructor appends the account constraint last, so removing that one
-        // constraint yields the same service-scoped query used by GitHub CLI.
-        let mut options = PasswordOptions::new_generic_password(service, "");
-        #[allow(deprecated)]
-        {
-            options.query.pop()?;
-        }
-        generic_password(options).ok()
-    }
-
-    #[cfg(not(target_os = "macos"))]
+#[cfg(any(not(target_os = "macos"), test))]
+impl CredentialAccess for EmptyCredentials {
     fn read(&self, _service: &str, _account: &str) -> Option<Vec<u8>> {
-        // GitHub CLI's credential target is not a stable public contract on these
-        // platforms. `gh auth token` above is the supported noninteractive accessor.
         None
     }
 
-    #[cfg(not(target_os = "macos"))]
     fn read_service(&self, _service: &str) -> Option<Vec<u8>> {
         None
     }
@@ -187,7 +196,11 @@ impl AuthPaths {
 pub(super) struct CopilotAuthStore {
     paths: AuthPaths,
     files: Arc<dyn TextFileAccess>,
+    #[cfg(any(not(target_os = "macos"), test))]
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     gh_command: Arc<dyn GhTokenCommand>,
+    #[cfg(any(not(target_os = "macos"), test))]
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     credentials: Arc<dyn CredentialAccess>,
 }
 
@@ -196,20 +209,103 @@ impl CopilotAuthStore {
         Self {
             paths: AuthPaths::discover(),
             files: Arc::new(LocalTextFiles),
+            #[cfg(all(not(target_os = "macos"), not(test)))]
             gh_command: Arc::new(LocalGhTokenCommand),
-            credentials: Arc::new(SystemCredentials),
+            #[cfg(test)]
+            gh_command: Arc::new(NoGhCommand),
+            #[cfg(any(not(target_os = "macos"), test))]
+            credentials: Arc::new(EmptyCredentials),
         }
     }
 
     pub(super) fn visit_candidates<B>(
         &self,
+        visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
+    ) -> Result<Option<B>, super::CopilotError> {
+        #[cfg(target_os = "macos")]
+        {
+            self.visit_macos_candidates(visit)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            let mut visit = visit;
+            let mut seen = HashSet::new();
+            if let Some(result) = self.visit_editor_candidates(&mut seen, &mut visit) {
+                return Ok(Some(result));
+            }
+            Ok(self.visit_github_cli_candidates(&mut seen, &mut visit))
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(super) fn visit_macos_candidates<B>(
+        &self,
         mut visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
-    ) -> Option<B> {
+    ) -> Result<Option<B>, super::CopilotError> {
         let mut seen = HashSet::new();
-        if let Some(result) = self.visit_editor_candidates(&mut seen, &mut visit) {
+        let mut source_error = None;
+        for path in &self.paths.editor_configs {
+            let text = match self.files.read_text_checked(path) {
+                Ok(Some(text)) => text,
+                Ok(None) => continue,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            let candidate = match editor_oauth_token_checked(&text) {
+                Ok(candidate) => candidate,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            if let Some(result) = visit_candidate(candidate, &mut seen, &mut visit) {
+                return Ok(Some(result));
+            }
+        }
+        for path in &self.paths.gh_configs {
+            let text = match self.files.read_text_checked(path) {
+                Ok(Some(text)) => text,
+                Ok(None) => continue,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            let candidate = match yaml_oauth_token_checked(&text) {
+                Ok(candidate) => candidate,
+                Err(error) => {
+                    source_error.get_or_insert(error);
+                    continue;
+                }
+            };
+            if let Some(result) = visit_candidate(candidate, &mut seen, &mut visit) {
+                return Ok(Some(result));
+            }
+        }
+        if let Some(error) = source_error {
+            Err(error)
+        } else {
+            Ok(None)
+        }
+    }
+
+    fn visit_file_candidates<B>(
+        &self,
+        seen: &mut HashSet<[u8; 32]>,
+        visit: &mut impl FnMut(CopilotToken) -> ControlFlow<B>,
+    ) -> Option<B> {
+        if let Some(result) = self.visit_editor_candidates(seen, visit) {
             return Some(result);
         }
-        self.visit_github_cli_candidates(&mut seen, &mut visit)
+        for text in self.gh_config_texts() {
+            let candidate = yaml_value(&text, "oauth_token").and_then(CopilotToken::new);
+            if let Some(result) = visit_candidate(candidate, seen, visit) {
+                return Some(result);
+            }
+        }
+        None
     }
 
     fn visit_editor_candidates<B>(
@@ -230,6 +326,7 @@ impl CopilotAuthStore {
         None
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn visit_github_cli_candidates<B>(
         &self,
         seen: &mut HashSet<[u8; 32]>,
@@ -272,12 +369,13 @@ impl CopilotAuthStore {
         mut visit: impl FnMut(CopilotToken) -> ControlFlow<B>,
     ) -> Option<B> {
         let mut seen = HashSet::new();
-        self.visit_editor_candidates(&mut seen, &mut visit)
+        self.visit_file_candidates(&mut seen, &mut visit)
     }
 
     #[cfg(test)]
+    #[cfg(not(target_os = "macos"))]
     pub(super) fn load(&self) -> Option<CopilotToken> {
-        self.visit_candidates(ControlFlow::Break)
+        self.visit_candidates(ControlFlow::Break).ok().flatten()
     }
 
     fn gh_config_texts(&self) -> impl Iterator<Item = String> + '_ {
@@ -377,6 +475,40 @@ fn editor_oauth_token(text: &str) -> Option<String> {
     })
 }
 
+#[cfg(target_os = "macos")]
+fn editor_oauth_token_checked(text: &str) -> Result<Option<CopilotToken>, super::CopilotError> {
+    let document = serde_json::from_str::<serde_json::Value>(text)
+        .map_err(|_| super::CopilotError::InvalidResponse)?;
+    let object = document
+        .as_object()
+        .ok_or(super::CopilotError::InvalidResponse)?;
+    for (host, value) in object {
+        if host != "github.com" && !host.starts_with("github.com:") {
+            continue;
+        }
+        let Some(token_value) = value.get("oauth_token") else {
+            continue;
+        };
+        let token = token_value
+            .as_str()
+            .ok_or(super::CopilotError::InvalidResponse)?;
+        return CopilotToken::new(token.to_owned())
+            .map(Some)
+            .ok_or(super::CopilotError::InvalidResponse);
+    }
+    Ok(None)
+}
+
+#[cfg(target_os = "macos")]
+fn yaml_oauth_token_checked(text: &str) -> Result<Option<CopilotToken>, super::CopilotError> {
+    let Some(token) = yaml_value(text, "oauth_token") else {
+        return Ok(None);
+    };
+    CopilotToken::new(token)
+        .map(Some)
+        .ok_or(super::CopilotError::InvalidResponse)
+}
+
 fn yaml_value(text: &str, key: &str) -> Option<String> {
     let prefix = format!("{key}:");
     let mut in_github = false;
@@ -413,6 +545,7 @@ fn yaml_value(text: &str, key: &str) -> Option<String> {
     None
 }
 
+#[cfg(not(target_os = "macos"))]
 fn token_from_keyring(raw: &[u8]) -> Option<CopilotToken> {
     let text = std::str::from_utf8(raw).ok()?.trim();
     if text.starts_with("go-keyring-base64:") {
@@ -422,6 +555,7 @@ fn token_from_keyring(raw: &[u8]) -> Option<CopilotToken> {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn run_gh_token_command(timeout: Duration) -> Option<CopilotToken> {
     let mut child = background_command("gh");
     child
@@ -537,23 +671,113 @@ impl CredentialAccess for NoCredentials {
 mod tests {
     use std::{
         collections::HashMap,
+        fs,
         path::PathBuf,
         sync::{Arc, Mutex},
+        time::Duration,
     };
 
+    use tempfile::tempdir;
+
+    #[cfg(target_os = "macos")]
+    use crate::providers::UsageProvider;
+
+    #[cfg(not(target_os = "macos"))]
     use base64::{engine::general_purpose::STANDARD, Engine};
 
+    #[cfg(not(target_os = "macos"))]
+    use super::token_from_keyring;
     use super::{
-        editor_oauth_token, token_from_keyring, yaml_value, AuthPaths, CopilotAuthStore,
-        CopilotToken, CredentialAccess, GhTokenCommand, MemoryFiles,
+        editor_oauth_token, yaml_value, AuthPaths, CopilotAuthStore, CopilotToken,
+        CredentialAccess, GhTokenCommand, LocalTextFiles, MemoryFiles, NoCredentials, NoGhCommand,
     };
 
+    #[cfg(target_os = "macos")]
+    fn refresh_error_for_local_paths(
+        editor_configs: Vec<PathBuf>,
+        gh_configs: Vec<PathBuf>,
+    ) -> crate::models::ProviderErrorKind {
+        let auth = CopilotAuthStore {
+            paths: AuthPaths {
+                editor_configs,
+                gh_configs,
+            },
+            files: Arc::new(LocalTextFiles),
+            gh_command: Arc::new(NoGhCommand),
+            credentials: Arc::new(NoCredentials),
+        };
+        let provider = super::super::CopilotProvider::with_dependencies(
+            auth,
+            super::super::client::CopilotClient::for_test(
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1/",
+                Duration::from_millis(100),
+            ),
+        );
+        provider.refresh().unwrap_err().kind()
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_configured_copilot_file_failures_are_distinct_from_missing_credentials() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        let directory = tempdir().unwrap();
+        let missing = directory.path().join("missing-apps.json");
+        let unreadable = directory.path().join("unreadable-apps.json");
+        fs::create_dir(&unreadable).unwrap();
+        let malformed = directory.path().join("malformed-apps.json");
+        fs::write(&malformed, b"{broken").unwrap();
+        let invalid_token = directory.path().join("invalid-token-apps.json");
+        fs::write(
+            &invalid_token,
+            br#"{"github.com":{"oauth_token":"token with spaces"}}"#,
+        )
+        .unwrap();
+        let unavailable = directory.path().join("empty-apps.json");
+        fs::write(&unavailable, br#"{"github.com":{}}"#).unwrap();
+        let invalid_hosts_token = directory.path().join("invalid-hosts.yml");
+        fs::write(
+            &invalid_hosts_token,
+            "github.com:\n    oauth_token: \"token with spaces\"\n",
+        )
+        .unwrap();
+
+        assert_eq!(
+            refresh_error_for_local_paths(vec![missing], vec![]),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![unavailable], vec![]),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![unreadable], vec![]),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![malformed], vec![]),
+            Kind::InvalidResponse
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![invalid_token], vec![]),
+            Kind::InvalidResponse
+        );
+        assert_eq!(
+            refresh_error_for_local_paths(vec![], vec![invalid_hosts_token]),
+            Kind::InvalidResponse
+        );
+    }
+
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     enum FakeGhResult {
         Token(String),
         Failed,
         TimedOut,
     }
 
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     struct FakeGh {
         result: FakeGhResult,
         calls: Mutex<usize>,
@@ -569,6 +793,7 @@ mod tests {
         }
     }
 
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     struct FakeCredentials {
         values: HashMap<(String, String), Vec<u8>>,
         service_values: HashMap<String, Vec<u8>>,
@@ -645,6 +870,7 @@ mod tests {
         })
     }
 
+    #[cfg(not(target_os = "macos"))]
     fn service_credentials(value: Option<&[u8]>) -> Arc<FakeCredentials> {
         Arc::new(FakeCredentials {
             values: HashMap::new(),
@@ -689,6 +915,7 @@ github.com:
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn source_precedence_is_editor_then_gh_config_then_command_then_keyring() {
         let gh = command(Some("command-token"));
         let vault = credentials(Some(("octocat", b"vault-token")));
@@ -735,7 +962,7 @@ github.com:
     }
 
     #[test]
-    fn startup_detection_does_not_touch_github_cli_sources() {
+    fn detection_checks_local_files_without_command_or_credential_lookups() {
         let gh = command(Some("command-token"));
         let vault = credentials(Some(("octocat", b"vault-token")));
         let auth = store(
@@ -762,6 +989,64 @@ github.com:
     }
 
     #[test]
+    fn detection_includes_direct_hosts_yaml_tokens() {
+        let gh = command(Some("command-token"));
+        let vault = credentials(Some(("octocat", b"vault-token")));
+        let auth = store(
+            &[],
+            &[("hosts.yml", "github.com:\n    oauth_token: config-token\n")],
+            gh.clone(),
+            vault.clone(),
+        );
+        let mut candidates = Vec::new();
+
+        let completed: Option<()> = auth.visit_detection_candidates(|token| {
+            candidates.push(token.as_str().to_owned());
+            std::ops::ControlFlow::Continue(())
+        });
+
+        assert!(completed.is_none());
+        assert_eq!(candidates, ["config-token"]);
+        assert_eq!(*gh.calls.lock().unwrap(), 0);
+        assert_eq!(*vault.calls.lock().unwrap(), 0);
+        assert_eq!(*vault.service_calls.lock().unwrap(), 0);
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn unavailable_runtime_refresh_does_not_query_external_credentials() {
+        use crate::providers::copilot::{client::CopilotClient, CopilotProvider, UsageProvider};
+
+        let gh = command(Some("command-token"));
+        let vault = credentials(Some(("octocat", b"vault-token")));
+        let auth = store(
+            &[],
+            &[("hosts.yml", "github.com:\n    user: octocat\n")],
+            gh.clone(),
+            vault.clone(),
+        );
+        let provider = CopilotProvider::with_dependencies(
+            auth,
+            CopilotClient::for_test(
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1",
+                "http://127.0.0.1:1/",
+                std::time::Duration::from_millis(100),
+            ),
+        );
+
+        let error = provider.refresh().unwrap_err();
+        assert_eq!(
+            error.kind(),
+            crate::models::ProviderErrorKind::CredentialsUnavailable
+        );
+        assert_eq!(*gh.calls.lock().unwrap(), 0);
+        assert_eq!(*vault.calls.lock().unwrap(), 0);
+        assert_eq!(*vault.service_calls.lock().unwrap(), 0);
+    }
+
+    #[test]
+    #[cfg(not(target_os = "macos"))]
     fn failed_or_timed_out_gh_fallback_can_use_the_scoped_system_credential() {
         for result in [FakeGhResult::Failed, FakeGhResult::TimedOut] {
             let gh = Arc::new(FakeGh {
@@ -784,6 +1069,7 @@ github.com:
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn service_scoped_keyring_fallback_works_without_a_github_username() {
         let vault = service_credentials(Some(b"vault-token"));
         let auth = store(&[], &[], command(None), vault.clone());
@@ -794,6 +1080,7 @@ github.com:
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn candidates_keep_source_order_and_deduplicate_token_values() {
         let gh = command(Some("shared-token"));
         let vault = service_credentials(Some(b"vault-token"));
@@ -813,10 +1100,12 @@ github.com:
             vault,
         );
         let mut candidates = Vec::new();
-        let completed: Option<()> = auth.visit_candidates(|token| {
-            candidates.push(token.as_str().to_owned());
-            std::ops::ControlFlow::Continue(())
-        });
+        let completed: Option<()> = auth
+            .visit_candidates(|token| {
+                candidates.push(token.as_str().to_owned());
+                std::ops::ControlFlow::Continue(())
+            })
+            .unwrap();
 
         assert!(completed.is_none());
         assert_eq!(
@@ -831,6 +1120,7 @@ github.com:
     }
 
     #[test]
+    #[cfg(not(target_os = "macos"))]
     fn wrapped_plain_and_invalid_tokens_are_handled_without_exposing_them() {
         let wrapped = format!("go-keyring-base64:{}", STANDARD.encode("wrapped-token"));
         assert_eq!(

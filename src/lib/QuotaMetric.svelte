@@ -21,6 +21,7 @@
     alwaysShowPacing: boolean;
     isSessionWindow?: boolean;
     percentFloored?: boolean;
+    readOnlyPreview?: boolean;
     onToggleUsage: () => void;
     onToggleReset: () => void;
   }
@@ -34,6 +35,7 @@
     alwaysShowPacing,
     isSessionWindow = false,
     percentFloored = false,
+    readOnlyPreview = false,
     onToggleUsage,
     onToggleReset,
   }: Props = $props();
@@ -202,16 +204,23 @@
     {#if showPace}
       {#if pace.severity === 'spent' || pace.severity === 'runningOut'}
         {#if pace.severity === 'runningOut' && paceLabel}
-          <button
-            type="button"
-            class="pace-warning"
-            data-tooltip={paceDetail ? $tBackendStore(paceDetail) : undefined}
-            aria-label={paceLabel}
-            onclick={onToggleReset}
-            ><span class="pace-warning__icon"
-              ><Icon name="flame-filled" size={11} strokeWidth={1.8} /></span
-            >{paceLabel}</button
-          >
+          {#if readOnlyPreview}<span
+              class="pace-warning"
+              data-tooltip={paceDetail ? $tBackendStore(paceDetail) : undefined}
+              aria-label={paceLabel}
+              ><span class="pace-warning__icon"
+                ><Icon name="flame-filled" size={11} strokeWidth={1.8} /></span
+              >{paceLabel}</span
+            >{:else}<button
+              type="button"
+              class="pace-warning"
+              data-tooltip={paceDetail ? $tBackendStore(paceDetail) : undefined}
+              aria-label={paceLabel}
+              onclick={onToggleReset}
+              ><span class="pace-warning__icon"
+                ><Icon name="flame-filled" size={11} strokeWidth={1.8} /></span
+              >{paceLabel}</button
+            >{/if}
         {:else}
           <span
             class="pace-warning"
@@ -261,16 +270,26 @@
   </div>
 
   <div class="metric__reading">
-    <button type="button" data-tooltip={readingTooltip ?? undefined} onclick={onToggleUsage}>
-      {reading}
-    </button>
+    {#if readOnlyPreview}<span data-tooltip={readingTooltip ?? undefined}>{reading}</span
+      >{:else}<button
+        type="button"
+        data-tooltip={readingTooltip ?? undefined}
+        onclick={onToggleUsage}
+      >
+        {reading}
+      </button>{/if}
     {#if freshSession}
       <span data-tooltip={$tStore('metric.sessionsStartAfter')}>{$tStore('metric.notStarted')}</span
       >
     {:else}
-      <button type="button" data-tooltip={resetTooltip ?? undefined} onclick={onToggleReset}>
-        {resetReading}
-      </button>
+      {#if readOnlyPreview}<span data-tooltip={resetTooltip ?? undefined}>{resetReading}</span
+        >{:else}<button
+          type="button"
+          data-tooltip={resetTooltip ?? undefined}
+          onclick={onToggleReset}
+        >
+          {resetReading}
+        </button>{/if}
     {/if}
   </div>
 </section>

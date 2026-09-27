@@ -125,8 +125,8 @@ fn definition_for(id: &str, display_name: &str, fallback_enabled: bool) -> Provi
 
 use self::{
     auth::{
-        load_candidates, oauth_config, ClaudeCredential, ClaudeCredentialGeneration,
-        ClaudeCredentialScope,
+        load_candidates, load_candidates_checked, oauth_config, ClaudeCredential,
+        ClaudeCredentialGeneration, ClaudeCredentialScope,
     },
     client::ClaudeClient,
     local_usage::scan_local_usage,
@@ -150,6 +150,8 @@ pub enum ClaudeError {
     InvalidOAuthUrl,
     #[error("Refreshed Claude credentials could not be saved.")]
     AuthWrite,
+    #[error("Claude credentials could not be read from the local credentials file.")]
+    CredentialRead,
     #[error("Claude login changed during refresh. Refresh again.")]
     CredentialsChanged,
     #[error("The Claude account changed while Quota01 was running. Restart Quota01 to reconnect it safely.")]
@@ -326,18 +328,22 @@ impl ClaudeProvider {
         config: &auth::ClaudeOAuthConfig,
     ) -> Result<ProviderSnapshot, ClaudeError> {
         self.ensure_account_identity_current()?;
-        let candidates = load_candidates(&self.credential_scope);
+        let candidates = match load_candidates_checked(&self.credential_scope) {
+            Ok(candidates) => candidates,
+            Err(ClaudeError::NotLoggedIn) => {
+                return Err(missing_cli_credential_error(
+                    &self.credential_scope,
+                    auth::has_desktop_app_data(),
+                ));
+            }
+            Err(error) => return Err(error),
+        };
         if candidates.is_empty() {
             crate::app_info!("auth:claude", "no reusable CLI credentials found");
-            return Err(
-                if matches!(self.credential_scope, ClaudeCredentialScope::Standard)
-                    && auth::has_desktop_app_data()
-                {
-                    ClaudeError::DesktopAppOnly
-                } else {
-                    ClaudeError::NotLoggedIn
-                },
-            );
+            return Err(missing_cli_credential_error(
+                &self.credential_scope,
+                auth::has_desktop_app_data(),
+            ));
         }
         crate::app_debug!(
             "auth:claude",
@@ -685,17 +691,24 @@ fn plan_name(credential: &ClaudeCredential) -> Option<String> {
     })
 }
 
+fn missing_cli_credential_error(
+    scope: &ClaudeCredentialScope,
+    desktop_app_data: bool,
+) -> ClaudeError {
+    if matches!(scope, ClaudeCredentialScope::Standard) && desktop_app_data {
+        ClaudeError::DesktopAppOnly
+    } else {
+        ClaudeError::NotLoggedIn
+    }
+}
+
 impl crate::providers::UsageProvider for ClaudeProvider {
     fn definition(&self) -> ProviderDefinition {
         self.definition.clone()
     }
 
-    fn accesses_system_keychain(&self) -> bool {
-        true
-    }
-
     fn has_local_credentials(&self) -> bool {
-        auth::has_local_credentials(&self.credential_scope)
+        !load_candidates(&self.credential_scope).is_empty()
     }
 
     fn cache_identity(&self) -> crate::providers::CacheIdentity<'_> {
@@ -714,28 +727,28 @@ impl crate::providers::UsageProvider for ClaudeProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        self.refresh_inner().map_err(|error| {
-            use crate::models::ProviderErrorKind as Kind;
-
-            let kind = match error {
-                ClaudeError::NotLoggedIn
-                | ClaudeError::DesktopAppOnly
-                | ClaudeError::SessionExpired
-                | ClaudeError::TokenExpired
-                | ClaudeError::CredentialsChanged
-                | ClaudeError::AccountChanged => Kind::Authentication,
-                ClaudeError::InvalidOAuthUrl | ClaudeError::InvalidResponse => {
-                    Kind::InvalidResponse
-                }
-                ClaudeError::AuthWrite => Kind::CredentialStorage,
-                ClaudeError::RequestFailed(429) => Kind::RateLimited,
-                ClaudeError::RequestFailed(_) | ClaudeError::ConnectionFailed => Kind::Network,
-                ClaudeError::LocalUsage => Kind::LocalData,
-                ClaudeError::AccountStore(_) => Kind::Internal,
-            };
-            crate::providers::ProviderError::from_display(kind, error)
-        })
+        self.refresh_inner().map_err(provider_error)
     }
+}
+
+fn provider_error(error: ClaudeError) -> crate::providers::ProviderError {
+    use crate::models::ProviderErrorKind as Kind;
+    let kind = match error {
+        ClaudeError::NotLoggedIn => Kind::CredentialsUnavailable,
+        ClaudeError::DesktopAppOnly => Kind::Unsupported,
+        ClaudeError::SessionExpired
+        | ClaudeError::TokenExpired
+        | ClaudeError::CredentialsChanged
+        | ClaudeError::AccountChanged => Kind::Authentication,
+        ClaudeError::InvalidOAuthUrl | ClaudeError::InvalidResponse => Kind::InvalidResponse,
+        ClaudeError::AuthWrite => Kind::CredentialStorage,
+        ClaudeError::CredentialRead => Kind::CredentialStorage,
+        ClaudeError::RequestFailed(429) => Kind::RateLimited,
+        ClaudeError::RequestFailed(_) | ClaudeError::ConnectionFailed => Kind::Network,
+        ClaudeError::LocalUsage => Kind::LocalData,
+        ClaudeError::AccountStore(_) => Kind::Internal,
+    };
+    crate::providers::ProviderError::from_display(kind, error)
 }
 
 #[cfg(test)]
@@ -760,11 +773,40 @@ mod tests {
 
     use super::{
         accounts::{self, ClaudeAccount, ClaudeAccountDiscovery},
-        auth::{ClaudeCredentialScope, ClaudeOAuthConfig},
+        auth::{
+            load_candidates_from_path, ClaudeCredentialGeneration, ClaudeCredentialScope,
+            ClaudeOAuthConfig,
+        },
         client::ClaudeClient,
-        definition, definition_for, rate_limit_notice, runtime_configs, ClaudeError,
-        ClaudeProvider, ClaudeRuntimeConfig,
+        definition, definition_for, missing_cli_credential_error, provider_error,
+        rate_limit_notice, runtime_configs, ClaudeError, ClaudeProvider, ClaudeRuntimeConfig,
     };
+
+    #[test]
+    fn missing_and_desktop_only_credentials_have_distinct_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(ClaudeError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(ClaudeError::DesktopAppOnly).kind(),
+            Kind::Unsupported
+        );
+        assert_eq!(
+            provider_error(ClaudeError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(ClaudeError::CredentialRead).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(ClaudeError::InvalidResponse).kind(),
+            Kind::InvalidResponse
+        );
+    }
 
     fn credential_json(access: &str, refresh: &str, plan: &str) -> String {
         format!(
@@ -805,6 +847,107 @@ mod tests {
     }
 
     #[test]
+    fn desktop_only_data_reports_the_dedicated_unsupported_error() {
+        assert!(matches!(
+            missing_cli_credential_error(&ClaudeCredentialScope::Standard, true),
+            ClaudeError::DesktopAppOnly
+        ));
+        assert!(matches!(
+            missing_cli_credential_error(
+                &ClaudeCredentialScope::ConfigDir {
+                    path: "account".into(),
+                    credential_store_literal: "account".into(),
+                },
+                true,
+            ),
+            ClaudeError::NotLoggedIn
+        ));
+        assert!(matches!(
+            missing_cli_credential_error(&ClaudeCredentialScope::Standard, false),
+            ClaudeError::NotLoggedIn
+        ));
+    }
+
+    #[test]
+    fn environment_token_does_not_send_a_refresh_request() {
+        let directory = tempdir().unwrap();
+        let credentials_path = directory.path().join(".credentials.json");
+        let original = br#"{"claudeAiOauth":{"accessToken":"file-token","refreshToken":"file-refresh","expiresAt":1,"scopes":["user:profile"]}}"#;
+        fs::write(&credentials_path, original).unwrap();
+        let scope = ClaudeCredentialScope::Standard;
+        let candidates =
+            load_candidates_from_path(&scope, &credentials_path, Some("environment-token".into()));
+        let mut environment = candidates
+            .iter()
+            .find(|candidate| candidate.access_token() == Some("environment-token"))
+            .unwrap()
+            .clone();
+        assert!(environment.needs_refresh(Utc::now().timestamp_millis()));
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let refresh_url = format!("http://{}/token", listener.local_addr().unwrap());
+        listener.set_nonblocking(true).unwrap();
+        let request_counter = thread::spawn(move || {
+            let deadline = std::time::Instant::now() + StdDuration::from_millis(500);
+            loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut request = [0_u8; 1024];
+                        let _ = stream.read(&mut request);
+                        stream
+                            .write_all(
+                                b"HTTP/1.1 500 Internal Server Error\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            )
+                            .unwrap();
+                        return 1;
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            return 0;
+                        }
+                        thread::sleep(StdDuration::from_millis(5));
+                    }
+                    Err(error) => panic!("refresh listener failed: {error}"),
+                }
+            }
+        });
+
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
+        let provider = ClaudeProvider::new_scoped(
+            ClaudeRuntimeConfig {
+                definition: definition(),
+                credential_scope: scope.clone(),
+                account_identity: None,
+                log_roots: Vec::new(),
+                include_standard_logs: false,
+                include_pi: false,
+            },
+            storage,
+            pricing.clone(),
+            ClaudeClient::new().unwrap(),
+        );
+        let config = ClaudeOAuthConfig {
+            usage_url: format!("{refresh_url}/usage"),
+            refresh_url,
+            client_id: "test-client".into(),
+        };
+
+        let result = provider.refresh_candidate(
+            &mut environment,
+            &config,
+            Utc::now(),
+            &pricing.current(),
+            &mut ClaudeCredentialGeneration::from_candidates(&candidates),
+        );
+        let requests = request_counter.join().unwrap();
+
+        assert_eq!(requests, 0);
+        assert!(result.is_ok());
+        assert_eq!(fs::read(credentials_path).unwrap(), original);
+    }
+
+    #[test]
     fn bare_account_in_a_config_dir_replaces_the_empty_default_placeholder() {
         let configs = runtime_configs(ClaudeAccountDiscovery {
             default_account: None,
@@ -815,7 +958,7 @@ mod tests {
                 identity: "identity-a".into(),
                 credential_scope: ClaudeCredentialScope::ConfigDir {
                     path: "account-a".into(),
-                    keychain_literal: "account-a".into(),
+                    credential_store_literal: "account-a".into(),
                 },
                 log_roots: vec!["account-a".into()],
             }],
@@ -849,7 +992,7 @@ mod tests {
                 identity: "identity-a".into(),
                 credential_scope: ClaudeCredentialScope::ConfigDir {
                     path: "account-a".into(),
-                    keychain_literal: "account-a".into(),
+                    credential_store_literal: "account-a".into(),
                 },
                 log_roots: vec!["account-a".into()],
             }],
@@ -960,7 +1103,7 @@ mod tests {
         let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
         let credential_scope = ClaudeCredentialScope::ConfigDir {
             path: account_root.clone(),
-            keychain_literal: account_root.to_string_lossy().into_owned(),
+            credential_store_literal: account_root.to_string_lossy().into_owned(),
         };
         let provider = Arc::new(ClaudeProvider::new_scoped(
             ClaudeRuntimeConfig {

@@ -18,6 +18,7 @@
     catalog: ProviderCatalogIndex;
     onSettingsChange: (settings: AppSettings) => void;
     expanded?: boolean;
+    readOnlyPreview?: boolean;
   }
   let {
     layout,
@@ -27,6 +28,7 @@
     catalog,
     onSettingsChange,
     expanded = false,
+    readOnlyPreview = false,
   }: Props = $props();
   const definition = $derived(catalog.metric(layout.id));
   const currentLocale = $derived($locale);
@@ -75,6 +77,7 @@
     timeFormat={settings.timeFormat}
     alwaysShowPacing={settings.alwaysShowPacing}
     {isSessionWindow}
+    {readOnlyPreview}
     onToggleUsage={() =>
       onSettingsChange({
         ...settings,

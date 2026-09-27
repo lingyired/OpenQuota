@@ -218,7 +218,7 @@ pub fn auth_file_path() -> PathBuf {
     #[cfg(target_os = "windows")]
     {
         PathBuf::from(env::var_os("LOCALAPPDATA").unwrap_or_default())
-            .join("CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info");
+            .join("CodeBuddyExtension/Data/Public/auth/workbuddy-desktop.info")
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {

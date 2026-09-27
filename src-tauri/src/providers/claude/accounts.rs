@@ -8,9 +8,15 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use super::auth::{self, ClaudeCredentialScope};
+#[cfg(not(target_os = "macos"))]
 use crate::{
     hashing::sha256_hex,
     providers::credential_store::generic_password_service_exists,
+    storage::{Storage, StorageError},
+};
+#[cfg(target_os = "macos")]
+use crate::{
+    hashing::sha256_hex,
     storage::{Storage, StorageError},
 };
 
@@ -82,7 +88,7 @@ struct Finding {
     identity: String,
     label: Option<String>,
     root: PathBuf,
-    keychain_literal: String,
+    credential_store_literal: String,
 }
 
 struct StoredAccountRecord {
@@ -288,7 +294,7 @@ fn discover_in(
             identity: identity_stamp(&identity),
             credential_scope: ClaudeCredentialScope::ConfigDir {
                 path: primary.root.clone(),
-                keychain_literal: primary.keychain_literal.clone(),
+                credential_store_literal: primary.credential_store_literal.clone(),
             },
             log_roots: findings.into_iter().map(|finding| finding.root).collect(),
         });
@@ -355,34 +361,48 @@ fn inspect_candidate(home: &Path, root: &Path, deadline: Instant) -> Option<Find
         .ok()
         .is_some_and(|bytes| auth::credentials_have_access_token(&bytes));
 
+    #[cfg(target_os = "macos")]
+    let _ = (home, deadline);
+    #[cfg(not(target_os = "macos"))]
     let mut matched_literal = None;
+    #[cfg(not(target_os = "macos"))]
     if should_probe_credential_store(file_backed) {
-        for literal in keychain_literals(home, root) {
+        for literal in credential_store_literals(home, root) {
             let remaining = deadline.saturating_duration_since(Instant::now());
             if remaining.is_zero() {
                 break;
             }
-            let service = auth::scoped_keychain_service_name(&literal);
-            let exists = generic_password_service_exists(&service, remaining) == Some(true);
-            if exists {
+            let service = auth::scoped_credential_store_service_name(&literal);
+            if generic_password_service_exists(&service, remaining) == Some(true) {
                 matched_literal = Some(literal);
                 break;
             }
         }
     }
+    #[cfg(target_os = "macos")]
+    if !file_backed {
+        return None;
+    }
+    #[cfg(not(target_os = "macos"))]
     if !file_backed && matched_literal.is_none() {
         return None;
     }
+    #[cfg(not(target_os = "macos"))]
+    let credential_store_literal =
+        matched_literal.unwrap_or_else(|| root.to_string_lossy().into_owned());
+    #[cfg(target_os = "macos")]
+    let credential_store_literal = root.to_string_lossy().into_owned();
     Some(Finding {
         identity,
         label,
         root: canonical(root),
-        keychain_literal: matched_literal.unwrap_or_else(|| root.to_string_lossy().into_owned()),
+        credential_store_literal,
     })
 }
 
+#[cfg(any(not(target_os = "macos"), test))]
 fn should_probe_credential_store(file_backed: bool) -> bool {
-    cfg!(target_os = "macos") || !file_backed
+    cfg!(not(target_os = "macos")) && !file_backed
 }
 
 fn parse_identity(bytes: &[u8]) -> Option<(String, Option<String>)> {
@@ -483,7 +503,8 @@ fn default_roots(home: &Path, config: Option<&str>, xdg: Option<&str>) -> Vec<Pa
     vec![xdg.join("claude"), home.join(".claude")]
 }
 
-fn keychain_literals(home: &Path, root: &Path) -> Vec<String> {
+#[cfg(not(target_os = "macos"))]
+fn credential_store_literals(home: &Path, root: &Path) -> Vec<String> {
     let mut home_paths = vec![home.to_path_buf(), canonical(home)];
     let mut seen_paths = HashSet::new();
     home_paths.retain(|path| seen_paths.insert(path.clone()));
@@ -552,11 +573,14 @@ mod tests {
 
     use tempfile::tempdir;
 
+    #[cfg(target_os = "macos")]
+    use super::should_probe_credential_store;
     use super::{
-        allocate_account_id, canonical, discover_in, identity_stamp, keychain_literals,
-        reconcile_accounts, should_probe_credential_store, DiscoveredClaudeAccount,
-        DiscoveredClaudeAccounts,
+        allocate_account_id, canonical, discover_in, identity_stamp, reconcile_accounts,
+        DiscoveredClaudeAccount, DiscoveredClaudeAccounts,
     };
+    #[cfg(not(target_os = "macos"))]
+    use super::{credential_store_literals, should_probe_credential_store};
     use crate::{providers::claude::auth::ClaudeCredentialScope, storage::Storage};
 
     fn write_account(root: &std::path::Path, account: &str, organization: &str, email: &str) {
@@ -702,7 +726,7 @@ mod tests {
             identity: "1234567890abcdef".into(),
             credential_scope: ClaudeCredentialScope::ConfigDir {
                 path: root.clone(),
-                keychain_literal: root.to_string_lossy().into_owned(),
+                credential_store_literal: root.to_string_lossy().into_owned(),
             },
             log_roots: vec![root.clone()],
         };
@@ -814,7 +838,7 @@ mod tests {
         let scoped = |identity: &str, label: &str| DiscoveredClaudeAccount {
             credential_scope: ClaudeCredentialScope::ConfigDir {
                 path: root.clone(),
-                keychain_literal: root.to_string_lossy().into_owned(),
+                credential_store_literal: root.to_string_lossy().into_owned(),
             },
             log_roots: vec![root.clone()],
             ..standard(identity, label)
@@ -869,7 +893,7 @@ mod tests {
                     identity: identity_stamp("account-b"),
                     credential_scope: ClaudeCredentialScope::ConfigDir {
                         path: root.clone(),
-                        keychain_literal: root.to_string_lossy().into_owned(),
+                        credential_store_literal: root.to_string_lossy().into_owned(),
                     },
                     log_roots: vec![root],
                 }],
@@ -880,25 +904,59 @@ mod tests {
         assert!(discovery.accounts[0].id.starts_with("claude@"));
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
-    fn keychain_probe_covers_absolute_and_home_relative_config_paths() {
+    fn credential_store_probe_covers_absolute_and_home_relative_config_paths() {
         let directory = tempdir().unwrap();
         let home = directory.path();
         let root = home.join(".claude-work");
         fs::create_dir_all(&root).unwrap();
 
-        let literals = keychain_literals(home, &root);
+        let literals = credential_store_literals(home, &root);
 
         assert!(literals.contains(&root.to_string_lossy().into_owned()));
         assert!(literals.contains(&"~/.claude-work".to_owned()));
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
-    fn file_credentials_skip_non_macos_credential_store_discovery() {
-        assert_eq!(
-            should_probe_credential_store(true),
-            cfg!(target_os = "macos")
-        );
+    fn file_credentials_skip_credential_store_discovery() {
+        assert!(!should_probe_credential_store(true));
         assert!(should_probe_credential_store(false));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn account_discovery_ignores_external_store_only_accounts() {
+        assert!(!should_probe_credential_store(false));
+        assert!(!should_probe_credential_store(true));
+        let directory = tempdir().unwrap();
+        let root = directory.path().join(".claude-work");
+        fs::create_dir_all(&root).unwrap();
+        fs::write(
+            root.join(".claude.json"),
+            r#"{"oauthAccount":{"accountUuid":"account-a"}}"#,
+        )
+        .unwrap();
+
+        let discovery = discover_in(directory.path(), None, None, Duration::from_secs(1));
+
+        assert!(discovery.accounts.is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn account_discovery_includes_file_backed_accounts() {
+        let directory = tempdir().unwrap();
+        let root = directory.path().join(".claude-work");
+        write_account(&root, "account-a", "org-a", "a@example.com");
+
+        let discovery = discover_in(directory.path(), None, None, Duration::from_secs(1));
+
+        assert_eq!(discovery.accounts.len(), 1);
+        assert_eq!(
+            discovery.accounts[0].identity,
+            identity_stamp("account-a|org-a")
+        );
     }
 }

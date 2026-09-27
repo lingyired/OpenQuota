@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CustomizeProviderDetail from './CustomizeProviderDetail.svelte';
 import { ProviderCatalogIndex } from './metrics';
@@ -93,7 +93,6 @@ const settings: AppSettings = {
       enabled: false,
       detected: false,
       expanded: false,
-      keychainAccessGranted: false,
       metrics: [
         { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
@@ -104,7 +103,6 @@ const settings: AppSettings = {
       enabled: false,
       detected: false,
       expanded: false,
-      keychainAccessGranted: false,
       metrics: [
         {
           id: 'deepseek.balance',
@@ -119,7 +117,6 @@ const settings: AppSettings = {
       enabled: false,
       detected: false,
       expanded: false,
-      keychainAccessGranted: false,
       metrics: [
         { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
       ],
@@ -129,7 +126,6 @@ const settings: AppSettings = {
   providerNames: {},
   language: 'en',
   showTotalSpend: true,
-  showAppMenubar: true,
   theme: 'system',
   density: 'default',
   reduceAnimations: false,
@@ -243,5 +239,41 @@ describe('CustomizeProviderDetail session authentication', () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith('get_provider_api_key_state', {
       providerId: 'workbuddy-cn',
     });
+  });
+
+  it('lets macOS hide the native instance without disabling its provider', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh)');
+    const onChange = vi.fn();
+    const enabledSettings = {
+      ...settings,
+      providers: settings.providers.map((provider) =>
+        provider.id === 'deepseek' ? { ...provider, enabled: true } : provider,
+      ),
+    };
+    render(CustomizeProviderDetail, {
+      settings: enabledSettings,
+      providerId: 'deepseek',
+      catalog: new ProviderCatalogIndex(catalogData),
+      renamableProviderIds: [],
+      onChange,
+      onNameChange: () => {},
+      onReorderStart: () => {},
+      onReorderEnd: () => {},
+      reducedMotion: true,
+    });
+
+    const checkbox = screen.getByRole('checkbox', { name: 'Show in Menu Bar' });
+    await fireEvent.click(checkbox);
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providers: expect.arrayContaining([
+          expect.objectContaining({ id: 'deepseek', enabled: true }),
+        ]),
+        taskbandProviders: expect.objectContaining({
+          deepseek: expect.objectContaining({ enabled: false }),
+        }),
+      }),
+    );
   });
 });

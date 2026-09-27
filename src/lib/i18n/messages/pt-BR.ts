@@ -33,6 +33,12 @@ export const ptBr = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const ptBr = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Provedores',
+    usagePreview: 'Prévia de uso',
+    preferences: 'Preferências do app',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,8 +165,6 @@ export const ptBr = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
-    showAppMenubar: 'Mostrar ícone do Quota01 na barra de menus',
-    appMenubarForced: 'Não há ícones de provedor visíveis, então o Quota01 permanece visível.',
     showTotalSpend: 'Show Total Spend',
     launchAtLogin: 'Launch at Login',
     globalShortcut: 'Global Shortcut',
@@ -260,6 +267,7 @@ export const ptBr = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -282,6 +290,9 @@ export const ptBr = {
     name: 'Name',
     nameFor: 'Name for {name}',
     taskbar: 'Taskbar',
+    menuBarInstance: 'Item da barra de menus',
+    showOnMenuBar: 'Mostrar na barra de menus',
+    showOnMenuBarDesc: 'Exibe este provedor na barra de menus do macOS.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

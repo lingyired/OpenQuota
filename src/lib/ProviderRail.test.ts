@@ -10,7 +10,7 @@ afterEach(() => {
   Reflect.deleteProperty(Element.prototype, 'scrollIntoView');
 });
 
-function show(selectedProviderId: string | null = null) {
+function show(selectedProviderId = 'claude') {
   const settings: SettingsViewState['settings'] = {
     ...settingsState.settings,
     providers: [
@@ -19,11 +19,35 @@ function show(selectedProviderId: string | null = null) {
         enabled: true,
         detected: true,
         expanded: false,
-        keychainAccessGranted: false,
         metrics: [{ id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true }],
       },
       settingsState.settings.providers[0],
+      {
+        id: 'antigravity',
+        enabled: true,
+        detected: true,
+        expanded: false,
+        metrics: [
+          { id: 'antigravity.geminiPro', enabled: true, section: 'alwaysVisible', pinned: true },
+        ],
+      },
     ],
+    taskbandProviders: {
+      codex: {
+        enabled: false,
+        side: null,
+        topColor: null,
+        bottomColor: null,
+        topBold: false,
+        bottomBold: false,
+        topSize: 12,
+        bottomSize: 12,
+        topAlign: 0,
+        bottomAlign: 0,
+        paddingLeft: 0,
+        paddingRight: 0,
+      },
+    },
   };
   const viewState: UsageViewState = {
     providers: { claude: claudeState, codex: codexState },
@@ -40,10 +64,16 @@ function show(selectedProviderId: string | null = null) {
 }
 
 describe('ProviderRail', () => {
-  it('renders All and enabled providers with their pinned readings', () => {
-    show();
+  it('renders every enabled provider and selects only provider tabs', () => {
+    show('claude');
     expect(screen.getAllByRole('tab')).toHaveLength(3);
-    expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.queryByRole('tab', { name: 'All' })).not.toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Codex/ })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /Antigravity/ })).toHaveTextContent('--');
+    expect(screen.getByRole('tab', { name: /Claude.*Session.*80%/ })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     expect(screen.getByRole('tab', { name: /Claude.*Session.*80%/ })).toBeInTheDocument();
     expect(
       screen.getByRole('tab', { name: /Codex.*Session.*68%.*Weekly.*41%/ }),
@@ -51,18 +81,18 @@ describe('ProviderRail', () => {
   });
 
   it('selects a provider on click and activates adjacent tabs with vertical arrow keys', async () => {
-    const { onSelect } = show();
-    const all = screen.getByRole('tab', { name: 'All' });
+    const { onSelect } = show('claude');
     const claude = screen.getByRole('tab', { name: /Claude/ });
     await fireEvent.click(claude);
     expect(onSelect).toHaveBeenLastCalledWith('claude');
 
-    await fireEvent.keyDown(all, { key: 'ArrowDown' });
-    expect(onSelect).toHaveBeenLastCalledWith('claude');
-    expect(claude).toHaveFocus();
-    await fireEvent.keyDown(claude, { key: 'End' });
+    await fireEvent.keyDown(claude, { key: 'ArrowDown' });
     expect(onSelect).toHaveBeenLastCalledWith('codex');
     expect(screen.getByRole('tab', { name: /Codex/ })).toHaveFocus();
+    const codex = screen.getByRole('tab', { name: /Codex/ });
+    await fireEvent.keyDown(codex, { key: 'End' });
+    expect(onSelect).toHaveBeenLastCalledWith('antigravity');
+    expect(screen.getByRole('tab', { name: /Antigravity/ })).toHaveFocus();
   });
 
   it('exposes a vertical tablist', () => {
@@ -87,7 +117,7 @@ describe('ProviderRail', () => {
   it('keeps only the selected tab tabbable', () => {
     show('codex');
     expect(screen.getByRole('tab', { name: /Codex/ })).toHaveAttribute('tabindex', '0');
-    expect(screen.getByRole('tab', { name: 'All' })).toHaveAttribute('tabindex', '-1');
+    expect(screen.getByRole('tab', { name: /Claude/ })).toHaveAttribute('tabindex', '-1');
   });
 
   it('renders provider icons at the larger rail size', () => {
@@ -106,7 +136,6 @@ describe('ProviderRail', () => {
           enabled: true,
           detected: true,
           expanded: false,
-          keychainAccessGranted: false,
           metrics: [{ id: 'codex.today', enabled: true, section: 'alwaysVisible', pinned: true }],
         },
       ],
@@ -115,7 +144,7 @@ describe('ProviderRail', () => {
       viewState: { providers: { codex: codexState } },
       settings,
       catalog: providerCatalogIndex,
-      selectedProviderId: null,
+      selectedProviderId: 'codex',
       onSelect: vi.fn(),
     });
 
@@ -172,7 +201,6 @@ describe('ProviderRail', () => {
           enabled: true,
           detected: true,
           expanded: false,
-          keychainAccessGranted: false,
           metrics: [{ id: 'claude.status', enabled: true, section: 'alwaysVisible', pinned: true }],
         },
       ],
@@ -193,7 +221,7 @@ describe('ProviderRail', () => {
       },
       settings,
       catalog,
-      selectedProviderId: null,
+      selectedProviderId: 'codex',
       onSelect: vi.fn(),
     });
 

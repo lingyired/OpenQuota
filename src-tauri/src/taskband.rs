@@ -10,6 +10,8 @@
 //! 文本组装逻辑为纯函数（可在任意平台单测），所有调用插件的代码
 //! 均以 `#[cfg(target_os = "windows")]` 隔离，非 Windows 零影响。
 
+#[cfg(all(test, not(target_os = "windows")))]
+use crate::models::AppSettings;
 #[cfg(target_os = "windows")]
 use crate::models::{
     AppSettings, TaskbandColorStyle, TaskbandLayout, TaskbandPreferences, TaskbandSide,
@@ -22,11 +24,16 @@ use crate::providers::ProviderRegistry;
 use crate::service::{ProviderService, UsageViewState};
 #[cfg(target_os = "windows")]
 use crate::settings::SettingsService;
-#[cfg(target_os = "windows")]
-use crate::tray_presentation::pinned_provider_metrics;
 use crate::tray_presentation::ResolvedTrayMetric;
 #[cfg(target_os = "windows")]
-use crate::window::{open_screen, TaskbandAnchor, MAIN_WINDOW};
+use crate::tray_presentation::{
+    pinned_provider_metrics, requested_provider_entries, NativeInstancePlatform,
+};
+#[cfg(target_os = "windows")]
+use crate::{
+    desktop_integration::DesktopIntegration,
+    window::{open_screen, TaskbandAnchor, MAIN_WINDOW},
+};
 #[cfg(target_os = "windows")]
 use std::collections::{HashMap, HashSet};
 #[cfg(target_os = "windows")]
@@ -146,7 +153,12 @@ impl TaskbandState {
         *stored = Some(next);
     }
 
-    fn apply_instance(&self, app: &AppHandle, id: &str, config: AppliedConfig) {
+    fn apply_instance(
+        &self,
+        app: &AppHandle,
+        id: &str,
+        config: AppliedConfig,
+    ) -> Result<(), String> {
         let tb = app.multiline_taskband();
         let mut created = self.created.lock().unwrap_or_else(|e| e.into_inner());
         match created.get(id) {
@@ -155,7 +167,8 @@ impl TaskbandState {
                     TaskbandSide::Left => Side::Left,
                     TaskbandSide::Right => Side::Right,
                 };
-                let _ = tb.create(id.to_string(), side);
+                tb.create(id.to_string(), side)
+                    .map_err(|error| error.to_string())?;
                 let _ = tb.set_order(id.to_string(), config.order);
                 let _ = tb.set_text(id.to_string(), config.text.0.clone(), config.text.1.clone());
                 let _ = tb.set_line_visible(
@@ -241,6 +254,7 @@ impl TaskbandState {
             }
         }
         created.insert(id.to_string(), config);
+        Ok(())
     }
 
     fn remove_instance(&self, app: &AppHandle, id: &str) {
@@ -511,33 +525,38 @@ pub(crate) fn update(
     let prefs = &settings.taskband;
     if !prefs.enabled {
         taskband.remove_all(app);
+        ensure_taskband_runtime_entry(app, false);
         return;
     }
     taskband.apply_global(app, prefs);
 
     let locale = crate::i18n::resolve(settings.language);
     let mut desired_ids = HashSet::new();
-    for (index, provider) in settings.providers.iter().enumerate() {
-        if !provider.enabled {
+    let mut actual_provider_ids = HashSet::new();
+    let mut failures = Vec::new();
+    for provider_id in
+        requested_provider_entries(settings, registry, NativeInstancePlatform::Windows)
+    {
+        let Some(provider) = settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+        else {
             continue;
-        }
-        if registry.definition(&provider.id).is_none() {
-            continue;
-        }
+        };
+        let index = settings
+            .providers
+            .iter()
+            .position(|item| item.id == provider.id)
+            .unwrap_or(0);
         let layout = settings
             .taskband_providers
             .get(&provider.id)
             .cloned()
             .unwrap_or_default();
-        if !layout.enabled {
-            continue;
-        }
         let side = layout.side.unwrap_or(prefs.default_side);
         // 与 mac menubar 一致：只展示用户固定的（pinned）指标。
         let metrics = pinned_provider_metrics(state, provider, settings, registry);
-        if metrics.is_empty() {
-            continue;
-        }
         let icon_svg = crate::providers::provider_icon_svg(&provider.id);
         let provider_name = registry
             .definition(&provider.id)
@@ -564,10 +583,18 @@ pub(crate) fn update(
             &layout,
             true,
         );
-        taskband.apply_instance(app, &instance_id, config);
+        if let Err(error) = taskband.apply_instance(app, &instance_id, config) {
+            failures.push(format!("{provider_name}: {error}"));
+            crate::app_warn!(
+                "taskband",
+                "could not create instance {instance_id}: {error}"
+            );
+            continue;
+        }
         taskband.register_click_listener(app, &instance_id, &provider.id);
         taskband.register_context_menu(app, &instance_id, &provider.id, &provider_name, locale);
         desired_ids.insert(instance_id);
+        actual_provider_ids.insert(provider.id.clone());
     }
 
     let stale = taskband
@@ -581,6 +608,68 @@ pub(crate) fn update(
     for id in stale {
         taskband.remove_instance(app, &id);
     }
+    let has_instances = !taskband
+        .created
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .is_empty();
+    app.state::<DesktopIntegration>()
+        .set_provider_instance_status(desired_ids.len(), failures);
+    if let Some(service) = app.try_state::<Arc<ProviderService>>() {
+        service.set_native_instance_ids(actual_provider_ids);
+    }
+    ensure_taskband_runtime_entry(app, has_instances);
+}
+
+#[cfg(target_os = "windows")]
+fn ensure_taskband_runtime_entry(app: &AppHandle, has_instances: bool) {
+    let integration = app.state::<DesktopIntegration>();
+    let had_instances = integration.tray_available();
+    let was_floating = integration.is_floating();
+    let desired_mode = app
+        .try_state::<Arc<SettingsService>>()
+        .map(|settings| settings.get().window_mode)
+        .unwrap_or_default();
+    let desired_floating = !has_instances || desired_mode == crate::models::WindowMode::Floating;
+    let should_apply_mode = should_apply_runtime_window_mode(
+        had_instances,
+        has_instances,
+        was_floating,
+        desired_floating,
+    );
+    integration.set_menu_entry_available(has_instances);
+    if !has_instances {
+        if let Some(service) = app.try_state::<Arc<ProviderService>>() {
+            service.set_native_instance_ids(Vec::new());
+        }
+    }
+    if has_instances {
+        if should_apply_mode {
+            if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+                let _ = crate::window::apply_window_mode(&window, desired_mode, false);
+            }
+        }
+    } else if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        if had_instances || !window.is_visible().unwrap_or(false) {
+            open_screen(app, "settings");
+        }
+    }
+    if let Some(settings) = app.try_state::<Arc<SettingsService>>() {
+        let _ = app.emit(
+            "settings-state",
+            crate::commands::settings::settings_view_state(app, settings.inner().as_ref()),
+        );
+    }
+}
+
+#[cfg(any(target_os = "windows", test))]
+fn should_apply_runtime_window_mode(
+    had_instances: bool,
+    has_instances: bool,
+    is_floating: bool,
+    desired_floating: bool,
+) -> bool {
+    has_instances && (!had_instances || is_floating != desired_floating)
 }
 
 #[cfg(target_os = "windows")]
@@ -676,8 +765,7 @@ fn dispatch_context_menu_action(app: &AppHandle, provider_id: &str, action: &str
     }
 }
 
-/// 「隐藏这个 agent」：与主窗口里 Hide provider 一致，把该 provider 设为
-/// 未启用，随后对账会移除它的全部 taskband 实例与右键菜单。
+/// 「隐藏这个 agent」：只关闭这个 provider 的 taskband 实例，保留数据提供商。
 #[cfg(target_os = "windows")]
 fn hide_agent(app: &AppHandle, provider_id: &str) {
     let settings_service = app.state::<Arc<SettingsService>>();
@@ -690,13 +778,7 @@ fn hide_agent(app: &AppHandle, provider_id: &str) {
     {
         return;
     }
-    let mut next = current.clone();
-    for provider in &mut next.providers {
-        if provider.id == provider_id {
-            provider.enabled = false;
-            break;
-        }
-    }
+    let next = hide_taskband_instance_settings(&current, provider_id);
     let expected_settings = settings_service.settings_revision();
     let expected_account = settings_service.account_revision();
     match settings_service.update_from_view(next, expected_settings, expected_account) {
@@ -716,7 +798,7 @@ fn hide_agent(app: &AppHandle, provider_id: &str) {
             );
             crate::app_info!(
                 "taskband",
-                "hidden agent {provider_id} from its context menu"
+                "hid taskband instance for {provider_id} from its context menu"
             );
         }
         Err(error) => crate::app_warn!(
@@ -724,6 +806,18 @@ fn hide_agent(app: &AppHandle, provider_id: &str) {
             "could not hide agent {provider_id} from its context menu: {error}"
         ),
     }
+}
+
+/// Hiding a native taskband item only hides that presentation instance. The
+/// provider remains enabled so its data remains available in the app.
+#[cfg(any(target_os = "windows", test))]
+fn hide_taskband_instance_settings(settings: &AppSettings, provider_id: &str) -> AppSettings {
+    let mut next = settings.clone();
+    next.taskband_providers
+        .entry(provider_id.to_owned())
+        .or_default()
+        .enabled = false;
+    next
 }
 
 /// 「刷新数据」：强制刷新该 provider 并更新托盘 / taskband 展示。
@@ -749,9 +843,7 @@ fn refresh_agent(app: &AppHandle, provider_id: &str) {
     });
 }
 
-/// 「设置这个 agent」：打开主窗口并直接进入该 provider 的设置页
-/// （前端 `provider:{provider_id}` 屏幕，即 Customize 里的单个 provider
-/// 详情，含该 provider 的任务栏 / 指标等配置）。
+/// 「设置这个 agent」：打开三列工作区并选中该 provider。
 #[cfg(target_os = "windows")]
 fn open_provider_settings(app: &AppHandle, provider_id: &str) {
     open_screen(app, &format!("provider:{provider_id}"));
@@ -777,7 +869,10 @@ mod tests {
         tray_presentation::{pinned_provider_metrics, ResolvedTrayMetric},
     };
 
-    use super::{leading_icon_size_for, metric_lines};
+    use super::{
+        hide_taskband_instance_settings, leading_icon_size_for, metric_lines,
+        should_apply_runtime_window_mode,
+    };
 
     fn metric(id: &str, value: &str) -> ResolvedTrayMetric {
         ResolvedTrayMetric {
@@ -785,6 +880,28 @@ mod tests {
             short_label: String::new(),
             value: value.into(),
         }
+    }
+
+    #[test]
+    fn hiding_taskband_instance_keeps_provider_enabled_and_persists_instance_off() {
+        let catalog =
+            ProviderRegistry::from_definitions(vec![opencode::definition(), codex::definition()])
+                .unwrap();
+        let settings = default_settings(
+            &catalog,
+            &HashSet::from(["opencode".to_owned(), "codex".to_owned()]),
+        );
+        let hidden = hide_taskband_instance_settings(&settings, "opencode");
+
+        assert!(hidden
+            .providers
+            .iter()
+            .any(|provider| provider.id == "opencode" && provider.enabled));
+        assert!(!hidden.taskband_providers["opencode"].enabled);
+        assert!(settings.taskband_providers.is_empty());
+
+        let explicitly_disabled = hide_taskband_instance_settings(&hidden, "opencode");
+        assert!(!explicitly_disabled.taskband_providers["opencode"].enabled);
     }
 
     /// 用真实 provider 定义解析指标，验证 taskband 与 mac menubar 使用同一套
@@ -848,6 +965,7 @@ mod tests {
             .into_iter()
             .collect(),
             last_full_refresh_at: None,
+            next_refresh_at: None,
         };
         pinned_provider_metrics(&state, &provider, &catalog_settings, &catalog)
     }
@@ -910,5 +1028,12 @@ mod tests {
         assert_eq!(top, "");
         assert_eq!(bottom, "");
         assert!(!bottom_visible);
+    }
+
+    #[test]
+    fn runtime_entry_does_not_reapply_window_mode_without_a_transition() {
+        assert!(!should_apply_runtime_window_mode(true, true, false, false));
+        assert!(should_apply_runtime_window_mode(false, true, true, false));
+        assert!(should_apply_runtime_window_mode(true, true, false, true));
     }
 }

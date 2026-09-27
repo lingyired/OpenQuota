@@ -93,6 +93,10 @@ export class SettingsController {
     ).catch(() => undefined);
   }
 
+  async waitForPendingMutations() {
+    await this.#mutationQueue;
+  }
+
   beginDraft() {
     this.#draftActive = true;
   }

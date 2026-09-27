@@ -4,21 +4,26 @@
   import {
     beginPanelResize,
     dismissMainWindow,
+    dismissSettingsWindow,
     getBootstrapState,
     getLogPath,
     getPanelHeightMode,
     getPanelResizeEdge,
     lockPanelResizeAxis,
     onOpenScreen,
+    onSettingsWorkspaceSelection,
     onMainWindowHidden,
     onSettingsState,
+    onRequestLeaveSettings,
     onTaskbandOpen,
     onUpdateProgress,
     onUsageState,
     openProviderLink as openProviderLinkCommand,
+    openSettingsWindow,
     openNotificationSettings as openSystemNotificationSettings,
     openLogFolder as openSystemLogFolder,
     quitApplication,
+    refreshSelectedProviderIfDue,
     refreshProviderUsage,
     refreshUsage,
     requestNotificationPermission,
@@ -30,19 +35,16 @@
     type PanelHeightMode,
     type PanelResizeEdge,
   } from './lib/backend';
-  import CustomizeProviderDetail from './lib/CustomizeProviderDetail.svelte';
-  import CustomizeProviderList from './lib/CustomizeProviderList.svelte';
   import ConfirmationSheet from './lib/ConfirmationSheet.svelte';
   import { restoreCustomization } from './lib/customizationHistory';
-  import Dashboard from './lib/Dashboard.svelte';
+  import ProviderDataView from './lib/ProviderDataView.svelte';
+  import Dashboard, { type DashboardProps } from './lib/Dashboard.svelte';
   import Icon from './lib/Icon.svelte';
   import { createListenerRegistry } from './lib/listenerRegistry';
   import { emptyProviderCatalog, ProviderCatalogIndex } from './lib/metrics';
-  import { springMotion } from './lib/motion';
   import Quota01Mark from './lib/Quota01Mark.svelte';
   import ProviderRail from './lib/ProviderRail.svelte';
-  import { horizontalPageTransition, shouldSlideBetweenScreens } from './lib/pageTransition';
-  import { desktopPlatform, shortcutLabels } from './lib/platform';
+  import { desktopPlatform } from './lib/platform';
   import { cancelActiveReorder } from './lib/pointerReorder';
   import { withProviderName } from './lib/providerNames';
   import RenameProviderSheet from './lib/RenameProviderSheet.svelte';
@@ -51,7 +53,7 @@
     renderProviderShareCard,
     renderTotalSpendShareCard,
   } from './lib/shareCard';
-  import SettingsScreen from './lib/SettingsScreen.svelte';
+  import SettingsWorkspace from './lib/SettingsWorkspace.svelte';
   import { SettingsController } from './lib/settingsController.svelte';
   import type { SpendProjection } from './lib/totalSpend';
   import type { AppSettings, UsageViewState } from './lib/types';
@@ -63,61 +65,108 @@
 
   type Screen = AppScreen;
   const appVersion = import.meta.env.APP_VERSION;
+  const isSettingsWindow = getCurrentWindow().label === 'settings';
   const emptyView: UsageViewState = { providers: {} };
 
   let viewState = $state<UsageViewState>(emptyView);
   let catalog = $state<ProviderCatalogIndex>(emptyProviderCatalog);
-  // Set by a Windows taskband click: while the popup is open, the dashboard
-  // shows only this agent (other agents stay hidden).
-  let focusedProviderId = $state<string | null>(null);
-  let screen = $state<Screen>('dashboard');
-  let providerReturnScreen: Screen = 'customize';
+  // The popup selection survives hiding the window and is restored on reopen.
+  const lastProviderStorageKey = 'quota01.lastSelectedProviderId';
+  let currentProviderId = $state<string | null>(readLastSelectedProvider());
+  let taskbandProviderId = $state<string | null>(null);
+  // Each native window has one permanent page: the popup is always the dashboard,
+  // while the Settings window owns the provider, settings, and usage-preview workspace.
+  const screen: Screen = isSettingsWindow ? 'settings' : 'dashboard';
+  let settingsWorkspaceRequest = $state<{ target: Screen; revision: number }>({
+    target: 'settings',
+    revision: 0,
+  });
   let now = $state(Date.now());
   let settingsError = $state<string | null>(null);
   let automaticUpdatesReady = $state(false);
   let systemReducedMotion = $state(false);
-  let slideDirection = $state(1);
-  let slidePageTransition = $state(true);
   let customizationHistory = $state<AppSettings[]>([]);
   let customizationGestureStart: AppSettings | null = null;
   let reordering = $state(false);
   let confirmationMessage = $state<string | null>(null);
   let resetConfirmationOpen = $state(false);
   let settingsResetConfirmationOpen = $state(false);
+  let leaveSettingsConfirmationOpen = $state(false);
+  let leavingSettings = $state(false);
   let resettingCustomization = $state(false);
   let resettingAllSettings = $state(false);
   let resettingProviderId = $state<string | null>(null);
-  let showAbout = $state(false);
-  let aboutTrigger: HTMLElement | null = null;
-  let aboutCloseButton = $state<HTMLButtonElement>();
-  let shareMenuOpen = $state(false);
-  let optionsMenuElement = $state<HTMLDetailsElement>();
-  let shareMenuElement = $state<HTMLDetailsElement>();
   let shareTimer: ReturnType<typeof setTimeout> | undefined;
   const providerStates = $derived(Object.values(viewState.providers));
   const anyRefreshing = $derived(providerStates.some((state) => state.refreshing));
   const lastFullRefresh = $derived(viewState.lastFullRefreshAt ?? undefined);
+  const nextRefreshAt = $derived(
+    viewState.nextRefreshAt ??
+      (lastFullRefresh
+        ? new Date(Date.parse(lastFullRefresh) + 5 * 60_000).toISOString()
+        : undefined),
+  );
   const currentLocale = $derived($locale);
   const nextUpdateLabelText = $derived.by(() => {
     void currentLocale;
-    return nextUpdateLabel(lastFullRefresh, now);
+    return nextUpdateLabel(nextRefreshAt, now);
   });
   const platform = desktopPlatform();
-  const shortcuts = shortcutLabels(platform);
   const settingsController = new SettingsController((message) => (settingsError = message));
   const settingsState = $derived(settingsController.state);
+  const enabledProviderIds = $derived(
+    settingsState?.settings.providers
+      .filter((provider) => provider.enabled && catalog.provider(provider.id))
+      .map((provider) => provider.id) ?? [],
+  );
+  const selectedProviderId = $derived(
+    currentProviderId && enabledProviderIds.includes(currentProviderId)
+      ? currentProviderId
+      : (enabledProviderIds[0] ?? null),
+  );
   const reducedMotion = $derived(
     systemReducedMotion || Boolean(settingsState?.settings.reduceAnimations),
   );
   const floatingWindow = $derived(
-    !!settingsState &&
+    !isSettingsWindow &&
+      !!settingsState &&
       (!settingsState.trayAvailable || settingsState.settings.windowMode === 'floating'),
   );
   const providerDisplayName = (id: string) =>
     catalog.displayName(id, settingsState?.settings.providerNames);
   const updates = new UpdateController();
+  const dashboardProps: DashboardProps = $derived({
+    viewState,
+    catalog,
+    renamableProviderIds: settingsState?.renamableProviderIds ?? [],
+    settings: settingsState?.settings ?? ({} as AppSettings),
+    now,
+    onSettingsChange: saveSettings,
+    onCustomizationChange: saveCustomization,
+    onReorderStart: beginCustomizationGesture,
+    onReorderEnd: endCustomizationGesture,
+    onCustomize: () => navigate('customize'),
+    onOpenProviderCustomize: (id: string) => void openProviderCustomization(id),
+    onRenameProvider: openRenameProvider,
+    onShare: shareProvider,
+    onShareTotal: shareTotalSpend,
+    onRefresh: refreshProvider,
+    onRefreshIfDue: refreshProviderIfDue,
+    onOpenProviderLink: openProviderLink,
+    onContentMorph: beginContentMorph,
+    reducedMotion,
+    updateStatus: updates.status,
+    installingUpdate: updates.installing,
+    updateProgress: updates.progress,
+    updateError: updates.error,
+    onInstallUpdate: () => updates.install(),
+    onOpenUpdatePage: () => updates.openDownloadPage(),
+  });
+
   let resizeEdge = $state<PanelResizeEdge>(platform === 'windows' ? 'top' : 'bottom');
-  const renderedResizeEdge = $derived(floatingWindow ? 'bottom' : resizeEdge);
+  const renderedResizeEdge = $derived(
+    isSettingsWindow ? null : floatingWindow ? 'bottom' : resizeEdge,
+  );
   let panelHeightMode = $state<PanelHeightMode>('automatic');
   let panelHeightModeRequest = 0;
   let panelHeightModeMutation: Promise<void> = Promise.resolve();
@@ -126,9 +175,11 @@
   let panelResizeOperation: Promise<void> | null = null;
   const windowController = createWindowController({
     screen: () => screen,
+    independentSettingsWindow: () => isSettingsWindow,
     refreshing: () => anyRefreshing,
     reordering: () => reordering,
-    fixedHeight: () => platform === 'macos' && focusedProviderId !== null,
+    fixedHeight: () =>
+      platform === 'macos' && taskbandProviderId !== null && screen === 'dashboard',
     automatic: () => panelHeightMode === 'automatic',
     reducedMotion: () => reducedMotion,
     onError: (message) => (settingsError = message),
@@ -152,9 +203,15 @@
   });
 
   $effect(() => {
-    if (!settingsState || !focusedProviderId) return;
-    const provider = settingsState.settings.providers.find((item) => item.id === focusedProviderId);
-    if (!provider || !provider.enabled) focusedProviderId = null;
+    if (!settingsState) return;
+    if (selectedProviderId !== currentProviderId) currentProviderId = selectedProviderId;
+    try {
+      if (selectedProviderId)
+        window.localStorage.setItem(lastProviderStorageKey, selectedProviderId);
+      else window.localStorage.removeItem(lastProviderStorageKey);
+    } catch {
+      // The popup still chooses the first enabled provider when browser storage is unavailable.
+    }
   });
 
   $effect(() => {
@@ -171,6 +228,14 @@
     };
   });
 
+  function readLastSelectedProvider(): string | null {
+    try {
+      return window.localStorage.getItem(lastProviderStorageKey);
+    } catch {
+      return null;
+    }
+  }
+
   function scheduleWindowFit() {
     windowController.scheduleFit();
   }
@@ -180,13 +245,47 @@
   }
 
   function closeMainWindow() {
+    if (
+      (platform === 'macos' || platform === 'windows') &&
+      settingsState?.trayAvailable === false
+    ) {
+      if (screen === 'dashboard') navigate('settings');
+      else leaveSettingsConfirmationOpen = true;
+      return;
+    }
+    if (requiresLeaveSettingsConfirmation()) {
+      leaveSettingsConfirmationOpen = true;
+      return;
+    }
     resetTransientUi();
     navigate('dashboard');
     void dismissMainWindow();
   }
+  function requiresLeaveSettingsConfirmation() {
+    return (
+      screen !== 'dashboard' &&
+      (platform === 'macos' || platform === 'windows') &&
+      settingsState?.trayAvailable === false
+    );
+  }
+  function requestLeaveSettings() {
+    if (isSettingsWindow) {
+      if (requiresLeaveSettingsConfirmation()) leaveSettingsConfirmationOpen = true;
+      else void dismissSettingsWindow();
+      return;
+    }
+    closeMainWindow();
+  }
+  async function confirmLeaveSettings() {
+    leavingSettings = true;
+    await settingsController.waitForPendingMutations();
+    await quitApplication();
+  }
+  function cancelLeaveSettings() {
+    leaveSettingsConfirmationOpen = false;
+    leavingSettings = false;
+  }
   function closeTransientLayers() {
-    closeOptionsMenu();
-    showAbout = false;
     resetConfirmationOpen = false;
     settingsResetConfirmationOpen = false;
     renameCard = null;
@@ -202,34 +301,37 @@
   function quitApp() {
     void quitApplication();
   }
-  function screenRank(value: Screen) {
-    if (value.startsWith('provider:')) return 2;
-    return value === 'dashboard' ? 0 : 1;
-  }
   function navigate(next: Screen) {
-    if (next === screen) return;
+    if (next === 'dashboard') {
+      if (isSettingsWindow) requestLeaveSettings();
+      return;
+    }
+    if (!isSettingsWindow) {
+      closeTransientLayers();
+      void openSettingsWindow(next).catch(
+        () => (settingsError = t('app.errors.backendUnavailable')),
+      );
+      return;
+    }
     cancelActiveReorder();
     closeTransientLayers();
-    slidePageTransition = shouldSlideBetweenScreens(screen, next);
-    slideDirection = screenRank(next) >= screenRank(screen) ? 1 : -1;
-    screen = next;
-    if (!next.startsWith('provider:')) providerReturnScreen = 'customize';
+    settingsWorkspaceRequest = {
+      target: next,
+      revision: settingsWorkspaceRequest.revision + 1,
+    };
   }
-  async function openProviderCustomization(providerId: string, focusBack = false) {
-    providerReturnScreen = screen === 'dashboard' ? 'dashboard' : 'customize';
+  function openProviderCustomization(providerId: string) {
     navigate(`provider:${providerId}`);
-    if (!focusBack) return;
-    await tick();
-    document
-      .querySelector<HTMLButtonElement>(`.screen-header button[aria-label="${t('app.back')}"]`)
-      ?.focus();
   }
   async function focusTaskbandProvider(providerId: string) {
     navigate('dashboard');
     await selectDashboardProvider(providerId);
+    taskbandProviderId = providerId;
+    void refreshProviderIfDue(providerId);
   }
-  async function selectDashboardProvider(providerId: string | null) {
-    focusedProviderId = providerId;
+  async function selectDashboardProvider(providerId: string) {
+    taskbandProviderId = null;
+    currentProviderId = providerId;
     await tick();
     scrollScreenToTop();
     // The filtered dashboard has a different natural height; fit immediately instead of relying on
@@ -244,26 +346,12 @@
       else if (element) element.scrollTop = 0;
     }
   }
-  function back() {
-    if (screen.startsWith('provider:')) navigate(providerReturnScreen);
-    else if (screen !== 'dashboard') navigate('dashboard');
-    else closeMainWindow();
-  }
   function saveSettings(next: AppSettings) {
     settingsError = null;
     const windowModeChanged = settingsState?.settings.windowMode !== next.windowMode;
     if (windowModeChanged) beginContentMorph();
     const save = settingsController.save(next);
     if (windowModeChanged) void save.finally(updatePanelResizeEdge);
-  }
-
-  function toggleFloatingWindow() {
-    const current = settingsState;
-    if (!current?.trayAvailable) return;
-    saveSettings({
-      ...current.settings,
-      windowMode: floatingWindow ? 'popup' : 'floating',
-    });
   }
 
   function cloneSettings(value: AppSettings): AppSettings {
@@ -396,6 +484,15 @@
       settingsError = t('app.errors.providerUsageRefresh', {
         provider: providerDisplayName(providerId),
       });
+    }
+  }
+  async function refreshProviderIfDue(providerId: string) {
+    try {
+      const nextState = await refreshSelectedProviderIfDue(providerId);
+      if (nextState && typeof nextState === 'object' && nextState.providers) viewState = nextState;
+    } catch {
+      // Selection-triggered refresh is opportunistic. The existing snapshot and
+      // manual refresh path remain available when a provider is unavailable.
     }
   }
   function openProviderLink(providerId: string, linkIndex: number) {
@@ -531,36 +628,6 @@
   async function openLogFolder() {
     await openSystemLogFolder();
   }
-  const topBarTitleText = $derived.by(() => {
-    void currentLocale;
-    if (screen.startsWith('provider:')) return providerDisplayName(screen.slice(9));
-    return screen === 'settings' ? t('settings.title') : t('customize.title');
-  });
-  async function openAbout() {
-    aboutTrigger = optionsMenuElement?.querySelector<HTMLElement>(':scope > summary') ?? null;
-    showAbout = true;
-    await tick();
-    aboutCloseButton?.focus();
-  }
-  async function closeAbout() {
-    showAbout = false;
-    await tick();
-    aboutTrigger?.focus();
-    aboutTrigger = null;
-  }
-  function closeAboutFromBackdrop(event: MouseEvent) {
-    if (event.target === event.currentTarget) void closeAbout();
-  }
-  function handleAboutKeydown(event: KeyboardEvent) {
-    event.stopPropagation();
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      void closeAbout();
-    } else if (event.key === 'Tab') {
-      event.preventDefault();
-      aboutCloseButton?.focus();
-    }
-  }
   function ownsEnterKey(target: EventTarget | null) {
     if (!(target instanceof Element)) return false;
     return (
@@ -569,23 +636,6 @@
       ) !== null
     );
   }
-  function handleOptionsKey(event: KeyboardEvent) {
-    const menu = (event.currentTarget as HTMLElement).closest<HTMLDetailsElement>(
-      'details.options-menu',
-    );
-    if (!menu) return;
-    if (event.key !== 'Escape' || !menu.open) return;
-    event.preventDefault();
-    event.stopPropagation();
-    closeOptionsMenu(true);
-  }
-  function closeOptionsMenu(restoreFocus = false) {
-    if (shareMenuElement?.open) shareMenuElement.open = false;
-    shareMenuOpen = false;
-    if (!optionsMenuElement?.open) return;
-    optionsMenuElement.open = false;
-    if (restoreFocus) optionsMenuElement.querySelector<HTMLElement>('summary')?.focus();
-  }
   function handleWindowPointerDown(event: PointerEvent) {
     if (
       event.target instanceof Element &&
@@ -593,16 +643,9 @@
     ) {
       handleFloatingWindowPointerDown(event);
     }
-    if (
-      optionsMenuElement?.open &&
-      event.target instanceof Node &&
-      !optionsMenuElement.contains(event.target)
-    ) {
-      closeOptionsMenu();
-    }
   }
   function updatePanelResizeEdge() {
-    if (!('__TAURI_INTERNALS__' in window)) return;
+    if (isSettingsWindow || !('__TAURI_INTERNALS__' in window)) return;
     void getPanelResizeEdge()
       .then((edge) => (resizeEdge = edge))
       .catch(() => undefined);
@@ -722,6 +765,8 @@
     motionQuery.addEventListener('change', updateMotionPreference);
     const refreshWindowState = () => {
       void settingsController.refreshIfIdle();
+      if (!isSettingsWindow && screen === 'dashboard' && selectedProviderId)
+        void refreshProviderIfDue(selectedProviderId);
       updatePanelResizeEdge();
       updatePanelHeightMode();
       scheduleWindowFit();
@@ -751,17 +796,14 @@
       if (event.defaultPrevented || event.isComposing) return;
       if (event.key === 'Escape') {
         event.preventDefault();
-        if (showAbout) {
-          void closeAbout();
-          return;
-        }
-        back();
+        requestLeaveSettings();
       } else if (event.key === 'Enter' && screen === 'dashboard' && !ownsEnterKey(event.target)) {
         event.preventDefault();
         navigate('customize');
       } else if ((event.ctrlKey || event.metaKey) && event.key === ',') {
         event.preventDefault();
-        navigate(screen === 'settings' ? 'dashboard' : 'settings');
+        if (screen !== 'dashboard') requestLeaveSettings();
+        else navigate('settings');
       } else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'r') {
         event.preventDefault();
         void refresh();
@@ -795,20 +837,48 @@
       }),
     );
     listeners.add(
-      onOpenScreen((target) => {
-        if (target === 'dashboard') {
-          focusedProviderId = null;
-          navigate('dashboard');
-        } else if (target.startsWith('provider:')) {
-          void openProviderCustomization(target.slice(9));
-        } else navigate(target === 'settings' ? 'settings' : 'customize');
+      onRequestLeaveSettings(() => {
+        if (!isSettingsWindow) return;
+        requestLeaveSettings();
       }),
     );
-    listeners.add(onTaskbandOpen((providerId) => void focusTaskbandProvider(providerId)));
+    listeners.add(
+      onOpenScreen((target) => {
+        if (!isSettingsWindow && target !== 'dashboard') {
+          void openSettingsWindow(target).catch(
+            () => (settingsError = t('app.errors.backendUnavailable')),
+          );
+          return;
+        }
+        if (target === 'dashboard') {
+          if (isSettingsWindow) return;
+          if (requiresLeaveSettingsConfirmation()) leaveSettingsConfirmationOpen = true;
+          else {
+            navigate('dashboard');
+            if (screen === 'dashboard' && selectedProviderId)
+              void refreshProviderIfDue(selectedProviderId);
+          }
+        }
+      }),
+    );
+    listeners.add(
+      onSettingsWorkspaceSelection((target) => {
+        if (!isSettingsWindow || target === 'dashboard') return;
+        if (target === 'settings' || target === 'customize' || target.startsWith('provider:')) {
+          navigate(target as Exclude<Screen, 'dashboard'>);
+        }
+      }),
+    );
+    listeners.add(
+      onTaskbandOpen((providerId) => {
+        if (!isSettingsWindow) void focusTaskbandProvider(providerId);
+      }),
+    );
     listeners.add(
       onMainWindowHidden(() => {
+        if (isSettingsWindow) return;
+        taskbandProviderId = null;
         resetTransientUi();
-        focusedProviderId = null;
         navigate('dashboard');
       }),
     );
@@ -846,7 +916,7 @@
   class="popover"
   class:popover--floating={floatingWindow}
   class:popover--macos={floatingWindow && platform === 'macos'}
-  aria-label={$tStore('app.usageDashboard')}
+  aria-label={isSettingsWindow ? $tStore('settings.title') : $tStore('app.usageDashboard')}
   oncontextmenu={(event) => event.preventDefault()}
 >
   <p id="reorder-instructions" class="sr-only">
@@ -880,140 +950,69 @@
     </header>
   {/if}
   {#if settingsState}
-    {#if screen !== 'dashboard'}
-      <header class="screen-header app-top-bar">
-        <button
-          type="button"
-          onclick={back}
-          aria-label={$tStore('app.back')}
-          data-tooltip={$tStore('app.back')}
-        >
-          <Icon name="back" size={16} strokeWidth={2.2} />
-        </button>
-        <h1>{topBarTitleText}</h1>
-        {#if screen === 'customize'}
-          <button
-            class="text-button"
-            type="button"
-            onclick={requestCustomizationReset}
-            aria-label={$tStore('app.resetAllCustomization')}
-            data-tooltip={$tStore('app.resetAllCustomizationTooltip')}
-            ><Icon name="reset" size={15} strokeWidth={2} /></button
-          >
-        {:else if screen.startsWith('provider:')}
-          <button
-            class="text-button"
-            type="button"
-            disabled={resettingProviderId !== null}
-            onclick={() => resetProviderCustomization(screen.slice(9))}
-            aria-label={$tStore('app.resetProvider', { name: topBarTitleText })}
-            data-tooltip={$tStore('app.resetProvider', { name: topBarTitleText })}
-            ><Icon name="reset" size={15} strokeWidth={2} /></button
-          >
-        {:else}
-          <span></span>
-        {/if}
-      </header>
-    {/if}
     <div
       class="content"
-      class:content--chrome={screen !== 'dashboard'}
-      class:content--dashboard={screen === 'dashboard'}
+      class:content--chrome={isSettingsWindow}
+      class:content--dashboard={!isSettingsWindow}
     >
       {#if settingsError}<div class="notice notice--blocking" role="alert">
           {$tBackendStore(settingsError)}
         </div>{/if}
       {#if screen === 'dashboard'}
-        <ProviderRail
-          {viewState}
-          settings={settingsState.settings}
-          {catalog}
-          selectedProviderId={focusedProviderId}
-          onSelect={selectDashboardProvider}
-        />
+        {#if selectedProviderId}
+          <ProviderRail
+            {viewState}
+            settings={settingsState.settings}
+            {catalog}
+            {selectedProviderId}
+            onSelect={selectDashboardProvider}
+          />
+        {/if}
       {/if}
       <div class="screen-stage">
-        {#key screen}
-          <div
-            class="screen-page"
-            data-screen={screen}
-            in:horizontalPageTransition={{
-              direction: slideDirection,
-              zIndex: 2,
-              ...springMotion(reducedMotion || !slidePageTransition),
-            }}
-          >
-            {#if screen === 'dashboard'}
-              <Dashboard
-                {viewState}
-                {catalog}
-                renamableProviderIds={settingsState.renamableProviderIds}
-                settings={settingsState.settings}
-                {now}
-                onSettingsChange={saveSettings}
-                onCustomizationChange={saveCustomization}
-                onReorderStart={beginCustomizationGesture}
-                onReorderEnd={endCustomizationGesture}
-                onCustomize={() => navigate('customize')}
-                onOpenProviderCustomize={(id) => void openProviderCustomization(id, true)}
-                onRenameProvider={openRenameProvider}
-                onShare={shareProvider}
-                onShareTotal={shareTotalSpend}
-                onRefresh={refreshProvider}
-                onOpenProviderLink={openProviderLink}
-                onContentMorph={beginContentMorph}
-                {reducedMotion}
-                updateStatus={updates.status}
-                installingUpdate={updates.installing}
-                updateProgress={updates.progress}
-                updateError={updates.error}
-                onInstallUpdate={() => updates.install()}
-                onOpenUpdatePage={() => updates.openDownloadPage()}
-                {focusedProviderId}
-              />
-            {:else if screen === 'settings'}
-              <SettingsScreen
+        <div class="screen-page" data-screen={screen}>
+          {#if isSettingsWindow}
+            {#key settingsWorkspaceRequest.revision}
+              <SettingsWorkspace
                 settingsView={settingsState}
+                {dashboardProps}
                 {platform}
                 {panelHeightMode}
-                onChange={saveSettings}
                 onPanelHeightModeChange={(mode) => void changePanelHeightMode(mode)}
                 onRequestNotifications={requestNotifications}
                 onOpenNotificationSettings={openNotificationSettings}
-                updateError={updates.error}
                 checkingUpdate={updates.checking}
                 onCheckForUpdates={() => void checkForUpdates(true)}
-                onCustomize={() => navigate('customize')}
                 onCopyLogPath={copyLogPath}
                 onOpenLogFolder={openLogFolder}
                 onResetAllSettings={() => (settingsResetConfirmationOpen = true)}
+                onResetAllCustomization={requestCustomizationReset}
+                onResetProviderCustomization={resetProviderCustomization}
+                {resettingProviderId}
+                initialProviderId={settingsWorkspaceRequest.target.startsWith('provider:')
+                  ? settingsWorkspaceRequest.target.slice(9)
+                  : settingsWorkspaceRequest.target === 'customize'
+                    ? currentProviderId
+                    : null}
+                initialGeneral={settingsWorkspaceRequest.target === 'settings'}
               />
-            {:else if screen === 'customize'}
-              <CustomizeProviderList
-                settings={settingsState.settings}
-                {catalog}
-                onOpen={(id) => void openProviderCustomization(id)}
-                onChange={saveCustomization}
-                onReorderStart={beginCustomizationGesture}
-                onReorderEnd={endCustomizationGesture}
-                onSettings={() => navigate('settings')}
-                {reducedMotion}
-              />
-            {:else if screen.startsWith('provider:')}
-              <CustomizeProviderDetail
-                settings={settingsState.settings}
-                providerId={screen.slice(9)}
-                {catalog}
-                renamableProviderIds={settingsState.renamableProviderIds}
-                onChange={saveCustomization}
-                onNameChange={saveSettings}
-                onReorderStart={beginCustomizationGesture}
-                onReorderEnd={endCustomizationGesture}
-                {reducedMotion}
+            {/key}
+          {:else}
+            <Dashboard
+              {...dashboardProps}
+              focusedProviderId={null}
+              showGlobalContent={true}
+              showProviderContent={false}
+            />
+            {#if selectedProviderId}
+              <ProviderDataView
+                {...dashboardProps}
+                providerId={selectedProviderId}
+                readOnlyPreview={false}
               />
             {/if}
-          </div>
-        {/key}
+          {/if}
+        </div>
       </div>
     </div>
 
@@ -1032,99 +1031,23 @@
         </button>
         {#if screen === 'dashboard'}
           <div class="footer-actions">
-            {#if settingsState.trayAvailable}
-              <button
-                class="window-mode-toggle"
-                class:window-mode-toggle--active={floatingWindow}
-                type="button"
-                aria-label={floatingWindow
-                  ? $tStore('app.returnToTrayPopup')
-                  : $tStore('app.keepWindowOpen')}
-                aria-pressed={floatingWindow}
-                data-tooltip={floatingWindow
-                  ? $tStore('app.returnToTrayPopup')
-                  : $tStore('app.keepWindowOpen')}
-                onclick={toggleFloatingWindow}
-              >
-                <Icon name={floatingWindow ? 'pin-filled' : 'pin'} size={14} strokeWidth={1.9} />
-              </button>
-            {/if}
-            <details class="options-menu" bind:this={optionsMenuElement}>
-              <summary aria-label={$tStore('app.openOptions')} onkeydown={handleOptionsKey}
-                ><span>{$tStore('app.options')}</span><Icon
-                  name="chevron-down"
-                  size={11}
-                  strokeWidth={2.2}
-                /></summary
-              >
-              <div
-                class="options-menu__panel"
-                role="menu"
-                aria-label={$tStore('app.optionsMenu')}
-                tabindex="-1"
-                onkeydown={handleOptionsKey}
-                onclick={(event) => {
-                  if (event.target instanceof Element && event.target.closest('button')) {
-                    closeOptionsMenu();
-                  }
-                }}
-              >
-                <button
-                  class="menu-item"
-                  type="button"
-                  aria-label={$tStore('app.customize')}
-                  onclick={() => navigate('customize')}
-                  ><Icon name="sliders" /><span>{$tStore('app.customize')}</span><kbd>↩</kbd
-                  ></button
-                >
-                <button
-                  class="menu-item"
-                  type="button"
-                  aria-label={$tStore('app.settings')}
-                  onclick={() => navigate('settings')}
-                  ><Icon name="gear" /><span>{$tStore('app.settings')}</span><kbd
-                    >{shortcuts.settings}</kbd
-                  ></button
-                >
-                <hr />
-                <details
-                  bind:this={shareMenuElement}
-                  class="share-menu"
-                  ontoggle={(event) => (shareMenuOpen = event.currentTarget.open)}
-                >
-                  <summary
-                    ><span class="share-menu__direction"
-                      ><Icon name="chevron-left" size={12} /></span
-                    ><span>{$tStore('app.shareScreenshot')}</span></summary
-                  >
-                  <div>
-                    {#if shareMenuOpen}
-                      {#each settingsState.settings.providers.filter((provider) => provider.enabled && catalog.provider(provider.id)) as provider (provider.id)}
-                        <button type="button" onclick={() => shareProvider(provider.id)}
-                          >{providerDisplayName(provider.id)}</button
-                        >
-                      {/each}
-                    {/if}
-                  </div>
-                </details>
-                <button class="menu-item" type="button" onclick={() => void checkForUpdates(true)}
-                  ><Icon name="refresh" /><span>{$tStore('app.checkForUpdates')}</span></button
-                >
-                <hr />
-                <button class="menu-item" type="button" onclick={openAbout}
-                  ><Icon name="about" /><span>{$tStore('app.aboutQuota01')}</span></button
-                >
-                <button
-                  class="menu-item menu-item--danger"
-                  type="button"
-                  aria-label={$tStore('app.quitQuota01')}
-                  onclick={quitApp}
-                  ><Icon name="power" /><span>{$tStore('app.quitQuota01')}</span><kbd
-                    >{shortcuts.quit}</kbd
-                  ></button
-                >
-              </div>
-            </details>
+            <button
+              class="footer-icon-button"
+              type="button"
+              aria-label={$tStore('settings.openSettings')}
+              title={$tStore('settings.openSettings')}
+              onclick={() => navigate('settings')}
+              ><Icon name="gear" size={15} strokeWidth={1.9} /></button
+            >
+            <button
+              class="footer-icon-button"
+              type="button"
+              aria-label={$tStore('app.shareScreenshot')}
+              title={$tStore('app.shareScreenshot')}
+              disabled={!selectedProviderId}
+              onclick={() => selectedProviderId && void shareProvider(selectedProviderId)}
+              ><Icon name="share" size={15} strokeWidth={1.9} /></button
+            >
           </div>
         {/if}
       </footer>
@@ -1158,42 +1081,23 @@
       />
     {/if}
 
+    {#if leaveSettingsConfirmationOpen}
+      <ConfirmationSheet
+        title={t('app.confirmations.leaveSettings.title')}
+        message={t('app.confirmations.leaveSettings.message')}
+        confirmLabel={t('app.confirmations.leaveSettings.confirm')}
+        pending={leavingSettings}
+        onConfirm={() => void confirmLeaveSettings()}
+        onCancel={cancelLeaveSettings}
+      />
+    {/if}
+
     {#if renameCard}
       <RenameProviderSheet
         initialValue={renameCard.initialValue}
         onRename={renameProvider}
         onCancel={() => void closeRenameProvider()}
       />
-    {/if}
-
-    {#if showAbout}
-      <div
-        class="about-backdrop"
-        role="presentation"
-        onclick={closeAboutFromBackdrop}
-        onkeydown={handleAboutKeydown}
-      >
-        <div
-          class="about-card"
-          role="dialog"
-          tabindex="-1"
-          aria-modal="true"
-          aria-label={$tStore('app.aboutQuota01')}
-        >
-          <button
-            bind:this={aboutCloseButton}
-            class="about-card__close"
-            type="button"
-            aria-label={$tStore('app.closeAbout')}
-            onclick={() => void closeAbout()}
-            ><Icon name="close" size={11} strokeWidth={2.3} /></button
-          >
-          <Quota01Mark size={44} />
-          <h1>Quota01</h1>
-          <p>{$tStore('app.aboutVersion', { version: appVersion })}</p>
-          <small>{$tStore('app.aboutTagline')}</small>
-        </div>
-      </div>
     {/if}
   {:else}
     <div class="content">
@@ -1381,60 +1285,6 @@
       font: inherit;
     }
 
-    .options-menu {
-      position: relative;
-    }
-
-    .options-menu > summary {
-      display: grid;
-      width: 30px;
-      height: 30px;
-      border-radius: 50%;
-      color: var(--secondary);
-      cursor: pointer;
-      font-size: 13px;
-      list-style: none;
-      place-items: center;
-    }
-
-    .options-menu > summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .options-menu[open] > summary,
-    .options-menu > summary:hover {
-      color: var(--text);
-      background: var(--button-hover);
-    }
-
-    .options-menu > div {
-      position: absolute;
-      right: 0;
-      bottom: 36px;
-      z-index: 10;
-      width: 130px;
-      padding: 4px;
-      border: 1px solid var(--separator);
-      border-radius: 9px;
-      background: var(--tray);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-    }
-
-    .options-menu button {
-      width: 100%;
-      padding: 6px 8px;
-      border: 0;
-      border-radius: 6px;
-      color: var(--text);
-      background: none;
-      font-size: 11px;
-      text-align: left;
-    }
-
-    .options-menu button:hover {
-      background: var(--button-hover);
-    }
-
     .screen-header {
       display: grid;
       min-height: 30px;
@@ -1443,7 +1293,7 @@
       margin-bottom: 8px;
     }
 
-    .screen-header h1 {
+    .screen-header__title {
       margin: 0;
       font-size: 14px;
       text-align: center;
@@ -1490,7 +1340,19 @@
     }
 
     .content--chrome {
-      padding-top: 12px;
+      display: flex;
+      flex-direction: column;
+      padding: 0;
+      overflow: hidden;
+    }
+
+    .content--chrome > .screen-stage {
+      flex: 1 1 auto;
+    }
+
+    .content--chrome .screen-page {
+      height: 100%;
+      align-self: stretch;
     }
 
     .content--dashboard {
@@ -1573,21 +1435,18 @@
     .footer-actions {
       display: flex;
       align-items: center;
-      gap: 6px;
+      gap: 8px;
       margin-left: auto;
     }
 
-    .footer-actions .options-menu {
-      margin-left: 0;
-    }
-
-    .window-mode-toggle {
+    .footer-icon-button {
       display: grid;
-      width: 26px;
-      height: 26px;
+      width: 30px;
+      height: 30px;
+      flex: 0 0 30px;
       padding: 0;
       border: 0;
-      border-radius: 8px;
+      border-radius: 50%;
       color: var(--secondary);
       background: transparent;
       cursor: pointer;
@@ -1598,82 +1457,23 @@
         transform 80ms ease;
     }
 
-    .window-mode-toggle:hover {
+    .footer-icon-button:hover:not(:disabled) {
       color: var(--text);
       background: var(--button-hover);
     }
 
-    .window-mode-toggle--active {
-      color: var(--meter-fill);
-    }
-
-    .window-mode-toggle:active {
+    .footer-icon-button:active:not(:disabled) {
       transform: scale(0.92);
     }
 
-    .window-mode-toggle:focus-visible {
+    .footer-icon-button:focus-visible {
       outline: 2px solid color-mix(in srgb, var(--meter-fill) 55%, transparent);
       outline-offset: 1px;
     }
 
-    .window-mode-toggle::after {
-      top: auto;
-      bottom: calc(100% + 7px);
-      transform: translate(-50%, 2px) scale(0.97);
-      transform-origin: bottom center;
-    }
-
-    .window-mode-toggle:hover::after,
-    .window-mode-toggle:focus-visible::after {
-      transform: translate(-50%, 0) scale(1);
-    }
-
-    .options-menu {
-      margin-left: auto;
-    }
-
-    .options-menu > summary {
-      display: flex;
-      width: auto;
-      height: 26px;
-      align-items: center;
-      gap: 4px;
-      padding: 0 9px 0 10px;
-      border: 1px solid var(--separator);
-      border-radius: 8px;
-      color: var(--text);
-      background: color-mix(in srgb, var(--card) 72%, transparent);
-      font-size: 11px;
-      font-weight: 550;
-    }
-
-    .options-menu > summary i {
-      margin-top: -2px;
-      font-size: 11px;
-      font-style: normal;
-    }
-
-    .options-menu > summary .symbol-icon {
-      transition: transform 160ms ease;
-    }
-
-    .options-menu[open] > summary .symbol-icon {
-      transform: rotate(180deg);
-    }
-
-    .options-menu > div {
-      bottom: 34px;
-      width: 172px;
-      padding: 6px;
-      border: 0;
-      border-radius: 10px;
-      box-shadow: 0 10px 32px rgba(0, 0, 0, 0.28);
-      transform-origin: bottom right;
-      animation: menu-in 180ms ease-out both;
-    }
-
-    .options-menu button {
-      font-size: 11px;
+    .footer-icon-button:disabled {
+      color: var(--tertiary);
+      cursor: default;
     }
 
     .screen-header {
@@ -1689,18 +1489,7 @@
       backdrop-filter: blur(18px);
     }
 
-    .app-top-bar {
-      position: relative;
-      top: auto;
-      z-index: 10;
-      width: 100%;
-      min-height: 44px;
-      flex: 0 0 44px;
-      margin: 0;
-      padding: 0 14px;
-    }
-
-    .screen-header h1 {
+    .screen-header__title {
       font-size: 13px;
       font-weight: 600;
     }
@@ -1727,92 +1516,6 @@
       content: none;
     }
 
-    .options-menu .menu-item,
-    .share-menu > summary {
-      display: flex;
-      width: 100%;
-      min-height: 32px;
-      align-items: center;
-      gap: 8px;
-      padding: 7px 9px;
-      border: 0;
-      border-radius: 6px;
-      color: var(--text);
-      background: transparent;
-      font-size: 11px;
-      text-align: left;
-    }
-
-    .options-menu .menu-item span,
-    .share-menu > summary span {
-      flex: 1;
-    }
-
-    .options-menu kbd {
-      color: var(--tertiary);
-      background: none;
-      font: 10px/1 inherit;
-    }
-
-    .options-menu .menu-item--danger {
-      color: var(--meter-critical);
-    }
-
-    .share-menu {
-      position: relative;
-    }
-
-    .share-menu > summary {
-      cursor: pointer;
-      list-style: none;
-    }
-
-    .share-menu > summary::-webkit-details-marker {
-      display: none;
-    }
-
-    .share-menu > summary .share-menu__direction {
-      display: grid;
-      width: 16px;
-      flex: 0 0 16px;
-      place-items: center;
-    }
-
-    .share-menu > summary .share-menu__direction .symbol-icon {
-      transition: transform 140ms ease;
-    }
-
-    .share-menu[open] > summary .share-menu__direction .symbol-icon {
-      transform: translateX(-2px);
-    }
-
-    .share-menu > div {
-      position: absolute;
-      right: calc(100% - 2px);
-      bottom: -5px;
-      width: 130px;
-      max-width: calc(100vw - 16px);
-      padding: 5px;
-      border: 1px solid var(--separator);
-      border-radius: 9px;
-      background: var(--tray);
-      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
-      transform-origin: bottom right;
-      animation: menu-in 160ms ease-out both;
-    }
-
-    .share-menu button {
-      width: 100%;
-      min-height: 30px;
-      padding: 7px 9px;
-      border: 0;
-      border-radius: 5px;
-      color: var(--text);
-      background: transparent;
-      font-size: 11px;
-      text-align: left;
-    }
-
     .transient-pill {
       position: absolute;
       right: 14px;
@@ -1835,96 +1538,17 @@
       color: #34c759;
     }
 
-    .about-backdrop {
-      position: absolute;
-      z-index: 100;
-      display: grid;
-      border: 0;
-      background: rgba(0, 0, 0, 0.28);
-      inset: 0;
-      place-items: center;
-      backdrop-filter: blur(6px);
-    }
-
-    .about-card {
-      position: relative;
-      display: flex;
-      width: 230px;
-      align-items: center;
-      padding: 24px 20px 20px;
-      border: 1px solid var(--separator);
-      border-radius: 16px;
-      color: var(--text);
-      background: var(--tray);
-      box-shadow: 0 18px 55px rgba(0, 0, 0, 0.35);
-      flex-direction: column;
-      animation: detail-in var(--motion-spring) both;
-    }
-
-    .about-card h1 {
-      margin: 10px 0 2px;
-      font-size: 17px;
-    }
-
-    .about-card p,
-    .about-card small {
-      margin: 0;
-      color: var(--secondary);
-      font-size: 10px;
-      text-align: center;
-    }
-
-    .about-card__close {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      display: grid;
-      width: 24px;
-      height: 24px;
-      padding: 0;
-      border: 0;
-      border-radius: 50%;
-      color: var(--secondary);
-      background: var(--button-hover);
-      cursor: pointer;
-      place-items: center;
-      transition:
-        color var(--motion-switch),
-        background var(--motion-switch),
-        transform var(--motion-switch);
-    }
-
-    .about-card__close:hover {
-      color: var(--text);
-      background: color-mix(in srgb, var(--text) 14%, transparent);
-    }
-
-    .about-card__close:active {
-      transform: scale(0.92);
-    }
-
-    .about-card__close:focus-visible {
-      outline: 2px solid color-mix(in srgb, var(--meter-fill) 55%, transparent);
-      outline-offset: 1px;
-    }
-
     :root[data-density='compact'] .content {
       padding: 10px 14px 8px;
     }
 
     :root[data-density='compact'] .content--chrome {
-      padding-top: 12px;
+      padding: 0;
     }
 
     .notice--blocking {
       color: var(--error);
       background: var(--error-bg);
-    }
-
-    .popover {
-      width: 100%;
-      min-width: 0;
-      max-width: 440px;
     }
   }
 </style>

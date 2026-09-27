@@ -3,6 +3,8 @@ pub mod client;
 pub mod csv;
 pub mod mapper;
 
+#[cfg(all(test, target_os = "macos"))]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{Days, Local, TimeZone, Utc};
@@ -135,6 +137,8 @@ pub enum CursorError {
     TokenExpired,
     #[error("The refreshed Cursor login could not be saved.")]
     AuthWrite,
+    #[error("Cursor credentials could not be read from the local database.")]
+    CredentialRead,
     #[error("Could not connect to Cursor. Check your internet connection.")]
     ConnectionFailed,
     #[error("Cursor returned an invalid usage response.")]
@@ -166,7 +170,8 @@ impl CursorProvider {
 
     pub fn refresh(&self) -> Result<ProviderSnapshot, CursorError> {
         let now = Utc::now();
-        let auth = CursorAuthState::load()?.ok_or(CursorError::NotLoggedIn)?;
+        let auth = load_refresh_auth()?;
+        let auth = auth.ok_or(CursorError::NotLoggedIn)?;
         self.refresh_with_auth(auth, now)
     }
 
@@ -454,6 +459,17 @@ fn snapshot(
     }
 }
 
+fn load_refresh_auth() -> Result<Option<CursorAuthState>, CursorError> {
+    CursorAuthState::load()
+}
+
+#[cfg(all(test, target_os = "macos"))]
+fn load_refresh_auth_from_database_paths(
+    paths: &[PathBuf],
+) -> Result<Option<CursorAuthState>, CursorError> {
+    CursorAuthState::load_from_database_paths(paths)
+}
+
 fn require_success(response: &CursorResponse) -> Result<(), CursorError> {
     if response.status.is_success() {
         Ok(())
@@ -486,34 +502,32 @@ impl crate::providers::UsageProvider for CursorProvider {
         definition()
     }
 
-    fn accesses_system_keychain(&self) -> bool {
-        true
-    }
-
     fn has_local_credentials(&self) -> bool {
         CursorAuthState::has_local_credentials()
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        CursorProvider::refresh(self).map_err(|error| {
-            use crate::models::ProviderErrorKind as Kind;
-            let kind = match error {
-                CursorError::NotLoggedIn
-                | CursorError::SessionExpired
-                | CursorError::TokenExpired => Kind::Authentication,
-                CursorError::AuthWrite => Kind::CredentialStorage,
-                CursorError::RequestFailed(429) => Kind::RateLimited,
-                CursorError::ConnectionFailed
-                | CursorError::RequestFailed(_)
-                | CursorError::UsageAfterRefreshFailed
-                | CursorError::RequestBasedUnavailable(_) => Kind::Network,
-                CursorError::InvalidResponse
-                | CursorError::TotalUsageLimitMissing
-                | CursorError::NoActiveSubscription => Kind::InvalidResponse,
-            };
-            crate::providers::ProviderError::from_display(kind, error)
-        })
+        CursorProvider::refresh(self).map_err(provider_error)
     }
+}
+
+fn provider_error(error: CursorError) -> crate::providers::ProviderError {
+    use crate::models::ProviderErrorKind as Kind;
+    let kind = match error {
+        CursorError::NotLoggedIn => Kind::CredentialsUnavailable,
+        CursorError::SessionExpired | CursorError::TokenExpired => Kind::Authentication,
+        CursorError::AuthWrite => Kind::CredentialStorage,
+        CursorError::CredentialRead => Kind::CredentialStorage,
+        CursorError::RequestFailed(429) => Kind::RateLimited,
+        CursorError::ConnectionFailed
+        | CursorError::RequestFailed(_)
+        | CursorError::UsageAfterRefreshFailed
+        | CursorError::RequestBasedUnavailable(_) => Kind::Network,
+        CursorError::InvalidResponse
+        | CursorError::TotalUsageLimitMissing
+        | CursorError::NoActiveSubscription => Kind::InvalidResponse,
+    };
+    crate::providers::ProviderError::from_display(kind, error)
 }
 
 #[cfg(test)]
@@ -530,12 +544,69 @@ mod tests {
     use rusqlite::Connection;
     use tempfile::tempdir;
 
+    #[cfg(target_os = "macos")]
+    use super::load_refresh_auth_from_database_paths;
     use super::{
         auth::{CursorAuthSource, CursorAuthState},
         client::{CursorClient, Endpoints},
-        definition, CursorProvider,
+        definition, provider_error, CursorError, CursorProvider,
     };
     use crate::pricing::PricingStore;
+
+    #[test]
+    fn local_credential_errors_map_to_stable_provider_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(CursorError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(CursorError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(CursorError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(CursorError::CredentialRead).kind(),
+            Kind::CredentialStorage
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn refresh_auth_loader_uses_only_the_selected_sqlite_database() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("state.vscdb");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+                ("cursorAuth/accessToken", "sqlite-access"),
+            )
+            .unwrap();
+        drop(connection);
+
+        let auth = load_refresh_auth_from_database_paths(std::slice::from_ref(&path))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(auth.access_token.as_deref(), Some("sqlite-access"));
+        assert!(
+            matches!(&auth.source, CursorAuthSource::Sqlite(source) if source.as_path() == path.as_path())
+        );
+        assert!(load_refresh_auth_from_database_paths(&[])
+            .unwrap()
+            .is_none());
+    }
 
     fn jwt(subject: &str) -> String {
         let payload = URL_SAFE_NO_PAD

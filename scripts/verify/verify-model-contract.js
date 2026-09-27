@@ -46,9 +46,25 @@ function camelCase(value) {
 function rustFields(name) {
   const body = rustSource.match(new RegExp(`pub struct ${name}\\s*\\{([\\s\\S]*?)\\n\\}`))?.[1];
   if (!body) throw new Error(`Rust contract ${name} was not found.`);
-  return new Set(
-    [...body.matchAll(/^\s*pub\s+([a-zA-Z0-9_]+)\s*:/gm)].map((match) => camelCase(match[1])),
-  );
+  const fields = new Set();
+  let fieldEnabledOnMacos = true;
+  for (const line of body.split('\n')) {
+    const cfg = line.match(/^\s*#\[cfg\((.*)\)\]\s*$/)?.[1];
+    if (cfg) {
+      if (/\bnot\s*\(\s*target_os\s*=\s*"macos"\s*\)/.test(cfg)) {
+        fieldEnabledOnMacos = false;
+      } else if (/\btarget_os\s*=\s*"(?:windows|linux)"/.test(cfg) || /\btest\b/.test(cfg)) {
+        fieldEnabledOnMacos = false;
+      }
+      continue;
+    }
+    const field = line.match(/^\s*pub\s+([a-zA-Z0-9_]+)\s*:/)?.[1];
+    if (field) {
+      if (fieldEnabledOnMacos) fields.add(camelCase(field));
+      fieldEnabledOnMacos = true;
+    }
+  }
+  return fields;
 }
 
 const typeScriptInterfaces = new Map(
