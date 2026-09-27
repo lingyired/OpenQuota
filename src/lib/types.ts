@@ -238,6 +238,7 @@ export interface ProviderLayout {
    * authorization on those reads. Automatic enablement never sets it.
    */
   keychainAccessGranted: boolean;
+  useProxy: boolean;
   metrics: MetricLayout[];
 }
 
@@ -295,6 +296,7 @@ export interface TaskbandPreferences {
 
 export interface AppSettings {
   schemaVersion: number;
+  proxyUrl: string | null;
   providers: ProviderLayout[];
   knownProviderIds: string[];
   providerNames: Record<string, string>;

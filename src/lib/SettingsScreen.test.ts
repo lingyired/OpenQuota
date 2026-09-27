@@ -9,16 +9,18 @@ function renderSettingsScreen({
   platform,
   appMenubarForced,
   showAppMenubar,
+  proxyUrl = 'http://127.0.0.1:8888',
 }: {
   platform: DesktopPlatform;
   appMenubarForced: boolean;
   showAppMenubar: boolean;
+  proxyUrl?: string | null;
 }) {
   const onChange = vi.fn();
   const settingsView: SettingsViewState = {
     ...settingsState,
     appMenubarForced,
-    settings: { ...settingsState.settings, showAppMenubar },
+    settings: { ...settingsState.settings, showAppMenubar, proxyUrl },
   };
 
   render(SettingsScreen, {
@@ -38,7 +40,7 @@ function renderSettingsScreen({
     onResetAllSettings: vi.fn(),
   });
 
-  return { onChange };
+  return { onChange, settingsView };
 }
 
 afterEach(cleanup);
@@ -96,5 +98,60 @@ describe('SettingsScreen app menubar setting', () => {
     expect(
       screen.queryByRole('checkbox', { name: 'Show Quota01 Menu Bar Icon' }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('SettingsScreen proxy URL setting', () => {
+  it('shows the saved URL and commits a trimmed URL on blur', async () => {
+    const { onChange } = renderSettingsScreen({
+      platform: 'linux',
+      appMenubarForced: false,
+      showAppMenubar: true,
+      proxyUrl: 'http://127.0.0.1:8888',
+    });
+
+    const input = screen.getByRole('textbox', { name: 'Proxy URL' });
+    expect(input).toHaveValue('http://127.0.0.1:8888');
+
+    await fireEvent.input(input, { target: { value: ' http://127.0.0.1:8080 ' } });
+    await fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ proxyUrl: 'http://127.0.0.1:8080' }),
+    );
+  });
+
+  it('commits the trimmed URL on Enter', async () => {
+    const { onChange } = renderSettingsScreen({
+      platform: 'linux',
+      appMenubarForced: false,
+      showAppMenubar: true,
+      proxyUrl: null,
+    });
+    const input = screen.getByRole('textbox', { name: 'Proxy URL' });
+
+    await fireEvent.input(input, { target: { value: ' http://proxy.example:9000 ' } });
+    await fireEvent.keyDown(input, { key: 'Enter' });
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({ proxyUrl: 'http://proxy.example:9000' }),
+    );
+  });
+
+  it('keeps an invalid edit draft while the parent retains its last saved URL', async () => {
+    const { onChange, settingsView } = renderSettingsScreen({
+      platform: 'linux',
+      appMenubarForced: false,
+      showAppMenubar: true,
+      proxyUrl: 'http://127.0.0.1:8888',
+    });
+    const input = screen.getByRole('textbox', { name: 'Proxy URL' });
+
+    await fireEvent.input(input, { target: { value: 'not a valid URL' } });
+    await fireEvent.blur(input);
+
+    expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ proxyUrl: 'not a valid URL' }));
+    expect(input).toHaveValue('not a valid URL');
+    expect(settingsView.settings.proxyUrl).toBe('http://127.0.0.1:8888');
   });
 });

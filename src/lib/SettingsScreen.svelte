@@ -48,6 +48,9 @@
   }: Props = $props();
   let recording = $state(false);
   let logActionError = $state<string | null>(null);
+  let proxyUrlDraft = $state('');
+  let lastProxyUrlRevision: number | undefined;
+  let lastSubmittedProxyUrl: string | null | undefined;
   const settings = $derived(settingsView.settings);
   const currentLocale = $derived(locale);
   const revealLogLabel = $derived.by(() => {
@@ -67,6 +70,14 @@
     anyNotificationEnabled && settingsView.notificationPermission !== 'granted',
   );
 
+  $effect(() => {
+    const revision = settingsView.settingsRevision;
+    if (revision === lastProxyUrlRevision) return;
+    lastProxyUrlRevision = revision;
+    proxyUrlDraft = settings.proxyUrl ?? '';
+    lastSubmittedProxyUrl = undefined;
+  });
+
   function patch(value: Partial<AppSettings>) {
     onChange({ ...settings, ...value });
   }
@@ -76,6 +87,18 @@
   function patchNotification(key: keyof NotificationPreferences, enabled: boolean) {
     patch({ notifications: { ...settings.notifications, [key]: enabled } });
     if (enabled && settingsView.notificationPermission === 'prompt') onRequestNotifications();
+  }
+  function commitProxyUrl() {
+    const value = proxyUrlDraft.trim();
+    const proxyUrl = value || null;
+    proxyUrlDraft = value;
+    if (proxyUrl === settings.proxyUrl) {
+      lastSubmittedProxyUrl = proxyUrl;
+      return;
+    }
+    if (proxyUrl === lastSubmittedProxyUrl) return;
+    lastSubmittedProxyUrl = proxyUrl;
+    patch({ proxyUrl });
   }
   function clampInt(value: string, min: number, max: number) {
     const parsed = Number.parseInt(value, 10);
@@ -180,6 +203,24 @@
           { value: 'vi', label: $tStore('settings.vietnamese') },
         ]}
         onChange={(value) => patch({ language: value as AppSettings['language'] })}
+      />
+    </div>
+    <div class="setting-row proxy-url-row">
+      <label for="settings-proxy-url"><b>Proxy URL</b></label>
+      <input
+        id="settings-proxy-url"
+        class="proxy-url-input"
+        type="url"
+        aria-label="Proxy URL"
+        bind:value={proxyUrlDraft}
+        oninput={() => (lastSubmittedProxyUrl = undefined)}
+        onblur={commitProxyUrl}
+        onkeydown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            commitProxyUrl();
+          }
+        }}
       />
     </div>
     <label class="setting-row"
@@ -669,6 +710,29 @@
       background: var(--card);
       font-size: 12px;
       text-align: right;
+    }
+
+    .proxy-url-row > label {
+      min-width: 0;
+    }
+
+    .proxy-url-input {
+      width: min(62%, 260px);
+      min-width: 0;
+      min-height: 28px;
+      box-sizing: border-box;
+      padding: 4px 7px;
+      border: 1px solid var(--separator);
+      border-radius: 6px;
+      color: var(--text);
+      background: var(--card);
+      font: inherit;
+      font-size: 12px;
+    }
+
+    .proxy-url-input:focus-visible {
+      outline: 2px solid color-mix(in srgb, var(--meter-fill) 55%, transparent);
+      outline-offset: 1px;
     }
 
     .number-field:focus-visible {

@@ -106,6 +106,7 @@ function webviewAuthFixture() {
       detected: false,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
@@ -166,6 +167,7 @@ function deviceCodeSignInFixture(errorKind: ProviderViewState['errorKind'] = 'au
       detected: false,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
       ],
@@ -410,6 +412,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -432,6 +435,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               {
                 id: 'antigravity.geminiPro',
@@ -507,6 +511,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],
@@ -599,6 +604,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               {
                 id: `${providerId}.session`,
@@ -734,6 +740,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],
@@ -1333,6 +1340,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1422,6 +1430,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1491,6 +1500,7 @@ describe('Quota01 dashboard', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               {
                 id: 'claude.session',
@@ -1615,6 +1625,7 @@ describe('Quota01 dashboard', () => {
                 detected: false,
                 expanded: false,
                 keychainAccessGranted: false,
+                useProxy: false,
                 metrics: definition.metrics.map((metric) => ({
                   id: metric.id,
                   enabled: metric.defaultEnabled,
@@ -2102,6 +2113,7 @@ describe('Quota01 Windows taskband focus', () => {
             detected: true,
             expanded: false,
             keychainAccessGranted: false,
+            useProxy: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],

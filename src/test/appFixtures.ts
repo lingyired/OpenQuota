@@ -348,6 +348,7 @@ export const settingsState: SettingsViewState = {
   appMenubarForced: false,
   settings: {
     schemaVersion: 9,
+    proxyUrl: null,
     providerNames: {},
     language: 'en',
     knownProviderIds: ['claude', 'codex', 'antigravity'],
@@ -387,6 +388,7 @@ export const settingsState: SettingsViewState = {
         detected: true,
         expanded: false,
         keychainAccessGranted: false,
+        useProxy: false,
         metrics: [
           { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
           { id: 'codex.weekly', enabled: true, section: 'alwaysVisible', pinned: true },

@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import CustomizeProviderDetail from './CustomizeProviderDetail.svelte';
 import { ProviderCatalogIndex } from './metrics';
@@ -87,6 +87,7 @@ const catalogData: ProviderCatalog = {
 
 const settings: AppSettings = {
   schemaVersion: 9,
+  proxyUrl: null,
   providers: [
     {
       id: 'trae-cn',
@@ -94,6 +95,7 @@ const settings: AppSettings = {
       detected: false,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
@@ -105,6 +107,7 @@ const settings: AppSettings = {
       detected: false,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         {
           id: 'deepseek.balance',
@@ -120,6 +123,7 @@ const settings: AppSettings = {
       detected: false,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: true,
       metrics: [
         { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
       ],
@@ -243,5 +247,63 @@ describe('CustomizeProviderDetail session authentication', () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith('get_provider_api_key_state', {
       providerId: 'workbuddy-cn',
     });
+  });
+
+  it('toggles only the selected provider proxy setting', async () => {
+    const onChange = vi.fn();
+    render(CustomizeProviderDetail, {
+      settings,
+      providerId: 'deepseek',
+      catalog: new ProviderCatalogIndex(catalogData),
+      renamableProviderIds: [],
+      onChange,
+      onNameChange: () => {},
+      onReorderStart: () => {},
+      onReorderEnd: () => {},
+      reducedMotion: true,
+    });
+
+    await fireEvent.click(screen.getByRole('checkbox', { name: 'Use proxy for this provider' }));
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        providers: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'trae-cn',
+            enabled: false,
+            detected: false,
+            expanded: false,
+            keychainAccessGranted: false,
+            useProxy: false,
+            metrics: [
+              { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
+              { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
+            ],
+          }),
+          expect.objectContaining({
+            id: 'deepseek',
+            enabled: false,
+            detected: false,
+            expanded: false,
+            keychainAccessGranted: false,
+            useProxy: true,
+            metrics: [
+              { id: 'deepseek.balance', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          }),
+          expect.objectContaining({
+            id: 'workbuddy-cn',
+            enabled: false,
+            detected: false,
+            expanded: false,
+            keychainAccessGranted: false,
+            useProxy: true,
+            metrics: [
+              { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          }),
+        ]),
+      }),
+    );
   });
 });

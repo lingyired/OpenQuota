@@ -217,6 +217,7 @@ describe('share card layout', () => {
       detected: true,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [{ id: 'opencode.session', enabled: true, section: 'alwaysVisible', pinned: true }],
     };
 
@@ -310,6 +311,7 @@ describe('share card layout', () => {
       detected: true,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         {
           id: 'grok.payAsYouGo',
@@ -416,6 +418,7 @@ describe('share card layout', () => {
       detected: true,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         {
           id: 'workbuddy-cn.creditPackages',
@@ -513,6 +516,7 @@ describe('share card layout', () => {
       detected: true,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         {
           id: 'workbuddy-cn.creditPackages',

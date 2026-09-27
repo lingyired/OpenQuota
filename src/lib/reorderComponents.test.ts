@@ -9,6 +9,7 @@ afterEach(cleanup);
 
 const settings: AppSettings = {
   schemaVersion: 9,
+  proxyUrl: null,
   providerNames: {},
   language: 'en',
   knownProviderIds: ['codex', 'claude', 'antigravity'],
@@ -48,6 +49,7 @@ const settings: AppSettings = {
       detected: true,
       expanded: true,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'codex.weekly', enabled: true, section: 'alwaysVisible', pinned: true },
@@ -60,6 +62,7 @@ const settings: AppSettings = {
       detected: true,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [],
     },
     {
@@ -68,6 +71,7 @@ const settings: AppSettings = {
       detected: true,
       expanded: false,
       keychainAccessGranted: false,
+      useProxy: false,
       metrics: [],
     },
   ],
