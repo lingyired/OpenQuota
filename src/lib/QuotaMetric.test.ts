@@ -181,3 +181,33 @@ describe('quota pacing presentation', () => {
     );
   });
 });
+
+describe('QuotaMetric read-only preview', () => {
+  it('keeps the running-out warning readable without exposing its settings action', () => {
+    const shared = {
+      quota: quota(60),
+      now,
+      usageDisplay: 'used' as const,
+      resetDisplay: 'countdown' as const,
+      timeFormat: 'twentyFourHour' as const,
+      alwaysShowPacing: true,
+      onToggleUsage: vi.fn(),
+      onToggleReset: vi.fn(),
+    };
+    const standard = render(QuotaMetric, shared);
+    const standardWarning = standard.container.querySelector('.pace-warning');
+    expect(standardWarning).toBeInTheDocument();
+    const standardLabel = standardWarning?.getAttribute('aria-label');
+    const standardTooltip = standardWarning?.getAttribute('data-tooltip');
+    cleanup();
+
+    const { container } = render(QuotaMetric, { ...shared, readOnlyPreview: true });
+    const warning = container.querySelector('.pace-warning');
+    expect(warning).toBeInTheDocument();
+    expect(warning?.textContent?.trim()).not.toBe('');
+    expect(warning?.tagName).not.toBe('BUTTON');
+    expect(warning?.getAttribute('aria-label')).toBe(standardLabel);
+    expect(warning?.getAttribute('data-tooltip')).toBe(standardTooltip);
+    expect(container.querySelector('.metric__reading button')).not.toBeInTheDocument();
+  });
+});

@@ -20,7 +20,7 @@ use self::{
     mapper::{data_object, map_credits, map_key},
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 const ENVIRONMENT_NAMES: &[&str] = &["OPENROUTER_API_KEY", "OPENROUTER_KEY"];
 const CONFIG_PATHS: &[&str] = &["~/.config/openrouter/key.json"];
@@ -156,10 +156,14 @@ impl OpenRouterProvider {
         }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let (credits, key) = std::thread::scope(|scope| {
-            let credits = scope.spawn(|| self.client.fetch_credits(api_key));
-            let key = scope.spawn(|| self.client.fetch_key(api_key));
+            let credits = scope.spawn(|| self.client.fetch_credits(context, api_key));
+            let key = scope.spawn(|| self.client.fetch_key(context, api_key));
             (
                 credits
                     .join()
@@ -219,12 +223,19 @@ impl UsageProvider for OpenRouterProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(|_| ProviderError::from(OpenRouterError::CredentialStorage))?
             .ok_or_else(|| ProviderError::from(OpenRouterError::MissingKey))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {

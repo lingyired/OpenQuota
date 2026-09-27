@@ -3,8 +3,6 @@ import { t } from './i18n';
 import { SvelteDate } from 'svelte/reactivity';
 import type { UpdateFailure, UpdateProgress, UpdateStatus } from './types';
 
-const USAGE_REFRESH_INTERVAL_MS = 5 * 60_000;
-
 export class UpdateController {
   status = $state<UpdateStatus | null>(null);
   error = $state<UpdateFailure | null>(null);
@@ -59,14 +57,11 @@ export class UpdateController {
   }
 }
 
-export function nextUpdateLabel(value: string | undefined, now: number) {
-  if (!value) return t('update.waitingFirst');
-  const timestamp = Date.parse(value);
+export function nextUpdateLabel(nextRefreshAt: string | undefined, now: number) {
+  if (!nextRefreshAt) return t('update.waitingFirst');
+  const timestamp = Date.parse(nextRefreshAt);
   if (Number.isNaN(timestamp)) return t('update.nextUnavailable');
-  const remaining = Math.min(
-    USAGE_REFRESH_INTERVAL_MS,
-    Math.max(0, timestamp + USAGE_REFRESH_INTERVAL_MS - now),
-  );
+  const remaining = Math.max(0, timestamp - now);
   const seconds = Math.ceil(remaining / 1000);
   return seconds >= 60
     ? t('update.nextInM', { m: Math.ceil(seconds / 60) })

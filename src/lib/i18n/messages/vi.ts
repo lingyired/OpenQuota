@@ -33,6 +33,12 @@ export const vi = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const vi = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Nhà cung cấp',
+    usagePreview: 'Xem trước mức sử dụng',
+    preferences: 'Tùy chọn ứng dụng',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,6 +165,8 @@ export const vi = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    proxyUrl: 'URL proxy',
+    proxyUrlHelp: 'Nhà cung cấp dùng URL này khi tùy chọn proxy được bật.',
     showAppMenubar: 'Hiện biểu tượng Quota01 trên thanh menu',
     appMenubarForced: 'Không có biểu tượng Provider nào hiển thị, nên Quota01 vẫn hiển thị.',
     showTotalSpend: 'Show Total Spend',
@@ -260,6 +271,7 @@ export const vi = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -281,7 +293,12 @@ export const vi = {
     removedFromMenuBar: 'Removed from menu bar',
     name: 'Name',
     nameFor: 'Name for {name}',
+    useProxy: 'Dùng proxy cho nhà cung cấp này',
+    useProxyHelp: 'Dùng URL proxy dùng chung được cấu hình trong phần Cài đặt chung.',
     taskbar: 'Taskbar',
+    menuBarInstance: 'Mục thanh menu',
+    showOnMenuBar: 'Hiện trên thanh menu',
+    showOnMenuBarDesc: 'Hiện nhà cung cấp này trên thanh menu macOS.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

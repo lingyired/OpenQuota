@@ -33,6 +33,12 @@ export const fr = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const fr = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Fournisseurs',
+    usagePreview: 'Aperçu de l’utilisation',
+    preferences: 'Préférences de l’application',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,6 +165,8 @@ export const fr = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    proxyUrl: 'URL du proxy',
+    proxyUrlHelp: 'Les fournisseurs utilisent cette URL lorsque l’option proxy est activée.',
     showAppMenubar: 'Afficher l’icône Quota01 dans la barre des menus',
     appMenubarForced: 'Aucune icône de fournisseur n’est visible, donc Quota01 reste visible.',
     showTotalSpend: 'Show Total Spend',
@@ -260,6 +271,7 @@ export const fr = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -281,7 +293,12 @@ export const fr = {
     removedFromMenuBar: 'Removed from menu bar',
     name: 'Name',
     nameFor: 'Name for {name}',
+    useProxy: 'Utiliser le proxy pour ce fournisseur',
+    useProxyHelp: 'Utilise l’URL de proxy partagée définie dans les paramètres généraux.',
     taskbar: 'Taskbar',
+    menuBarInstance: 'Élément de la barre des menus',
+    showOnMenuBar: 'Afficher dans la barre des menus',
+    showOnMenuBarDesc: 'Affiche ce fournisseur dans la barre des menus de macOS.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

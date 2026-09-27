@@ -216,7 +216,7 @@ describe('share card layout', () => {
       enabled: true,
       detected: true,
       expanded: false,
-      keychainAccessGranted: false,
+      useProxy: false,
       metrics: [{ id: 'opencode.session', enabled: true, section: 'alwaysVisible', pinned: true }],
     };
 
@@ -309,7 +309,7 @@ describe('share card layout', () => {
       enabled: true,
       detected: true,
       expanded: false,
-      keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         {
           id: 'grok.payAsYouGo',
@@ -415,7 +415,7 @@ describe('share card layout', () => {
       enabled: true,
       detected: true,
       expanded: false,
-      keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         {
           id: 'workbuddy-cn.creditPackages',
@@ -512,7 +512,7 @@ describe('share card layout', () => {
       enabled: true,
       detected: true,
       expanded: false,
-      keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         {
           id: 'workbuddy-cn.creditPackages',
@@ -542,7 +542,6 @@ describe('share card layout', () => {
     const interleaved = {
       ...layout,
       expanded: true,
-      keychainAccessGranted: false,
       metrics: [
         metric('codex.today'),
         metric('codex.session'),

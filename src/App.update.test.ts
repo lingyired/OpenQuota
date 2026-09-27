@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/svelte';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import App from './App.svelte';
 import type { SettingsViewState, UpdateProgress } from './lib/types';
@@ -8,15 +8,22 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
   currentMonitor: vi.fn(),
+  windowLabel: 'main',
+  automaticUpdateDelay: vi.fn(() => 10_000),
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 vi.mock('@tauri-apps/api/window', () => ({
   currentMonitor: mocks.currentMonitor,
   getCurrentWindow: () => ({
+    label: mocks.windowLabel,
     scaleFactor: () => Promise.resolve(1),
     innerSize: () => Promise.resolve({ width: 320, height: 600 }),
   }),
+}));
+vi.mock('./lib/updateSchedule', () => ({
+  automaticUpdateDelay: mocks.automaticUpdateDelay,
+  UPDATE_CHECK_INTERVAL_MS: 6 * 60 * 60 * 1000,
 }));
 
 type InvokeArgs = { settings?: SettingsViewState['settings'] };
@@ -30,12 +37,37 @@ function mockInvoke(implementation: InvokeImplementation) {
         implementation('get_app_settings', args),
       ]).then(([usage, settings]) => ({ usage, settings, catalog: providerCatalog }));
     }
+    if (command === 'open_settings_window') return Promise.resolve();
     return implementation(command, args);
   });
 }
 
+async function renderWithAutomaticUpdateCheck() {
+  mocks.automaticUpdateDelay.mockReturnValue(0);
+  render(App);
+  await screen.findByText('Plus');
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('check_for_updates'));
+}
+
+async function openSettingsWindow() {
+  render(App);
+  await screen.findByText('Plus');
+  await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+  await waitFor(() =>
+    expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' }),
+  );
+  cleanup();
+  mocks.windowLabel = 'settings';
+  render(App);
+  await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+  await screen.findByRole('heading', { name: 'Settings', level: 1 });
+}
+
 describe('Quota01 update lifecycle', () => {
   beforeEach(() => {
+    localStorage.clear();
+    mocks.windowLabel = 'main';
+    mocks.automaticUpdateDelay.mockReturnValue(10_000);
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
       workArea: { size: { width: 1280, height: 700 } },
@@ -64,17 +96,167 @@ describe('Quota01 update lifecycle', () => {
   });
   afterEach(() => {
     cleanup();
+    localStorage.clear();
     vi.restoreAllMocks();
+  });
+
+  it('selects the provider opened from its native taskbar instance', async () => {
+    let taskbandOpen: ((event: { payload: string }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'taskband-open') taskbandOpen = callback;
+      return Promise.resolve(vi.fn());
+    });
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+    );
+    const multiSettings: SettingsViewState = {
+      ...settingsState,
+      settings: {
+        ...settingsState.settings,
+        providers: [
+          {
+            id: 'claude',
+            enabled: true,
+            detected: true,
+            expanded: false,
+            useProxy: false,
+            metrics: [
+              { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          },
+          ...settingsState.settings.providers,
+        ],
+      },
+    };
+    mockInvoke((command) => {
+      if (command === 'get_usage_state') return Promise.resolve(liveState);
+      if (command === 'get_app_settings') return Promise.resolve(multiSettings);
+      if (command === 'save_app_settings') return Promise.resolve(multiSettings);
+      return Promise.resolve();
+    });
+    render(App);
+    await screen.findByRole('tab', { name: /Claude/ });
+    await waitFor(() => expect(taskbandOpen).toBeDefined());
+
+    taskbandOpen?.({ payload: 'claude' });
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-screen="dashboard"] [data-provider-id="claude"]'),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Claude/ })).toHaveAttribute('aria-selected', 'true');
+    });
+  });
+
+  it('rechecks a due provider whenever the popup reopens with the same selection', async () => {
+    let openScreen: ((event: { payload: string }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'open-screen') openScreen = callback;
+      return Promise.resolve(vi.fn());
+    });
+    render(App);
+    await screen.findByText('Plus');
+    await waitFor(() => expect(openScreen).toBeDefined());
+    mocks.invoke.mockClear();
+
+    openScreen?.({ payload: 'dashboard' });
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('refresh_selected_provider_if_due', {
+        providerId: 'codex',
+      }),
+    );
+    openScreen?.({ payload: 'dashboard' });
+    await waitFor(() =>
+      expect(
+        mocks.invoke.mock.calls.filter(
+          ([command]) => command === 'refresh_selected_provider_if_due',
+        ),
+      ).toHaveLength(2),
+    );
+    window.dispatchEvent(new Event('focus'));
+    await waitFor(() =>
+      expect(
+        mocks.invoke.mock.calls.filter(
+          ([command]) => command === 'refresh_selected_provider_if_due',
+        ),
+      ).toHaveLength(3),
+    );
+
+    openScreen?.({ payload: 'settings' });
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' }),
+    );
+    expect(
+      mocks.invoke.mock.calls.filter(([command]) => command === 'refresh_selected_provider_if_due'),
+    ).toHaveLength(3);
+  });
+
+  it('falls back to the first enabled provider when the selected provider is removed', async () => {
+    let taskbandOpen: ((event: { payload: string }) => void) | undefined;
+    let settingsStateChanged: ((event: { payload: SettingsViewState }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'taskband-open') taskbandOpen = callback;
+      if (event === 'settings-state') settingsStateChanged = callback;
+      return Promise.resolve(vi.fn());
+    });
+    const claude = {
+      id: 'claude',
+      enabled: true,
+      detected: true,
+      expanded: false,
+      useProxy: false,
+      metrics: [
+        { id: 'claude.session', enabled: true, section: 'alwaysVisible' as const, pinned: true },
+      ],
+    };
+    const multiSettings: SettingsViewState = {
+      ...settingsState,
+      settings: {
+        ...settingsState.settings,
+        providers: [claude, ...settingsState.settings.providers],
+      },
+    };
+    mockInvoke((command, args) => {
+      if (command === 'get_usage_state') return Promise.resolve(liveState);
+      if (command === 'get_app_settings') return Promise.resolve(multiSettings);
+      if (command === 'save_app_settings')
+        return Promise.resolve({
+          ...multiSettings,
+          settings: args?.settings ?? multiSettings.settings,
+        });
+      return Promise.resolve();
+    });
+    render(App);
+    await waitFor(() => expect(taskbandOpen).toBeDefined());
+    taskbandOpen?.({ payload: 'claude' });
+    await screen.findByRole('group', { name: 'Claude provider' });
+    await waitFor(() => expect(settingsStateChanged).toBeDefined());
+
+    settingsStateChanged?.({
+      payload: {
+        ...multiSettings,
+        settingsRevision: multiSettings.settingsRevision + 1,
+        settings: {
+          ...multiSettings.settings,
+          providers: multiSettings.settings.providers.filter(
+            (provider) => provider.id !== 'claude',
+          ),
+        },
+      },
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByRole('group', { name: 'Claude provider' })).not.toBeInTheDocument();
+      expect(screen.getByRole('tab', { name: /Codex/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+    });
   });
 
   it('checks for updates manually and reports when up to date', async () => {
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)',
     );
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWindow();
     await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('check_for_updates'));
     expect(await screen.findByText('Quota01 0.1.0 is up to date.')).toBeInTheDocument();
@@ -107,10 +289,7 @@ describe('Quota01 update lifecycle', () => {
         });
       return Promise.resolve();
     });
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     expect(await screen.findByRole('region', { name: 'Update Available' })).toHaveTextContent(
       'Quota01 0.2.0 is ready to download.',
     );
@@ -142,10 +321,7 @@ describe('Quota01 update lifecycle', () => {
       if (command === 'open_update_page') return Promise.resolve();
       return Promise.resolve();
     });
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     await fireEvent.click(await screen.findByRole('button', { name: 'Download from GitHub' }));
     expect(mocks.invoke).toHaveBeenCalledWith('open_update_page');
   });
@@ -175,10 +351,7 @@ describe('Quota01 update lifecycle', () => {
       return Promise.resolve();
     });
 
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     await fireEvent.click(await screen.findByRole('button', { name: 'Install Update' }));
     expect(mocks.invoke).toHaveBeenCalledWith('install_update');
 
@@ -227,10 +400,7 @@ describe('Quota01 update lifecycle', () => {
       return Promise.resolve();
     });
 
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     await fireEvent.click(await screen.findByRole('button', { name: 'Install Update' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -242,5 +412,44 @@ describe('Quota01 update lifecycle', () => {
     expect(screen.getByRole('button', { name: 'Try Again' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'View Release' }));
     expect(mocks.invoke).toHaveBeenCalledWith('open_update_page');
+  });
+
+  it('keeps the no-instance Settings workspace open when leaving is cancelled', async () => {
+    let requestLeave: ((event: { payload: void }) => void) | undefined;
+    mocks.listen.mockImplementation((event, callback) => {
+      if (event === 'request-leave-settings') requestLeave = callback;
+      return Promise.resolve(vi.fn());
+    });
+    mocks.windowLabel = 'settings';
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh)');
+    const noInstances: SettingsViewState = { ...settingsState, trayAvailable: false };
+    mockInvoke((command) => {
+      if (command === 'get_usage_state') return Promise.resolve(liveState);
+      if (command === 'get_app_settings') return Promise.resolve(noInstances);
+      if (command === 'save_app_settings') return Promise.resolve(noInstances);
+      return Promise.resolve();
+    });
+
+    render(App);
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+    await screen.findByRole('heading', { name: 'Settings', level: 1 });
+    requestLeave?.({ payload: undefined });
+
+    const dialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+
+    expect(dialog).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
+
+    await fireEvent.keyDown(document, { key: 'Escape' });
+    const escapeDialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
+    await fireEvent.click(within(escapeDialog).getByRole('button', { name: 'Cancel' }));
+
+    requestLeave?.({ payload: undefined });
+    const focusDialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
+    await fireEvent.click(within(focusDialog).getByRole('button', { name: 'Cancel' }));
+
+    requestLeave?.({ payload: undefined });
+    expect(await screen.findByRole('alertdialog', { name: 'Quit Quota01?' })).toBeInTheDocument();
   });
 });

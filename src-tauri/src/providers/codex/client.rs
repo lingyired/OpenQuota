@@ -1,8 +1,10 @@
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use reqwest::{blocking::Client, header::HeaderMap, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::providers::ProviderRequestContext;
 
 use super::CodexError;
 
@@ -29,6 +31,7 @@ pub struct TokenRefresh {
 
 pub struct CodexClient {
     client: Client,
+    timeout: Duration,
     refresh_url: String,
     usage_url: String,
     reset_credits_url: String,
@@ -61,6 +64,7 @@ impl CodexClient {
             .map_err(|_| CodexError::ConnectionFailed)?;
         Ok(Self {
             client,
+            timeout,
             refresh_url: refresh_url.to_owned(),
             usage_url: usage_url.to_owned(),
             reset_credits_url: reset_credits_url.to_owned(),
@@ -68,14 +72,56 @@ impl CodexClient {
         })
     }
 
+    #[cfg(test)]
+    pub(super) fn with_test_endpoints(
+        usage_url: &str,
+        reset_credits_url: &str,
+        consume_reset_credit_url: &str,
+        refresh_url: &str,
+        timeout: Duration,
+    ) -> Result<Self, CodexError> {
+        Self::with_endpoints(
+            usage_url,
+            reset_credits_url,
+            consume_reset_credit_url,
+            refresh_url,
+            timeout,
+        )
+    }
+
+    fn client_for_context(
+        &self,
+        context: &ProviderRequestContext,
+        profile: &str,
+    ) -> Result<Arc<Client>, CodexError> {
+        context
+            .http_clients
+            .client("codex", profile, context.proxy_url.as_ref(), |builder| {
+                builder
+                    .connect_timeout(Duration::from_secs(8))
+                    .timeout(self.timeout)
+                    .user_agent(concat!("Quota01/", env!("CARGO_PKG_VERSION")))
+            })
+            .map_err(|_| CodexError::ConnectionFailed)
+    }
+
+    #[allow(dead_code)]
     pub fn fetch_usage(
         &self,
         access_token: &str,
         account_id: Option<&str>,
     ) -> Result<UsageResponse, CodexError> {
+        self.fetch_usage_using(&self.client, access_token, account_id)
+    }
+
+    fn fetch_usage_using(
+        &self,
+        client: &Client,
+        access_token: &str,
+        account_id: Option<&str>,
+    ) -> Result<UsageResponse, CodexError> {
         let started = std::time::Instant::now();
-        let mut request = self
-            .client
+        let mut request = client
             .get(&self.usage_url)
             .bearer_auth(access_token)
             .header("Accept", "application/json");
@@ -106,14 +152,33 @@ impl CodexClient {
         })
     }
 
+    pub(super) fn fetch_usage_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+        account_id: Option<&str>,
+    ) -> Result<UsageResponse, CodexError> {
+        let client = self.client_for_context(context, "usage")?;
+        self.fetch_usage_using(client.as_ref(), access_token, account_id)
+    }
+
+    #[allow(dead_code)]
     pub fn fetch_reset_credits(
         &self,
         access_token: &str,
         account_id: Option<&str>,
     ) -> Result<UsageResponse, CodexError> {
+        self.fetch_reset_credits_using(&self.client, access_token, account_id)
+    }
+
+    fn fetch_reset_credits_using(
+        &self,
+        client: &Client,
+        access_token: &str,
+        account_id: Option<&str>,
+    ) -> Result<UsageResponse, CodexError> {
         let started = std::time::Instant::now();
-        let mut request = self
-            .client
+        let mut request = client
             .get(&self.reset_credits_url)
             .bearer_auth(access_token)
             .header("Accept", "application/json")
@@ -146,6 +211,17 @@ impl CodexClient {
         })
     }
 
+    pub(super) fn fetch_reset_credits_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+        account_id: Option<&str>,
+    ) -> Result<UsageResponse, CodexError> {
+        let client = self.client_for_context(context, "usage")?;
+        self.fetch_reset_credits_using(client.as_ref(), access_token, account_id)
+    }
+
+    #[allow(dead_code)]
     pub fn consume_reset_credit(
         &self,
         access_token: &str,
@@ -153,9 +229,43 @@ impl CodexClient {
         credit_id: &str,
         redeem_request_id: &str,
     ) -> Result<UsageResponse, CodexError> {
+        self.consume_reset_credit_using(
+            &self.client,
+            access_token,
+            account_id,
+            credit_id,
+            redeem_request_id,
+        )
+    }
+
+    pub(super) fn consume_reset_credit_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+        account_id: Option<&str>,
+        credit_id: &str,
+        redeem_request_id: &str,
+    ) -> Result<UsageResponse, CodexError> {
+        let client = self.client_for_context(context, "usage")?;
+        self.consume_reset_credit_using(
+            client.as_ref(),
+            access_token,
+            account_id,
+            credit_id,
+            redeem_request_id,
+        )
+    }
+
+    fn consume_reset_credit_using(
+        &self,
+        client: &Client,
+        access_token: &str,
+        account_id: Option<&str>,
+        credit_id: &str,
+        redeem_request_id: &str,
+    ) -> Result<UsageResponse, CodexError> {
         let started = std::time::Instant::now();
-        let mut request = self
-            .client
+        let mut request = client
             .post(&self.consume_reset_credit_url)
             .bearer_auth(access_token)
             .header("Accept", "application/json")
@@ -189,11 +299,19 @@ impl CodexClient {
         })
     }
 
+    #[allow(dead_code)]
     pub fn refresh_token(&self, refresh_token: &str) -> Result<TokenRefresh, CodexError> {
+        self.refresh_token_using(&self.client, refresh_token)
+    }
+
+    fn refresh_token_using(
+        &self,
+        client: &Client,
+        refresh_token: &str,
+    ) -> Result<TokenRefresh, CodexError> {
         let started = std::time::Instant::now();
         crate::app_info!("auth:codex", "token refresh attempt");
-        let response = self
-            .client
+        let response = client
             .post(&self.refresh_url)
             .form(&[
                 ("grant_type", "refresh_token"),
@@ -237,6 +355,15 @@ impl CodexClient {
         crate::app_info!("auth:codex", "token refresh succeeded");
         Ok(refreshed)
     }
+
+    pub(super) fn refresh_token_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        refresh_token: &str,
+    ) -> Result<TokenRefresh, CodexError> {
+        let client = self.client_for_context(context, "oauth")?;
+        self.refresh_token_using(client.as_ref(), refresh_token)
+    }
 }
 
 fn normalized_headers(headers: &HeaderMap) -> HashMap<String, String> {
@@ -268,7 +395,7 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
-        sync::mpsc,
+        sync::{mpsc, Arc},
         thread,
         time::Duration,
     };
@@ -276,7 +403,7 @@ mod tests {
     use reqwest::StatusCode;
 
     use super::CodexClient;
-    use crate::providers::{codex::CodexError, test_http};
+    use crate::providers::{codex::CodexError, test_http, ProviderRequestContext};
 
     fn client(base: &str) -> CodexClient {
         CodexClient::with_endpoints(
@@ -287,6 +414,13 @@ mod tests {
             Duration::from_secs(1),
         )
         .unwrap()
+    }
+
+    fn context(proxy_url: Option<&str>) -> ProviderRequestContext {
+        ProviderRequestContext {
+            proxy_url: proxy_url.map(|url| reqwest::Url::parse(url).unwrap()),
+            http_clients: Arc::default(),
+        }
     }
 
     fn capture_once(body: &str) -> (String, mpsc::Receiver<String>) {
@@ -343,6 +477,39 @@ mod tests {
             Some("42")
         );
         assert_eq!(response.body["plan"], "plus");
+    }
+
+    #[test]
+    fn context_aware_usage_entry_point_keeps_the_current_direct_transport() {
+        let base = test_http::serve_once(200, &[], r#"{"plan":"plus"}"#);
+        let context = ProviderRequestContext::direct(Arc::default());
+
+        let response = client(&base)
+            .fetch_usage_with_context(&context, "secret-token", None)
+            .unwrap();
+
+        assert_eq!(response.status, StatusCode::OK);
+        assert_eq!(response.body["plan"], "plus");
+    }
+
+    #[test]
+    fn provider_proxy_identity_route_codex() {
+        let (proxy_base, proxy_server) = test_http::serve_once_capturing_request(200, "{}");
+        client(&proxy_base)
+            .fetch_usage_with_context(&context(Some(&proxy_base)), "secret-token", None)
+            .unwrap();
+        let request = proxy_server.join().unwrap();
+        assert!(
+            request.starts_with(&format!("GET {proxy_base}/usage HTTP/1.1")),
+            "{request}"
+        );
+
+        let (direct_base, direct_server) = test_http::serve_once_capturing_request(200, "{}");
+        client(&direct_base)
+            .fetch_usage_with_context(&context(None), "secret-token", None)
+            .unwrap();
+        let request = direct_server.join().unwrap();
+        assert!(request.starts_with("GET /usage HTTP/1.1"), "{request}");
     }
 
     #[test]

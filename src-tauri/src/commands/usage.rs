@@ -29,10 +29,12 @@ pub async fn claim_codex_reset_credit(
         return Err("Codex is not enabled.".to_owned());
     }
     let claims = claims.inner().clone();
-    let outcome =
-        tauri::async_runtime::spawn_blocking(move || claims.claim(expires_at, &redeem_request_id))
-            .await
-            .map_err(|_| "The reset claim could not be completed.".to_owned())?;
+    let context = service.request_context_for("codex");
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        claims.claim(&context, expires_at, &redeem_request_id)
+    })
+    .await
+    .map_err(|_| "The reset claim could not be completed.".to_owned())?;
 
     if outcome != ResetClaimOutcome::Failed {
         let observed_account_revision = AtomicU64::new(settings.account_revision());
@@ -86,6 +88,27 @@ pub async fn refresh_provider_usage(
 
     let observed_account_revision = AtomicU64::new(settings.account_revision());
     service.refresh(&provider_id, true).await;
+    let state = service.state();
+    emit_settings_if_account_changed(&app, &settings, &observed_account_revision);
+    let _ = app.emit("usage-state", &state);
+    finish_refresh(&app, &state, &settings, &notifications);
+    Ok(state)
+}
+
+#[tauri::command]
+pub async fn refresh_selected_provider_if_due(
+    app: AppHandle,
+    service: State<'_, Arc<ProviderService>>,
+    settings: State<'_, Arc<SettingsService>>,
+    notifications: State<'_, Arc<NotificationEvaluator>>,
+    provider_id: String,
+) -> Result<UsageViewState, String> {
+    if !settings.enabled_provider_ids().contains(&provider_id) {
+        return Err("Provider is not enabled.".to_owned());
+    }
+
+    let observed_account_revision = AtomicU64::new(settings.account_revision());
+    service.refresh_selected(&provider_id).await;
     let state = service.state();
     emit_settings_if_account_changed(&app, &settings, &observed_account_revision);
     let _ = app.emit("usage-state", &state);

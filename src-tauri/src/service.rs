@@ -10,8 +10,14 @@ use crate::{
     models::{
         MetricSource, ProviderErrorKind, ProviderSnapshot, ProviderViewState, SnapshotSource,
     },
-    policy::{FAILURE_RETRY_BACKOFF, REFRESH_INTERVAL, STALE_AFTER},
-    providers::{ProviderError, ProviderRefresh, ProviderRegistry},
+    policy::{
+        refresh_interval_for_provider, stale_after, FAILURE_RETRY_BACKOFF, FAST_REFRESH_INTERVAL,
+        SELECTED_PROVIDER_REFRESH_AFTER,
+    },
+    providers::{
+        http::ProviderHttpClientFactory, ProviderError, ProviderRefresh, ProviderRegistry,
+        ProviderRequestContext,
+    },
     settings::SettingsService,
     storage::Storage,
 };
@@ -20,11 +26,25 @@ use crate::{
 // before quarantining the synchronous provider worker.
 const PROVIDER_REFRESH_TIMEOUT: Duration = Duration::from_secs(120);
 
+pub(crate) fn resolve_proxy_url(
+    value: Option<String>,
+    use_proxy: bool,
+) -> Result<Option<reqwest::Url>, String> {
+    let value = crate::settings::normalize_proxy_url(value)?;
+    let Some(value) = value.filter(|_| use_proxy) else {
+        return Ok(None);
+    };
+    reqwest::Url::parse(&value)
+        .map(Some)
+        .map_err(|_| "Proxy URL could not be parsed after normalization.".to_owned())
+}
+
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct UsageViewState {
     pub providers: BTreeMap<String, ProviderViewState>,
     pub last_full_refresh_at: Option<chrono::DateTime<Utc>>,
+    pub next_refresh_at: Option<chrono::DateTime<Utc>>,
 }
 
 pub struct ProviderService {
@@ -32,11 +52,13 @@ pub struct ProviderService {
     storage: Arc<Storage>,
     states: RwLock<BTreeMap<String, ProviderViewState>>,
     refresh_flights: HashMap<String, Arc<RefreshFlight>>,
+    native_instance_ids: RwLock<std::collections::HashSet<String>>,
     last_live_refresh: Mutex<HashMap<String, Instant>>,
     last_failed_refresh: Mutex<HashMap<String, Instant>>,
     last_full_refresh_at: RwLock<Option<chrono::DateTime<Utc>>>,
     refresh_timeout: Duration,
     settings: Option<Arc<SettingsService>>,
+    http_clients: Arc<ProviderHttpClientFactory>,
 }
 
 impl ProviderService {
@@ -100,11 +122,13 @@ impl ProviderService {
             storage,
             states: RwLock::new(states),
             refresh_flights,
+            native_instance_ids: RwLock::new(std::collections::HashSet::new()),
             last_live_refresh: Mutex::new(HashMap::new()),
             last_failed_refresh: Mutex::new(HashMap::new()),
             last_full_refresh_at: RwLock::new(None),
             refresh_timeout,
             settings,
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
         }
     }
 
@@ -114,8 +138,11 @@ impl ProviderService {
             .read()
             .map(|value| value.clone())
             .unwrap_or_default();
-        for state in providers.values_mut() {
-            update_staleness_from_snapshot_age(state);
+        for (provider_id, state) in providers.iter_mut() {
+            let interval = self
+                .refresh_interval_for_provider(provider_id)
+                .unwrap_or(crate::policy::SLOW_REFRESH_INTERVAL);
+            update_staleness_from_snapshot_age(state, interval);
         }
         let last_full_refresh_at = self
             .last_full_refresh_at
@@ -125,10 +152,45 @@ impl ProviderService {
         UsageViewState {
             providers,
             last_full_refresh_at,
+            next_refresh_at: self.next_refresh_at(),
+        }
+    }
+
+    pub fn request_context_for(&self, provider_id: &str) -> ProviderRequestContext {
+        let Some(settings_service) = &self.settings else {
+            return ProviderRequestContext::direct(Arc::clone(&self.http_clients));
+        };
+        let settings = settings_service.get();
+        let use_proxy = settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+            .is_some_and(|provider| provider.use_proxy);
+        match resolve_proxy_url(settings.proxy_url, use_proxy) {
+            Ok(proxy_url) => ProviderRequestContext {
+                proxy_url,
+                http_clients: Arc::clone(&self.http_clients),
+            },
+            Err(error) => {
+                crate::app_warn!(
+                    "config",
+                    "proxy policy for {provider_id} could not be resolved: {error}"
+                );
+                ProviderRequestContext::direct(Arc::clone(&self.http_clients))
+            }
         }
     }
 
     pub async fn refresh(self: &Arc<Self>, provider_id: &str, force: bool) -> ProviderViewState {
+        self.refresh_with_interval(provider_id, force, None).await
+    }
+
+    async fn refresh_with_interval(
+        self: &Arc<Self>,
+        provider_id: &str,
+        force: bool,
+        selected_interval: Option<Duration>,
+    ) -> ProviderViewState {
         if self.registry.runtime(provider_id).is_none() {
             crate::app_error!(
                 "refresh",
@@ -140,7 +202,7 @@ impl ProviderService {
                 ..ProviderViewState::default()
             };
         };
-        if !force && self.is_fresh_this_session(provider_id) {
+        if !force && self.is_fresh_this_session(provider_id, selected_interval) {
             crate::app_debug!("refresh", "cache hit {provider_id}");
             return self.provider_state(provider_id);
         }
@@ -219,6 +281,17 @@ impl ProviderService {
         self.provider_state(provider_id)
     }
 
+    pub async fn refresh_selected(self: &Arc<Self>, provider_id: &str) -> ProviderViewState {
+        if self.provider_state(provider_id).refreshing
+            || self.is_in_failure_backoff(provider_id)
+            || !crate::policy::selected_provider_is_due(self.last_attempt_age(provider_id))
+        {
+            return self.provider_state(provider_id);
+        }
+        self.refresh_with_interval(provider_id, false, Some(SELECTED_PROVIDER_REFRESH_AFTER))
+            .await
+    }
+
     async fn run_refresh_flight(
         self: Arc<Self>,
         provider_id: String,
@@ -246,8 +319,10 @@ impl ProviderService {
                 state.last_attempt_at = Some(Utc::now());
             });
             let worker_provider = provider.clone();
-            let mut worker =
-                tauri::async_runtime::spawn_blocking(move || worker_provider.refresh_for_service());
+            let context = self.request_context_for(&provider_id);
+            let mut worker = tauri::async_runtime::spawn_blocking(move || {
+                worker_provider.refresh_for_service_with_context(&context)
+            });
             let mut late_worker = None;
             let refresh_result = match tokio::time::timeout(self.refresh_timeout, &mut worker).await
             {
@@ -431,7 +506,10 @@ impl ProviderService {
             .ok()
             .and_then(|states| states.get(provider_id).cloned())
             .unwrap_or_default();
-        update_staleness_from_snapshot_age(&mut state);
+        let interval = self
+            .refresh_interval_for_provider(provider_id)
+            .unwrap_or(crate::policy::SLOW_REFRESH_INTERVAL);
+        update_staleness_from_snapshot_age(&mut state, interval);
         state
     }
 
@@ -490,12 +568,34 @@ impl ProviderService {
         self.provider_state(provider_id)
     }
 
-    fn is_fresh_this_session(&self, provider_id: &str) -> bool {
-        self.last_live_refresh
+    fn is_fresh_this_session(
+        &self,
+        provider_id: &str,
+        selected_interval: Option<Duration>,
+    ) -> bool {
+        let last_success = self
+            .last_live_refresh
             .lock()
             .ok()
-            .and_then(|value| value.get(provider_id).copied())
-            .is_some_and(|instant| instant.elapsed() < REFRESH_INTERVAL)
+            .and_then(|value| value.get(provider_id).copied());
+        let last_failure = self
+            .last_failed_refresh
+            .lock()
+            .ok()
+            .and_then(|value| value.get(provider_id).copied());
+        match (last_success, last_failure) {
+            (_, Some(failure)) if last_success.is_none_or(|success| failure > success) => {
+                failure.elapsed() < FAILURE_RETRY_BACKOFF
+            }
+            (Some(success), _) => {
+                success.elapsed()
+                    < selected_interval.unwrap_or_else(|| {
+                        self.refresh_interval_for_provider(provider_id)
+                            .unwrap_or(FAST_REFRESH_INTERVAL)
+                    })
+            }
+            (None, _) => false,
+        }
     }
 
     fn is_in_failure_backoff(&self, provider_id: &str) -> bool {
@@ -504,6 +604,119 @@ impl ProviderService {
             .ok()
             .and_then(|value| value.get(provider_id).copied())
             .is_some_and(|instant| instant.elapsed() < FAILURE_RETRY_BACKOFF)
+    }
+
+    pub(crate) fn last_attempt_at(&self, provider_id: &str) -> Option<Instant> {
+        let success = self
+            .last_live_refresh
+            .lock()
+            .ok()
+            .and_then(|value| value.get(provider_id).copied());
+        let failure = self
+            .last_failed_refresh
+            .lock()
+            .ok()
+            .and_then(|value| value.get(provider_id).copied());
+        match (success, failure) {
+            (Some(success), Some(failure)) => Some(success.max(failure)),
+            (Some(success), None) => Some(success),
+            (None, failure) => failure,
+        }
+    }
+
+    pub(crate) fn last_failure_at(&self, provider_id: &str) -> Option<Instant> {
+        self.last_failed_refresh
+            .lock()
+            .ok()
+            .and_then(|value| value.get(provider_id).copied())
+    }
+
+    pub(crate) fn refresh_interval_for_provider(&self, provider_id: &str) -> Option<Duration> {
+        let Some(settings_service) = &self.settings else {
+            return Some(FAST_REFRESH_INTERVAL);
+        };
+        let settings = settings_service.get();
+        let enabled = settings
+            .providers
+            .iter()
+            .any(|provider| provider.id == provider_id && provider.enabled);
+        let has_native_instance = self.has_native_instance(&settings, provider_id);
+        refresh_interval_for_provider(
+            enabled,
+            has_native_instance,
+            settings.notifications.almost_out
+                || settings.notifications.cutting_it_close
+                || settings.notifications.will_run_out,
+        )
+    }
+
+    fn has_native_instance(
+        &self,
+        settings: &crate::models::AppSettings,
+        provider_id: &str,
+    ) -> bool {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = settings;
+            self.native_instance_ids
+                .read()
+                .is_ok_and(|ids| ids.contains(provider_id))
+        }
+        #[cfg(target_os = "windows")]
+        {
+            let _ = settings;
+            self.native_instance_ids
+                .read()
+                .is_ok_and(|ids| ids.contains(provider_id))
+        }
+        #[cfg(target_os = "linux")]
+        {
+            let _ = settings;
+            self.native_instance_ids
+                .read()
+                .is_ok_and(|ids| ids.contains(provider_id))
+        }
+        #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+        {
+            let _ = (settings, provider_id);
+            false
+        }
+    }
+
+    pub(crate) fn set_native_instance_ids(&self, provider_ids: impl IntoIterator<Item = String>) {
+        if let Ok(mut ids) = self.native_instance_ids.write() {
+            *ids = provider_ids.into_iter().collect();
+        }
+    }
+
+    fn last_attempt_age(&self, provider_id: &str) -> Option<Duration> {
+        self.last_attempt_at(provider_id)
+            .map(|instant| instant.elapsed())
+    }
+
+    fn next_refresh_at(&self) -> Option<chrono::DateTime<Utc>> {
+        let enabled_ids = if let Some(settings) = &self.settings {
+            settings.enabled_provider_ids()
+        } else {
+            self.states.read().ok()?.keys().cloned().collect()
+        };
+        let monotonic_now = Instant::now();
+        let utc_now = Utc::now();
+        enabled_ids
+            .iter()
+            .filter_map(|provider_id| {
+                let interval = self.refresh_interval_for_provider(provider_id)?;
+                let attempt = self.last_attempt_at(provider_id);
+                let failure = self.last_failure_at(provider_id);
+                let due = if failure.is_some() && failure == attempt {
+                    failure? + FAILURE_RETRY_BACKOFF
+                } else {
+                    attempt.map_or(monotonic_now, |at| at + interval)
+                };
+                let remaining = due.saturating_duration_since(monotonic_now);
+                Some(utc_now + chrono::Duration::from_std(remaining).ok()?)
+            })
+            .min()
     }
 
     fn update_state(&self, provider_id: &str, update: impl FnOnce(&mut ProviderViewState)) {
@@ -666,9 +879,9 @@ fn merge_refresh_result(
     state.refreshing = false;
 }
 
-fn update_staleness_from_snapshot_age(state: &mut ProviderViewState) {
+fn update_staleness_from_snapshot_age(state: &mut ProviderViewState, refresh_interval: Duration) {
     state.stale = state.snapshot.as_ref().is_some_and(|snapshot| {
-        Utc::now().signed_duration_since(snapshot.refreshed_at) >= STALE_AFTER
+        Utc::now().signed_duration_since(snapshot.refreshed_at) >= stale_after(refresh_interval)
     });
 }
 
@@ -687,7 +900,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        merge_refresh_result, validate_snapshot, ProviderService, PROVIDER_REFRESH_TIMEOUT,
+        merge_refresh_result, resolve_proxy_url, update_staleness_from_snapshot_age,
+        validate_snapshot, ProviderService, PROVIDER_REFRESH_TIMEOUT,
     };
     use crate::{
         models::{
@@ -695,9 +909,10 @@ mod tests {
             ProviderSnapshot, ProviderViewState, QuotaFormat, QuotaWindow, SnapshotSource,
             StatusMetric, StatusTone, UsageHistory,
         },
-        policy::{FAILURE_RETRY_BACKOFF, STALE_AFTER},
+        policy::{stale_after, FAILURE_RETRY_BACKOFF, FAST_REFRESH_INTERVAL},
         providers::{
-            AccountRefresh, ProviderError, ProviderRefresh, ProviderRegistry, UsageProvider,
+            AccountRefresh, ProviderError, ProviderRefresh, ProviderRegistry,
+            ProviderRequestContext, UsageProvider,
         },
         settings::SettingsService,
         storage::Storage,
@@ -708,6 +923,87 @@ mod tests {
     #[test]
     fn production_refresh_timeout_covers_the_longest_bounded_provider_flow() {
         assert!(PROVIDER_REFRESH_TIMEOUT >= Duration::from_secs(110));
+    }
+
+    #[test]
+    fn provider_proxy_policy_is_resolved_per_provider() {
+        assert_eq!(resolve_proxy_url(None, false).unwrap(), None);
+        assert_eq!(
+            resolve_proxy_url(Some("http://127.0.0.1:8080".into()), false).unwrap(),
+            None
+        );
+        assert_eq!(
+            resolve_proxy_url(Some("http://127.0.0.1:8080".into()), true)
+                .unwrap()
+                .unwrap()
+                .host_str(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(resolve_proxy_url(None, true).unwrap(), None);
+    }
+
+    #[test]
+    fn refresh_passes_only_the_selected_provider_proxy_policy() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let first_observed_proxy = Arc::new(Mutex::new(None));
+        let second_observed_proxy = Arc::new(Mutex::new(None));
+        let first = Arc::new(ProxyContextProvider {
+            id: "proxy-enabled",
+            observed_proxy: first_observed_proxy.clone(),
+        });
+        let second = Arc::new(ProxyContextProvider {
+            id: "proxy-disabled",
+            observed_proxy: second_observed_proxy.clone(),
+        });
+        let registry = Arc::new(
+            ProviderRegistry::new(vec![first, second]).expect("test providers should be valid"),
+        );
+        let (settings, _) = SettingsService::new_deferred(storage.clone(), registry.clone())
+            .expect("test settings should load");
+        let mut configured = settings.get();
+        configured.proxy_url = Some("http://127.0.0.1:8080".into());
+        for provider in &mut configured.providers {
+            provider.use_proxy = provider.id == "proxy-enabled";
+        }
+        settings
+            .update(configured)
+            .expect("test proxy policy should save");
+
+        let service = Arc::new(ProviderService::new_with_settings(
+            registry,
+            storage,
+            Arc::new(settings),
+        ));
+        let enabled_context = service.request_context_for("proxy-enabled");
+        let disabled_context = service.request_context_for("proxy-disabled");
+        assert!(enabled_context.proxy_url.is_some());
+        assert!(disabled_context.proxy_url.is_none());
+        assert!(Arc::ptr_eq(
+            &enabled_context.http_clients,
+            &disabled_context.http_clients
+        ));
+        assert!(refresh_with_test_timeout(&service, "proxy-enabled", true)
+            .error
+            .is_none());
+        assert!(refresh_with_test_timeout(&service, "proxy-disabled", true)
+            .error
+            .is_none());
+
+        assert_eq!(
+            first_observed_proxy
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .and_then(reqwest::Url::host_str),
+            Some("127.0.0.1")
+        );
+        assert_eq!(
+            second_observed_proxy.lock().unwrap().as_ref().unwrap(),
+            &None
+        );
     }
 
     struct SlowProvider {
@@ -732,6 +1028,11 @@ mod tests {
         failures_before_success: usize,
     }
 
+    struct CredentialFailureProvider {
+        id: &'static str,
+        error_kind: ProviderErrorKind,
+    }
+
     struct CredentialProvider {
         id: &'static str,
         credential: Arc<Mutex<Option<String>>>,
@@ -743,6 +1044,11 @@ mod tests {
 
     struct AccountSwitchProvider {
         identity: String,
+    }
+
+    struct ProxyContextProvider {
+        id: &'static str,
+        observed_proxy: Arc<Mutex<Option<Option<reqwest::Url>>>>,
     }
 
     impl UsageProvider for SlowProvider {
@@ -811,6 +1117,23 @@ mod tests {
         }
     }
 
+    impl UsageProvider for CredentialFailureProvider {
+        fn definition(&self) -> ProviderDefinition {
+            test_definition(self.id)
+        }
+
+        fn has_local_credentials(&self) -> bool {
+            false
+        }
+
+        fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+            Err(ProviderError::new(
+                self.error_kind,
+                "Local credentials are unavailable.",
+            ))
+        }
+    }
+
     impl UsageProvider for CredentialProvider {
         fn definition(&self) -> ProviderDefinition {
             test_definition(self.id)
@@ -851,6 +1174,15 @@ mod tests {
         }
 
         fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
+            self.refresh_for_service_with_context(&ProviderRequestContext::direct(
+                std::sync::Arc::default(),
+            ))
+        }
+
+        fn refresh_for_service_with_context(
+            &self,
+            _context: &ProviderRequestContext,
+        ) -> Result<ProviderRefresh, ProviderError> {
             Ok(ProviderRefresh {
                 snapshot: test_snapshot("codex"),
                 cache_identity: Some(self.identity.clone()),
@@ -860,6 +1192,28 @@ mod tests {
                     identity: self.identity.clone(),
                 }),
             })
+        }
+    }
+
+    impl UsageProvider for ProxyContextProvider {
+        fn definition(&self) -> ProviderDefinition {
+            test_definition(self.id)
+        }
+
+        fn has_local_credentials(&self) -> bool {
+            true
+        }
+
+        fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+            Ok(test_snapshot(self.id))
+        }
+
+        fn refresh_with_context(
+            &self,
+            context: &ProviderRequestContext,
+        ) -> Result<ProviderSnapshot, ProviderError> {
+            *self.observed_proxy.lock().unwrap() = Some(context.proxy_url.clone());
+            Ok(test_snapshot(self.id))
         }
     }
 
@@ -960,6 +1314,80 @@ mod tests {
     }
 
     #[test]
+    fn local_credential_failure_keeps_enabled_instance_and_stales_cached_snapshot_by_age() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let mut snapshot = test_snapshot("codex");
+        snapshot.refreshed_at = Utc::now()
+            - stale_after(crate::policy::SLOW_REFRESH_INTERVAL)
+            - chrono::Duration::minutes(1);
+        storage.save_snapshot(&snapshot).unwrap();
+        let provider = Arc::new(CredentialFailureProvider {
+            id: "codex",
+            error_kind: ProviderErrorKind::CredentialsUnavailable,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![provider]).unwrap());
+        let (settings, plan) =
+            SettingsService::new_deferred(storage.clone(), registry.clone()).unwrap();
+        settings
+            .apply_credential_detection(
+                &plan,
+                &std::collections::HashMap::from([(
+                    "codex".to_owned(),
+                    crate::providers::CredentialProbeStatus::Detected,
+                )]),
+            )
+            .unwrap();
+        let service = Arc::new(ProviderService::new_with_settings(
+            registry,
+            storage,
+            Arc::new(settings),
+        ));
+
+        let state = refresh_with_test_timeout(&service, "codex", true);
+
+        assert_eq!(state.snapshot, Some(snapshot));
+        assert!(state.stale);
+        assert_eq!(
+            state.error.as_deref(),
+            Some("Local credentials are unavailable.")
+        );
+        assert_eq!(
+            state.error_kind,
+            Some(ProviderErrorKind::CredentialsUnavailable)
+        );
+        assert!(service
+            .settings
+            .as_ref()
+            .unwrap()
+            .get()
+            .providers
+            .iter()
+            .any(|provider| provider.id == "codex" && provider.enabled));
+    }
+
+    #[test]
+    fn local_credential_failure_without_snapshot_sets_error_without_staleness() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let provider = Arc::new(CredentialFailureProvider {
+            id: "codex",
+            error_kind: ProviderErrorKind::CredentialsUnavailable,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![provider]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let state = refresh_with_test_timeout(&service, "codex", true);
+
+        assert!(state.snapshot.is_none());
+        assert!(!state.stale);
+        assert_eq!(
+            state.error_kind,
+            Some(ProviderErrorKind::CredentialsUnavailable)
+        );
+    }
+
+    #[test]
     fn cached_snapshot_staleness_is_based_on_snapshot_age() {
         let directory = tempdir().unwrap();
         let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
@@ -980,11 +1408,30 @@ mod tests {
         assert!(!fresh.stale);
 
         let mut old_snapshot = test_snapshot("cached");
-        old_snapshot.refreshed_at = Utc::now() - STALE_AFTER - chrono::Duration::seconds(1);
+        old_snapshot.refreshed_at =
+            Utc::now() - stale_after(FAST_REFRESH_INTERVAL) - chrono::Duration::seconds(1);
         storage.save_snapshot(&old_snapshot).unwrap();
         let old_service = ProviderService::new(registry, storage);
         let old = old_service.state();
         assert!(old.providers.get("cached").unwrap().stale);
+    }
+
+    #[test]
+    fn cached_snapshot_uses_ten_or_thirty_minute_staleness_thresholds() {
+        let mut state = ProviderViewState {
+            snapshot: Some(test_snapshot("cached")),
+            ..ProviderViewState::default()
+        };
+        state.snapshot.as_mut().unwrap().refreshed_at = Utc::now() - chrono::Duration::minutes(12);
+
+        update_staleness_from_snapshot_age(&mut state, crate::policy::FAST_REFRESH_INTERVAL);
+        assert!(state.stale);
+        update_staleness_from_snapshot_age(&mut state, crate::policy::SLOW_REFRESH_INTERVAL);
+        assert!(!state.stale);
+
+        state.snapshot.as_mut().unwrap().refreshed_at = Utc::now() - chrono::Duration::minutes(31);
+        update_staleness_from_snapshot_age(&mut state, crate::policy::SLOW_REFRESH_INTERVAL);
+        assert!(state.stale);
     }
 
     #[test]
@@ -1492,73 +1939,76 @@ mod tests {
     }
 
     #[test]
-    fn progress_reports_every_provider_completion() {
+    fn progress_reports_fast_provider_before_a_slow_provider_finishes() {
         let directory = tempdir().unwrap();
         let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
         let active = Arc::new(AtomicUsize::new(0));
         let maximum = Arc::new(AtomicUsize::new(0));
         let calls = Arc::new(AtomicUsize::new(0));
-        let providers = [
-            ("slow", Duration::from_millis(160)),
-            ("fast", Duration::ZERO),
-        ]
-        .into_iter()
-        .map(|(id, delay)| {
-            Arc::new(SlowProvider {
-                id,
+        let gate = Arc::new((Mutex::new(false), Condvar::new()));
+        let providers = vec![
+            Arc::new(GatedProvider {
+                id: "slow",
                 calls: calls.clone(),
                 active: active.clone(),
                 maximum: maximum.clone(),
-                delay,
-            }) as Arc<dyn UsageProvider>
-        })
-        .collect();
+                gate: gate.clone(),
+            }) as Arc<dyn UsageProvider>,
+            Arc::new(SlowProvider {
+                id: "fast",
+                calls: calls.clone(),
+                active: active.clone(),
+                maximum: maximum.clone(),
+                delay: Duration::ZERO,
+            }) as Arc<dyn UsageProvider>,
+        ];
         let registry = Arc::new(ProviderRegistry::new(providers).unwrap());
         let service = Arc::new(ProviderService::with_refresh_timeout(
             registry,
             storage.clone(),
-            Duration::from_millis(40),
+            Duration::from_secs(3),
         ));
-        let observations = Arc::new(Mutex::new(Vec::new()));
-        let observed = observations.clone();
+        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+        let refresh_service = service.clone();
+        let batch = tauri::async_runtime::spawn(async move {
+            refresh_service
+                .refresh_enabled_with_progress(
+                    &["slow".into(), "fast".into()],
+                    true,
+                    move |state| {
+                        let _ = progress_tx.send(state.clone());
+                    },
+                )
+                .await
+        });
 
-        let final_state = tauri::async_runtime::block_on(service.refresh_enabled_with_progress(
-            &["slow".into(), "fast".into()],
-            true,
-            move |state| {
-                observed.lock().unwrap().push(state.clone());
-            },
-        ));
-
-        let observations = observations.lock().unwrap();
-        assert_eq!(observations.len(), 2);
-        let completed = observations.last().unwrap();
-        assert!(completed
+        // This is the state the refresh loop emits to the native tray and
+        // notification evaluator. It must arrive before the slow worker ends.
+        let first_progress = progress_rx
+            .recv_timeout(TEST_WAIT_TIMEOUT)
+            .expect("fast provider completion should publish before the slow provider finishes");
+        assert!(first_progress
             .providers
             .get("fast")
             .and_then(|state| state.snapshot.as_ref())
             .is_some());
-        assert_eq!(
-            completed
-                .providers
-                .get("slow")
-                .and_then(|state| state.error.as_deref()),
-            Some("Provider refresh timed out.")
-        );
+        assert!(first_progress
+            .providers
+            .get("slow")
+            .is_some_and(|state| state.refreshing));
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+        let (released, signal) = &*gate;
+        assert!(!*released.lock().unwrap());
+        *released.lock().unwrap() = true;
+        signal.notify_all();
+        let final_state = tauri::async_runtime::block_on(batch).unwrap();
+        assert!(final_state
+            .providers
+            .get("slow")
+            .and_then(|state| state.snapshot.as_ref())
+            .is_some());
         assert!(storage.load_snapshot("fast").unwrap().is_some());
-        assert_eq!(
-            final_state
-                .providers
-                .get("slow")
-                .and_then(|state| state.error.as_deref()),
-            Some("Provider refresh timed out.")
-        );
-        drop(observations);
-
-        wait_until("timed-out progress worker should drain", || {
-            active.load(Ordering::SeqCst) == 0 && refresh_runner_is_idle(&service, "slow")
-        });
-        assert_eq!(active.load(Ordering::SeqCst), 0);
+        assert!(storage.load_snapshot("slow").unwrap().is_some());
     }
 
     #[test]

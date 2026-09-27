@@ -36,9 +36,7 @@ use std::sync::Arc;
 use popup::PopupDismissGuard;
 use service::ProviderService;
 use settings::{CredentialDetectionPlan, SettingsService};
-#[cfg(all(not(target_os = "linux"), not(target_os = "macos")))]
-use tauri::tray::{MouseButton, MouseButtonState, TrayIconEvent};
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use tauri::{
     menu::{Menu, MenuItem, PredefinedMenuItem},
     tray::TrayIconBuilder,
@@ -49,7 +47,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_autostart::ManagerExt as AutostartExt;
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, ShortcutState};
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 use crate::window::open_screen;
 use crate::{
     desktop_integration::DesktopIntegration,
@@ -68,10 +66,11 @@ use crate::{
     storage::Storage,
     window::{
         handle_window_event, show_main_window, toggle_main_window, PanelResizeSession, MAIN_WINDOW,
+        SETTINGS_WINDOW,
     },
 };
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn install_tray(app: &mut App) -> Result<(), Box<dyn std::error::Error>> {
     // Settings are managed before install_tray runs; the tray menu is built
     // once at startup from the initial language preference.
@@ -471,14 +470,20 @@ pub fn run() {
                     webview_memory::set_inactive(&window, true);
                 }
             }
+            if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
+                if window::apply_panel_surface(&window, settings.get().theme).is_err() {
+                    app_warn!(
+                        "window",
+                        "initial settings surface theme could not be applied"
+                    );
+                }
+            }
 
             if let Some(shortcut) = settings.get().global_shortcut {
                 let _ = register_shortcut(app.handle(), &shortcut);
             }
 
-            #[cfg(target_os = "macos")]
-            let tray_installed = true;
-            #[cfg(not(target_os = "macos"))]
+            #[cfg(target_os = "linux")]
             let tray_installed = if desktop_integration.tray_available() {
                 match install_tray(app) {
                     Ok(()) => {
@@ -499,7 +504,9 @@ pub fn run() {
                 false
             };
 
-            if desktop_integration.is_floating() {
+            if desktop_integration.is_floating()
+                && !cfg!(any(target_os = "macos", target_os = "windows"))
+            {
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
                     if let Err(error) =
                         window::apply_window_mode(&window, settings.get().window_mode, true)
@@ -517,9 +524,6 @@ pub fn run() {
             if tray_installed {
                 spawn_status_notifier_monitor(app.handle().clone());
             }
-            #[cfg(not(target_os = "linux"))]
-            let _ = tray_installed;
-
             // Windows 任务栏对账执行第三方插件代码，其内部 panic 会静默杀死进程。
             // 用 catch_unwind 捕获（写入日志）并让启动继续，避免「托盘出现即消失」。
             if let Err(payload) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -567,8 +571,10 @@ pub fn run() {
             commands::provider_login::cancel_provider_login,
             commands::usage::refresh_usage,
             commands::usage::refresh_provider_usage,
+            commands::usage::refresh_selected_provider_if_due,
             commands::usage::claim_codex_reset_credit,
             commands::settings::get_app_settings,
+            commands::settings::reset_credential_vault,
             commands::settings::save_app_settings,
             commands::settings::reset_customization,
             commands::settings::reset_all_settings,
@@ -578,8 +584,11 @@ pub fn run() {
             commands::settings::get_log_path,
             commands::settings::open_log_folder,
             commands::window::dismiss_main_window,
+            commands::window::open_settings_window,
+            commands::window::dismiss_settings_window,
             commands::window::get_panel_resize_edge,
             commands::window::get_panel_height_mode,
+            commands::window::set_panel_layout_for_screen,
             commands::window::fit_panel_to_content,
             commands::window::set_panel_height_automatic,
             commands::window::set_panel_height_manual,

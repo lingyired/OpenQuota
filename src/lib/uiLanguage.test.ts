@@ -83,12 +83,6 @@ describe('native UI language contract', () => {
       expect(settings).toContain(`$tStore('${key}')`);
       expect(en.settings[key.replace('settings.', '') as keyof typeof en.settings]).toBe(label);
     }
-    expect(settings).toContain("$tStore('settings.showAppMenubar')");
-    expect(settings).toContain("$tStore('settings.appMenubarForced')");
-    expect(en.settings.showAppMenubar).toBe('Show Quota01 Menu Bar Icon');
-    expect(en.settings.appMenubarForced).toBe(
-      'No provider menu bar icons are visible, so Quota01 stays visible.',
-    );
     expect(settings).toContain("{ value: 'system', label: $tStore('settings.languageAuto') }");
     expect(en.settings.languageAuto).toBe('Auto');
     expect(settings).toContain("{ value: 'twelveHour', label: $tStore('settings.twelveHour') }");

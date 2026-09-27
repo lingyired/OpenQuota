@@ -3,8 +3,22 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { locale } from 'svelte-i18n';
 import { resolveLocale, setLanguage, t, tBackend, tBackendStore, tStore } from './i18n';
+import { ar } from './i18n/messages/ar';
+import { de } from './i18n/messages/de';
 import { en } from './i18n/messages/en';
+import { es } from './i18n/messages/es';
+import { fr } from './i18n/messages/fr';
+import { hi } from './i18n/messages/hi';
+import { it as itLocale } from './i18n/messages/it';
+import { ja } from './i18n/messages/ja';
+import { ko } from './i18n/messages/ko';
+import { pl } from './i18n/messages/pl';
+import { ptBr } from './i18n/messages/pt-BR';
+import { ru } from './i18n/messages/ru';
+import { tr } from './i18n/messages/tr';
+import { vi as viLocale } from './i18n/messages/vi';
 import { zhCn } from './i18n/messages/zh-CN';
+import { zhTw } from './i18n/messages/zh-TW';
 import fixture from '../test/i18nFixture.svelte';
 
 // Helpers to make locale switches deterministic in tests.
@@ -218,6 +232,34 @@ describe('zh-CN dictionary', () => {
     const enKeys = Object.keys(en);
     const zhKeys = Object.keys(zhCn);
     expect(zhKeys.sort()).toEqual(enKeys.sort());
+  });
+});
+
+describe('proxy translations', () => {
+  it('provides proxy labels in every locale', () => {
+    for (const messages of [
+      en,
+      zhCn,
+      zhTw,
+      ar,
+      de,
+      es,
+      fr,
+      hi,
+      itLocale,
+      ja,
+      ko,
+      pl,
+      ptBr,
+      ru,
+      tr,
+      viLocale,
+    ]) {
+      expect(messages.settings.proxyUrl).toBeTruthy();
+      expect(messages.settings.proxyUrlHelp).toBeTruthy();
+      expect(messages.customize.useProxy).toBeTruthy();
+      expect(messages.customize.useProxyHelp).toBeTruthy();
+    }
   });
 });
 

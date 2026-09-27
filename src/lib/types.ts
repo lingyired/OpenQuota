@@ -121,6 +121,9 @@ export interface ProviderSnapshot {
 
 export type ProviderErrorKind =
   | 'authentication'
+  | 'credentialsUnavailable'
+  | 'localServiceUnavailable'
+  | 'unsupported'
   | 'permission'
   | 'rateLimited'
   | 'network'
@@ -143,6 +146,7 @@ export interface ProviderViewState {
 export interface UsageViewState {
   providers: Record<string, ProviderViewState>;
   lastFullRefreshAt?: string | null;
+  nextRefreshAt?: string | null;
 }
 
 export type MetricSection = 'alwaysVisible' | 'onDemand';
@@ -232,12 +236,7 @@ export interface ProviderLayout {
   enabled: boolean;
   detected: boolean;
   expanded: boolean;
-  /**
-   * Set when the user turns this provider on by hand. Only then may Quota01 read the system
-   * credential store entries that belong to another application, because macOS prompts for
-   * authorization on those reads. Automatic enablement never sets it.
-   */
-  keychainAccessGranted: boolean;
+  useProxy: boolean;
   metrics: MetricLayout[];
 }
 
@@ -295,12 +294,12 @@ export interface TaskbandPreferences {
 
 export interface AppSettings {
   schemaVersion: number;
+  proxyUrl: string | null;
   providers: ProviderLayout[];
   knownProviderIds: string[];
   providerNames: Record<string, string>;
   language: LanguagePreference;
   showTotalSpend: boolean;
-  showAppMenubar: boolean;
   theme: 'system' | 'light' | 'dark';
   density: 'default' | 'compact';
   reduceAnimations: boolean;
@@ -356,7 +355,8 @@ export interface SettingsViewState {
   integrationError: string | null;
   trayAvailable: boolean;
   platformSummary: string | null;
-  appMenubarForced: boolean;
+  providerInstanceCount: number;
+  providerInstanceFailures: string[];
 }
 
 export interface BootstrapState {

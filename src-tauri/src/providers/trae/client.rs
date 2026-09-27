@@ -1,7 +1,9 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use reqwest::{blocking::Client, header::HeaderValue, StatusCode};
 use serde_json::Value;
+
+use crate::providers::ProviderRequestContext;
 
 use super::TraeError;
 
@@ -16,7 +18,7 @@ pub struct EndpointResponse {
 }
 
 pub struct TraeClient {
-    client: Client,
+    timeout: Duration,
     exchange_url: String,
     credits_url: String,
 }
@@ -31,24 +33,39 @@ impl TraeClient {
         credits_url: &str,
         timeout: Duration,
     ) -> Result<Self, TraeError> {
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(8))
-            .timeout(timeout)
-            .user_agent(BROWSER_USER_AGENT)
-            .build()
-            .map_err(|_| TraeError::ConnectionFailed)?;
         Ok(Self {
-            client,
+            timeout,
             exchange_url: exchange_url.to_owned(),
             credits_url: credits_url.to_owned(),
         })
     }
 
-    pub fn exchange_token(&self, session: &str) -> Result<EndpointResponse, TraeError> {
+    fn http_client(&self, context: &ProviderRequestContext) -> Result<Arc<Client>, TraeError> {
+        context
+            .http_clients
+            .client(
+                "trae-cn",
+                "default",
+                context.proxy_url.as_ref(),
+                |builder| {
+                    builder
+                        .connect_timeout(Duration::from_secs(8))
+                        .timeout(self.timeout)
+                        .user_agent(BROWSER_USER_AGENT)
+                },
+            )
+            .map_err(|_| TraeError::ConnectionFailed)
+    }
+
+    pub fn exchange_token(
+        &self,
+        context: &ProviderRequestContext,
+        session: &str,
+    ) -> Result<EndpointResponse, TraeError> {
+        let client = self.http_client(context)?;
         let cookie = HeaderValue::from_str(&format!("X-Cloudide-Session={session}"))
             .map_err(|_| TraeError::InvalidResponse)?;
-        let response = self
-            .client
+        let response = client
             .post(&self.exchange_url)
             .header("Cookie", cookie)
             .header("Accept", "application/json")
@@ -61,11 +78,15 @@ impl TraeClient {
         self.decode(response, "token exchange")
     }
 
-    pub fn fetch_credits(&self, token: &str) -> Result<EndpointResponse, TraeError> {
+    pub fn fetch_credits(
+        &self,
+        context: &ProviderRequestContext,
+        token: &str,
+    ) -> Result<EndpointResponse, TraeError> {
+        let client = self.http_client(context)?;
         let authorization = HeaderValue::from_str(&format!("Cloud-IDE-JWT {token}"))
             .map_err(|_| TraeError::InvalidResponse)?;
-        let response = self
-            .client
+        let response = client
             .post(&self.credits_url)
             .header("authorization", authorization)
             .header("Accept", "application/json")
@@ -112,12 +133,15 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
-        sync::mpsc,
+        sync::{mpsc, Arc},
         thread,
         time::Duration,
     };
 
+    use reqwest::Url;
+
     use super::TraeClient;
+    use crate::providers::{http::ProviderHttpClientFactory, test_http, ProviderRequestContext};
 
     fn capture_once() -> (String, mpsc::Receiver<String>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -146,7 +170,12 @@ mod tests {
         let (url, request) = capture_once();
         let client = TraeClient::for_test(&url, &url, Duration::from_secs(1));
 
-        client.exchange_token("session-secret").unwrap();
+        client
+            .exchange_token(
+                &ProviderRequestContext::direct(Arc::default()),
+                "session-secret",
+            )
+            .unwrap();
 
         let request = request.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(request.starts_with("POST / HTTP/1.1"));
@@ -160,7 +189,9 @@ mod tests {
         let (url, request) = capture_once();
         let client = TraeClient::for_test(&url, &url, Duration::from_secs(1));
 
-        client.fetch_credits("jwt-token").unwrap();
+        client
+            .fetch_credits(&ProviderRequestContext::direct(Arc::default()), "jwt-token")
+            .unwrap();
 
         let request = request.recv_timeout(Duration::from_secs(1)).unwrap();
         assert!(request.contains("authorization: Cloud-IDE-JWT jwt-token"));
@@ -170,5 +201,27 @@ mod tests {
             body,
             serde_json::json!({"require_usage": true, "full_data": true})
         );
+    }
+
+    #[test]
+    fn provider_proxy_remaining_route_trae() {
+        let (url, request) =
+            test_http::serve_once_capturing_request(200, r#"{"Result":{"Token":"jwt-token"}}"#);
+        let proxy_url = url.replacen("http://", "http://proxy-user:proxy-pass@", 1);
+        let context = ProviderRequestContext {
+            proxy_url: Some(Url::parse(&proxy_url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        };
+        let client = TraeClient::for_test(&url, &url, Duration::from_secs(1));
+
+        client.exchange_token(&context, "session-secret").unwrap();
+
+        let request = request.join().unwrap().to_ascii_lowercase();
+        assert!(request.starts_with("post http://"));
+        assert!(request.contains("proxy-authorization: basic "));
+        assert!(request.contains("cookie: x-cloudide-session=session-secret"));
+        assert!(request.contains("accept: application/json"));
+        assert!(request.contains("content-type: application/json"));
+        assert!(request.contains("user-agent: mozilla/5.0 (macintosh; intel mac os x 10_15_7)"));
     }
 }

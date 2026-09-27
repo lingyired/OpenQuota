@@ -680,6 +680,8 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
+                use_proxy: false,
+                #[cfg(not(target_os = "macos"))]
                 keychain_access_granted: false,
                 metrics: vec![MetricLayout {
                     id: "custom.rolling".into(),
@@ -761,6 +763,8 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
+                use_proxy: false,
+                #[cfg(not(target_os = "macos"))]
                 keychain_access_granted: false,
                 metrics: vec![
                     MetricLayout {
@@ -853,6 +857,8 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
+                use_proxy: false,
+                #[cfg(not(target_os = "macos"))]
                 keychain_access_granted: false,
                 metrics: vec![MetricLayout {
                     id: "codex.weekly".into(),

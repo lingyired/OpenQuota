@@ -33,6 +33,12 @@ export const it = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const it = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Provider',
+    usagePreview: 'Anteprima utilizzo',
+    preferences: 'Preferenze app',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,6 +165,8 @@ export const it = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    proxyUrl: 'URL proxy',
+    proxyUrlHelp: 'I provider usano questo URL quando l’opzione proxy è attiva.',
     showAppMenubar: 'Mostra l’icona Quota01 nella barra dei menu',
     appMenubarForced: 'Nessuna icona Provider è visibile, quindi Quota01 rimane visibile.',
     showTotalSpend: 'Show Total Spend',
@@ -260,6 +271,7 @@ export const it = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -281,7 +293,12 @@ export const it = {
     removedFromMenuBar: 'Removed from menu bar',
     name: 'Name',
     nameFor: 'Name for {name}',
+    useProxy: 'Usa il proxy per questo provider',
+    useProxyHelp: 'Usa l’URL proxy condiviso configurato nelle impostazioni generali.',
     taskbar: 'Taskbar',
+    menuBarInstance: 'Elemento della barra dei menu',
+    showOnMenuBar: 'Mostra nella barra dei menu',
+    showOnMenuBarDesc: 'Mostra questo provider nella barra dei menu di macOS.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

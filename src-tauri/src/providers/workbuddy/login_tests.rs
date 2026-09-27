@@ -1,7 +1,62 @@
+use std::sync::Arc;
+
+use reqwest::Url;
 use serde_json::json;
 
 use super::login::{DeviceCodeLogin, LoginPoll, WorkBuddyLoginError, LOGIN_TTL_SECONDS};
-use crate::providers::test_http;
+use crate::providers::{http::ProviderHttpClientFactory, test_http, ProviderRequestContext};
+
+#[test]
+fn provider_proxy_remaining_route_workbuddy_login() {
+    let (proxy_url, server) = test_http::serve_sequence_capturing_requests(&[
+        (
+            200,
+            r#"{"code":0,"data":{"state":"st-1","authUrl":"https://example.test/auth"}}"#,
+        ),
+        (
+            200,
+            r#"{"code":0,"data":{"accessToken":"access-1","domain":"www.codebuddy.cn"}}"#,
+        ),
+        (200, r#"{"code":0,"data":{"uid":"u-1"}}"#),
+    ]);
+    let client_proxy_url = proxy_url.replacen("http://", "http://proxy-user:proxy-pass@", 1);
+    let context = ProviderRequestContext {
+        proxy_url: Some(Url::parse(&client_proxy_url).unwrap()),
+        http_clients: Arc::new(ProviderHttpClientFactory::default()),
+    };
+    let login = DeviceCodeLogin::for_test("http://workbuddy.invalid");
+
+    let challenge = login.start_with_context(&context).unwrap();
+    assert!(matches!(
+        login.poll_with_context(&challenge.login_id, &context),
+        LoginPoll::Ready(_)
+    ));
+
+    let requests = server.join().unwrap();
+    assert_eq!(requests.len(), 3);
+    for request in &requests {
+        assert!(request
+            .to_ascii_lowercase()
+            .contains("proxy-authorization: basic "));
+        assert!(request
+            .to_ascii_lowercase()
+            .contains("chrome/152.0.0.0 safari/537.36"));
+    }
+    let state = requests[0].to_ascii_lowercase();
+    assert!(state.starts_with(
+        "post http://workbuddy.invalid/v2/plugin/auth/state?platform=workbuddy http/1.1"
+    ));
+    assert!(state.contains("accept: application/json, text/plain, */*"));
+    let token = requests[1].to_ascii_lowercase();
+    assert!(
+        token.starts_with("get http://workbuddy.invalid/v2/plugin/auth/token?state=st-1 http/1.1")
+    );
+    let account = requests[2].to_ascii_lowercase();
+    assert!(account
+        .starts_with("get http://workbuddy.invalid/v2/plugin/login/account?state=st-1 http/1.1"));
+    assert!(account.contains("authorization: bearer access-1"));
+    assert!(account.contains("x-domain: www.codebuddy.cn"));
+}
 
 /// `poll`/`cancel` 的测试一律用 `register_for_test` 直接登记一个待授权尝试：
 /// `test_http::serve_once` 只接受一次连接，先 `start()` 再 `poll()` 的写法会让

@@ -4,7 +4,7 @@ pub mod local_usage;
 pub mod mapper;
 pub mod reset_claim;
 
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use chrono::Utc;
 use reqwest::StatusCode;
@@ -21,9 +21,12 @@ use crate::{
 };
 
 use self::{
-    auth::CodexAuthState, client::CodexClient, local_usage::scan_local_usage, mapper::map_usage,
+    auth::CodexAuthState,
+    client::{CodexClient, UsageResponse},
+    local_usage::scan_local_usage,
+    mapper::map_usage,
 };
-use crate::providers::log_usage::scan_or_cached_usage;
+use crate::providers::{log_usage::scan_or_cached_usage, ProviderRequestContext};
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -141,6 +144,8 @@ pub enum CodexError {
     TokenExpired,
     #[error("Codex auth data is invalid. Run `codex` to sign in again.")]
     InvalidAuth,
+    #[error("Codex credentials could not be read from the local auth file.")]
+    CredentialRead,
     #[error("The Codex account changed while usage was refreshing. Refresh again.")]
     AccountChanged,
     #[error("Refreshed Codex credentials could not be saved.")]
@@ -186,12 +191,16 @@ impl CodexProvider {
     }
 
     pub fn refresh(&self) -> Result<ProviderSnapshot, CodexError> {
-        self.refresh_with_identity().map(|(snapshot, _)| snapshot)
+        self.refresh_with_identity(&ProviderRequestContext::direct(Arc::default()))
+            .map(|(snapshot, _)| snapshot)
     }
 
-    fn refresh_with_identity(&self) -> Result<(ProviderSnapshot, Option<String>), CodexError> {
+    fn refresh_with_identity(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<(ProviderSnapshot, Option<String>), CodexError> {
         let now = Utc::now();
-        let candidates = CodexAuthState::load_candidates()?;
+        let candidates = load_refresh_candidates()?;
         crate::app_debug!(
             "auth:codex",
             "credential candidates loaded ({})",
@@ -202,7 +211,7 @@ impl CodexProvider {
             let identity = auth
                 .account_identity()
                 .map(|identity| account_identity_key(&identity));
-            match self.refresh_candidate(&mut auth, now, identity.as_deref()) {
+            match self.refresh_candidate(context, &mut auth, now, identity.as_deref()) {
                 Ok(snapshot) => return Ok((snapshot, identity)),
                 Err(
                     error @ (CodexError::SessionExpired
@@ -234,8 +243,33 @@ impl CodexProvider {
         Self::ensure_candidate_identity(&current, expected)
     }
 
+    fn fetch_remote_usage_data(
+        &self,
+        context: &ProviderRequestContext,
+        auth: &CodexAuthState,
+    ) -> Result<(UsageResponse, Option<UsageResponse>), CodexError> {
+        let response = self.client.fetch_usage_with_context(
+            context,
+            &auth.access_token,
+            auth.account_id.as_deref(),
+        )?;
+        let reset_credits = if response.status.is_success() {
+            self.client
+                .fetch_reset_credits_with_context(
+                    context,
+                    &auth.access_token,
+                    auth.account_id.as_deref(),
+                )
+                .ok()
+        } else {
+            None
+        };
+        Ok((response, reset_credits))
+    }
+
     fn refresh_candidate(
         &self,
+        context: &ProviderRequestContext,
         auth: &mut CodexAuthState,
         now: chrono::DateTime<Utc>,
         account_identity: Option<&str>,
@@ -251,30 +285,19 @@ impl CodexProvider {
             }
         }
         if auth.needs_refresh(now) {
-            self.refresh_access_token(auth, now, &mut warnings)?;
+            self.refresh_access_token(context, auth, now, &mut warnings)?;
             Self::ensure_candidate_identity(auth, account_identity)?;
         }
 
-        let mut response = self
-            .client
-            .fetch_usage(&auth.access_token, auth.account_id.as_deref())?;
+        let (mut response, mut reset_credits) = self.fetch_remote_usage_data(context, auth)?;
         if matches!(
             response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
         ) {
-            self.refresh_access_token(auth, now, &mut warnings)?;
+            self.refresh_access_token(context, auth, now, &mut warnings)?;
             Self::ensure_candidate_identity(auth, account_identity)?;
-            response = self
-                .client
-                .fetch_usage(&auth.access_token, auth.account_id.as_deref())?;
+            (response, reset_credits) = self.fetch_remote_usage_data(context, auth)?;
         }
-        let reset_credits = if response.status.is_success() {
-            self.client
-                .fetch_reset_credits(&auth.access_token, auth.account_id.as_deref())
-                .ok()
-        } else {
-            None
-        };
         let mapped = map_usage(&response, reset_credits.as_ref(), now)?;
         let pricing = self.pricing.current();
         let usage = scan_or_cached_usage(
@@ -304,6 +327,7 @@ impl CodexProvider {
 
     fn refresh_access_token(
         &self,
+        context: &ProviderRequestContext,
         auth: &mut CodexAuthState,
         now: chrono::DateTime<Utc>,
         warnings: &mut Vec<String>,
@@ -313,7 +337,9 @@ impl CodexProvider {
             .as_deref()
             .filter(|value| !value.is_empty())
             .ok_or(CodexError::TokenExpired)?;
-        let refreshed = self.client.refresh_token(refresh_token)?;
+        let refreshed = self
+            .client
+            .refresh_token_with_context(context, refresh_token)?;
         if let Err(error) = auth.update_and_save_if_current(
             refreshed.access_token,
             refreshed.refresh_token,
@@ -336,6 +362,16 @@ impl CodexProvider {
     }
 }
 
+fn load_refresh_candidates() -> Result<Vec<CodexAuthState>, CodexError> {
+    load_refresh_candidates_from_paths(&auth::auth_paths())
+}
+
+fn load_refresh_candidates_from_paths(
+    paths: &[PathBuf],
+) -> Result<Vec<CodexAuthState>, CodexError> {
+    CodexAuthState::load_candidates_from_paths(paths)
+}
+
 fn account_identity_key(identity: &str) -> String {
     sha256_hex(identity.as_bytes())
 }
@@ -353,15 +389,16 @@ fn provider_error(error: CodexError) -> crate::providers::ProviderError {
     use crate::models::ProviderErrorKind as Kind;
 
     let kind = match error {
-        CodexError::NotLoggedIn
-        | CodexError::SessionExpired
+        CodexError::NotLoggedIn => Kind::CredentialsUnavailable,
+        CodexError::SessionExpired
         | CodexError::TokenConflict
         | CodexError::TokenRevoked
         | CodexError::TokenExpired
-        | CodexError::InvalidAuth
         | CodexError::AccountChanged => Kind::Authentication,
+        CodexError::InvalidAuth => Kind::InvalidResponse,
         CodexError::ApiKeyOnly => Kind::Permission,
         CodexError::AuthWrite => Kind::CredentialStorage,
+        CodexError::CredentialRead => Kind::CredentialStorage,
         CodexError::RequestFailed(429) => Kind::RateLimited,
         CodexError::RequestFailed(_) | CodexError::ConnectionFailed => Kind::Network,
         CodexError::InvalidResponse => Kind::InvalidResponse,
@@ -374,10 +411,6 @@ fn provider_error(error: CodexError) -> crate::providers::ProviderError {
 impl crate::providers::UsageProvider for CodexProvider {
     fn definition(&self) -> ProviderDefinition {
         definition()
-    }
-
-    fn accesses_system_keychain(&self) -> bool {
-        true
     }
 
     fn has_local_credentials(&self) -> bool {
@@ -406,7 +439,16 @@ impl crate::providers::UsageProvider for CodexProvider {
     fn refresh_for_service(
         &self,
     ) -> Result<crate::providers::ProviderRefresh, crate::providers::ProviderError> {
-        let (snapshot, identity) = self.refresh_with_identity().map_err(provider_error)?;
+        self.refresh_for_service_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_for_service_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<crate::providers::ProviderRefresh, crate::providers::ProviderError> {
+        let (snapshot, identity) = self
+            .refresh_with_identity(context)
+            .map_err(provider_error)?;
         Ok(crate::providers::ProviderRefresh {
             snapshot,
             cache_identity: identity.clone(),
@@ -421,16 +463,72 @@ impl crate::providers::UsageProvider for CodexProvider {
 
 #[cfg(test)]
 mod account_tests {
-    use std::sync::Arc;
+    use std::{fs, sync::Arc, time::Duration};
 
+    use serde_json::json;
     use tempfile::tempdir;
 
-    use super::{validate_account_identity, CodexClient, CodexError, CodexProvider};
+    use super::{
+        account_identity_key, load_refresh_candidates_from_paths, provider_error,
+        validate_account_identity, CodexClient, CodexError, CodexProvider,
+    };
+
+    #[test]
+    fn local_credential_errors_map_to_stable_provider_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(CodexError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(CodexError::InvalidAuth).kind(),
+            Kind::InvalidResponse
+        );
+        assert_eq!(
+            provider_error(CodexError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(CodexError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(CodexError::CredentialRead).kind(),
+            Kind::CredentialStorage
+        );
+    }
     use crate::{
         pricing::PricingStore,
-        providers::{CacheIdentity, UsageProvider},
+        providers::{
+            codex::auth::load_from_path_for_test, test_http, CacheIdentity, ProviderRequestContext,
+            UsageProvider,
+        },
         storage::Storage,
     };
+
+    #[test]
+    fn refresh_candidate_loader_uses_only_supplied_auth_files() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("auth.json");
+        fs::write(
+            &path,
+            serde_json::to_vec(&json!({
+                "tokens": {"access_token": "file-access", "refresh_token": "file-refresh"}
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+
+        let candidates = load_refresh_candidates_from_paths(&[path]).unwrap();
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].access_token, "file-access");
+        assert!(matches!(
+            load_refresh_candidates_from_paths(&[]),
+            Err(CodexError::NotLoggedIn)
+        ));
+    }
 
     #[test]
     fn pinned_account_rejects_a_different_or_unreadable_login() {
@@ -476,5 +574,64 @@ mod account_tests {
             UsageProvider::cache_identity(&unresolved),
             CacheIdentity::Unresolved
         );
+    }
+
+    #[test]
+    fn context_aware_refresh_routes_codex_requests_through_selected_proxy() {
+        let directory = tempdir().unwrap();
+        let auth_path = directory.path().join("auth.json");
+        fs::write(
+            &auth_path,
+            r#"{"tokens":{"access_token":"secret-token","account_id":"account-a"}}"#,
+        )
+        .unwrap();
+        let auth = load_from_path_for_test(&auth_path).unwrap();
+
+        let (proxy_url, proxy_server) =
+            test_http::serve_sequence_capturing_requests(&[(200, r#"{}"#), (200, r#"{}"#)]);
+        let client = CodexClient::with_test_endpoints(
+            &format!("{proxy_url}/usage"),
+            &format!("{proxy_url}/reset-credits"),
+            &format!("{proxy_url}/reset-credits/consume"),
+            &format!("{proxy_url}/token"),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
+        let account_identity = account_identity_key("account-a");
+        let provider = CodexProvider {
+            account_identity: Some(account_identity.clone()),
+            storage,
+            pricing,
+            client,
+        };
+        let context = ProviderRequestContext {
+            proxy_url: Some(reqwest::Url::parse(&proxy_url).unwrap()),
+            http_clients: Arc::default(),
+        };
+
+        let (response, reset_credits) = provider.fetch_remote_usage_data(&context, &auth).unwrap();
+
+        assert!(response.status.is_success());
+        assert!(reset_credits.is_some());
+        let requests = proxy_server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[0].starts_with(&format!("GET {proxy_url}/usage HTTP/1.1")),
+            "{}",
+            requests[0]
+        );
+        assert!(
+            requests[1].starts_with(&format!("GET {proxy_url}/reset-credits HTTP/1.1")),
+            "{}",
+            requests[1]
+        );
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer secret-token"));
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("chatgpt-account-id: account-a"));
     }
 }

@@ -11,12 +11,16 @@ const css = `${layoutCss}\n${componentCss}\n${coLocatedComponentCss}`;
 const tauriConfig = JSON.parse(tauriConfigSource) as {
   app: {
     windows: Array<{
+      label: string;
       width: number;
       height: number;
       minHeight: number;
       minWidth: number;
       maxWidth: number;
       resizable: boolean;
+      decorations: boolean;
+      visible: boolean;
+      alwaysOnTop: boolean;
     }>;
   };
 };
@@ -24,12 +28,23 @@ const tauriConfig = JSON.parse(tauriConfigSource) as {
 describe('popover geometry contract', () => {
   it('keeps system resize borders locked and exposes only the native vertical grip', () => {
     expect(tauriConfig.app.windows[0]).toMatchObject({
+      label: 'main',
       width: 440,
       height: 800,
-      minWidth: 440,
+      minWidth: 320,
       maxWidth: 440,
       minHeight: 360,
       resizable: false,
+    });
+    expect(tauriConfig.app.windows[1]).toMatchObject({
+      label: 'settings',
+      width: 1000,
+      minWidth: 720,
+      maxWidth: 1400,
+      resizable: true,
+      decorations: true,
+      visible: false,
+      alwaysOnTop: false,
     });
     expect(css).toMatch(/\.panel-resize-dragger\s*{[^}]*height: 10px;[^}]*cursor: ns-resize;/s);
     expect(css).toMatch(/\.panel-resize-dragger::after\s*{[^}]*width: 36px;[^}]*height: 4px;/s);
@@ -37,7 +52,7 @@ describe('popover geometry contract', () => {
 
   it('lets the webview shrink below its nominal width without creating horizontal focus scroll', () => {
     expect(componentCss).toMatch(
-      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 440px;/s,
+      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 1000px;/s,
     );
     expect(css).not.toMatch(/\.popover\s*{[^}]*\n\s*width: 440px;/s);
   });

@@ -74,6 +74,10 @@
       metrics: provider.metrics.map((item) => (item.id === metric.id ? metric : item)),
     });
   }
+  function updateProviderProxy(useProxy: boolean) {
+    if (!provider) return;
+    updateProvider({ ...provider, useProxy });
+  }
   function togglePin(metric: MetricLayout, button: HTMLButtonElement) {
     if (!provider || !metricDefinition(metric.id)?.pinnable) return;
     if (!metric.pinned && provider.metrics.filter((item) => item.pinned).length >= 2) {
@@ -192,6 +196,22 @@
     {#if canRenameProvider(provider.id, renamableProviderIds)}
       <ProviderNameSection {settings} {provider} {catalog} onChange={onNameChange} />
     {/if}
+    <div class="taskband-section proxy-setting-section">
+      <div class="taskband-row proxy-setting-row">
+        <span class="taskband-row-label">
+          <b>{$tStore('customize.useProxy')}</b>
+          <small>{$tStore('customize.useProxyHelp')}</small>
+        </span>
+        <label class="switch">
+          <input
+            type="checkbox"
+            aria-label={$tStore('customize.useProxy')}
+            checked={provider.useProxy}
+            onchange={(event) => updateProviderProxy(event.currentTarget.checked)}
+          /><span></span>
+        </label>
+      </div>
+    </div>
     {#each ['alwaysVisible', 'onDemand'] as section (section)}
       {@const sectionMetrics = provider.metrics.filter((metric) => metric.section === section)}
       <div
@@ -289,19 +309,35 @@
         </div>
       </div>
     {/each}
-    {#if platform === 'windows'}
-      <div class="taskband-section" role="group" aria-label={$tStore('customize.taskbar')}>
-        <h2>{$tStore('customize.taskbar')}</h2>
+    {#if platform === 'windows' || platform === 'macos'}
+      <div
+        class="taskband-section"
+        role="group"
+        aria-label={$tStore(
+          platform === 'macos' ? 'customize.menuBarInstance' : 'customize.taskbar',
+        )}
+      >
+        <h2>{$tStore(platform === 'macos' ? 'customize.menuBarInstance' : 'customize.taskbar')}</h2>
         <div class="taskband-row">
           <span class="taskband-row-label"
-            ><b>{$tStore('customize.showOnTaskbar')}</b><small
-              >{$tStore('customize.showOnTaskbarDesc')}</small
+            ><b
+              >{$tStore(
+                platform === 'macos' ? 'customize.showOnMenuBar' : 'customize.showOnTaskbar',
+              )}</b
+            ><small
+              >{$tStore(
+                platform === 'macos'
+                  ? 'customize.showOnMenuBarDesc'
+                  : 'customize.showOnTaskbarDesc',
+              )}</small
             ></span
           >
           <label class="switch"
             ><input
               type="checkbox"
-              aria-label={$tStore('customize.showOnTaskbar')}
+              aria-label={$tStore(
+                platform === 'macos' ? 'customize.showOnMenuBar' : 'customize.showOnTaskbar',
+              )}
               checked={taskband?.enabled ?? true}
               onchange={(event) => updateTaskband({ enabled: event.currentTarget.checked })}
             /><span></span></label
@@ -584,6 +620,16 @@
     .taskband-section {
       margin-top: 0;
       margin-bottom: 14px;
+    }
+
+    .proxy-setting-section {
+      overflow: hidden;
+      border-radius: 12px;
+    }
+
+    .proxy-setting-row {
+      border-top: 0;
+      border-radius: 12px;
     }
 
     .taskband-row {

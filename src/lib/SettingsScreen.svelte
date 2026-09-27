@@ -15,6 +15,7 @@
   } from './types';
 
   interface Props {
+    region?: 'primary' | 'advanced';
     settingsView: SettingsViewState;
     platform: DesktopPlatform;
     panelHeightMode: PanelHeightMode;
@@ -25,12 +26,13 @@
     updateError: UpdateFailure | null;
     checkingUpdate: boolean;
     onCheckForUpdates: () => void;
-    onCustomize: () => void;
     onCopyLogPath: () => Promise<void>;
     onOpenLogFolder: () => Promise<void>;
     onResetAllSettings: () => void;
+    onResetAllCustomization: () => void;
   }
   let {
+    region = 'primary',
     settingsView,
     platform,
     panelHeightMode,
@@ -41,13 +43,16 @@
     updateError,
     checkingUpdate,
     onCheckForUpdates,
-    onCustomize,
     onCopyLogPath,
     onOpenLogFolder,
     onResetAllSettings,
+    onResetAllCustomization,
   }: Props = $props();
   let recording = $state(false);
   let logActionError = $state<string | null>(null);
+  let proxyUrlDraft = $state('');
+  let lastProxyUrlRevision: number | undefined;
+  let lastSubmittedProxyUrl: string | null | undefined;
   const settings = $derived(settingsView.settings);
   const currentLocale = $derived(locale);
   const revealLogLabel = $derived.by(() => {
@@ -67,8 +72,28 @@
     anyNotificationEnabled && settingsView.notificationPermission !== 'granted',
   );
 
+  $effect(() => {
+    const revision = settingsView.settingsRevision;
+    if (revision === lastProxyUrlRevision) return;
+    lastProxyUrlRevision = revision;
+    proxyUrlDraft = settings.proxyUrl ?? '';
+    lastSubmittedProxyUrl = undefined;
+  });
+
   function patch(value: Partial<AppSettings>) {
     onChange({ ...settings, ...value });
+  }
+  function commitProxyUrl() {
+    const value = proxyUrlDraft.trim();
+    const proxyUrl = value || null;
+    proxyUrlDraft = value;
+    if (proxyUrl === settings.proxyUrl) {
+      lastSubmittedProxyUrl = proxyUrl;
+      return;
+    }
+    if (proxyUrl === lastSubmittedProxyUrl) return;
+    lastSubmittedProxyUrl = proxyUrl;
+    patch({ proxyUrl });
   }
   function patchTaskband(value: Partial<TaskbandPreferences>) {
     patch({ taskband: { ...settings.taskband, ...value } });
@@ -138,453 +163,467 @@
   }
 </script>
 
-<section class="screen settings-screen" aria-label={$tStore('settings.title')}>
-  {#if settingsView.integrationError}<p class="notice" role="alert">
-      {$tBackendStore(settingsView.integrationError)}
-    </p>{/if}
+<section
+  class="screen settings-screen"
+  aria-label={region === 'primary' ? $tStore('settings.title') : $tStore('settings.advanced')}
+>
+  {#if region === 'primary'}
+    {#if settingsView.integrationError}<p class="notice" role="alert">
+        {$tBackendStore(settingsView.integrationError)}
+      </p>{/if}
 
-  {#if settingsView.platformSummary}<div class="settings-section">
-      <h2>{$tStore('settings.linuxHeader')}</h2>
+    {#if settingsView.platformSummary}<div class="settings-section">
+        <h2>{$tStore('settings.linuxHeader')}</h2>
+        <div class="setting-row">
+          <span
+            ><b>{$tStore('settings.desktopIntegration')}</b><small
+              >{$tBackendStore(settingsView.platformSummary)}</small
+            ></span
+          >
+        </div>
+      </div>{/if}
+
+    <div class="settings-section">
+      <h2>{$tStore('settings.general')}</h2>
       <div class="setting-row">
-        <span
-          ><b>{$tStore('settings.desktopIntegration')}</b><small
-            >{$tBackendStore(settingsView.platformSummary)}</small
-          ></span
-        >
+        <span><b>{$tStore('settings.language')}</b></span><SelectMenu
+          label={$tStore('settings.language')}
+          value={settings.language}
+          options={[
+            { value: 'system', label: $tStore('settings.languageAuto') },
+            { value: 'en', label: $tStore('settings.english') },
+            { value: 'zh-CN', label: $tStore('settings.chinese') },
+            { value: 'zh-TW', label: $tStore('settings.traditionalChinese') },
+            { value: 'es', label: $tStore('settings.spanish') },
+            { value: 'pt-BR', label: $tStore('settings.portugueseBrazil') },
+            { value: 'ja', label: $tStore('settings.japanese') },
+            { value: 'ko', label: $tStore('settings.korean') },
+            { value: 'de', label: $tStore('settings.german') },
+            { value: 'fr', label: $tStore('settings.french') },
+            { value: 'ru', label: $tStore('settings.russian') },
+            { value: 'hi', label: $tStore('settings.hindi') },
+            { value: 'ar', label: $tStore('settings.arabic') },
+            { value: 'it', label: $tStore('settings.italian') },
+            { value: 'pl', label: $tStore('settings.polish') },
+            { value: 'tr', label: $tStore('settings.turkish') },
+            { value: 'vi', label: $tStore('settings.vietnamese') },
+          ]}
+          onChange={(value) => patch({ language: value as AppSettings['language'] })}
+        />
       </div>
-    </div>{/if}
-
-  <div class="settings-section">
-    <h2>{$tStore('settings.general')}</h2>
-    <div class="setting-row">
-      <span><b>{$tStore('settings.language')}</b></span><SelectMenu
-        label={$tStore('settings.language')}
-        value={settings.language}
-        options={[
-          { value: 'system', label: $tStore('settings.languageAuto') },
-          { value: 'en', label: $tStore('settings.english') },
-          { value: 'zh-CN', label: $tStore('settings.chinese') },
-          { value: 'zh-TW', label: $tStore('settings.traditionalChinese') },
-          { value: 'es', label: $tStore('settings.spanish') },
-          { value: 'pt-BR', label: $tStore('settings.portugueseBrazil') },
-          { value: 'ja', label: $tStore('settings.japanese') },
-          { value: 'ko', label: $tStore('settings.korean') },
-          { value: 'de', label: $tStore('settings.german') },
-          { value: 'fr', label: $tStore('settings.french') },
-          { value: 'ru', label: $tStore('settings.russian') },
-          { value: 'hi', label: $tStore('settings.hindi') },
-          { value: 'ar', label: $tStore('settings.arabic') },
-          { value: 'it', label: $tStore('settings.italian') },
-          { value: 'pl', label: $tStore('settings.polish') },
-          { value: 'tr', label: $tStore('settings.turkish') },
-          { value: 'vi', label: $tStore('settings.vietnamese') },
-        ]}
-        onChange={(value) => patch({ language: value as AppSettings['language'] })}
-      />
-    </div>
-    <label class="setting-row"
-      ><span><b>{$tStore('settings.showTotalSpend')}</b></span><input
-        type="checkbox"
-        checked={settings.showTotalSpend}
-        onchange={(event) => patch({ showTotalSpend: event.currentTarget.checked })}
-      /></label
-    >
-    <label class="setting-row"
-      ><span><b>{$tStore('settings.launchAtLogin')}</b></span><input
-        type="checkbox"
-        checked={settings.launchAtLogin}
-        onchange={(event) => patch({ launchAtLogin: event.currentTarget.checked })}
-      /></label
-    >
-    <div class="setting-row">
-      <span><b>{$tStore('settings.globalShortcut')}</b></span>
-      <div class="shortcut-field">
-        <button
-          class:recording
-          type="button"
-          aria-pressed={recording}
-          aria-describedby="shortcut-recording-help"
-          data-tooltip={$tStore('settings.openFromAnywhere')}
-          onclick={() => (recording = !recording)}
-          onkeydown={record}
-          onblur={() => (recording = false)}
-          >{recording
-            ? $tStore('settings.typeShortcut')
-            : (settings.globalShortcut ?? $tStore('settings.recordShortcut'))}</button
-        >{#if settings.globalShortcut}<button
-            type="button"
-            class="shortcut-clear"
-            aria-label={$tStore('settings.clearGlobalShortcut')}
-            onclick={() => patch({ globalShortcut: null })}
-            ><Icon name="close" size={10} strokeWidth={2.2} /></button
-          >{/if}
-      </div>
-      <small id="shortcut-recording-help" class="sr-only"
-        >{$tStore('settings.shortcutRecordingHelp')}</small
-      >
-    </div>
-    {#if platform === 'macos'}
-      <label class="setting-row">
+      <div class="setting-row proxy-url-row">
         <span>
-          <b>{$tStore('settings.showAppMenubar')}</b>
-          {#if settingsView.appMenubarForced}
-            <small>{$tStore('settings.appMenubarForced')}</small>
-          {/if}
+          <b><label for="settings-proxy-url">{$tStore('settings.proxyUrl')}</label></b>
+          <small>{$tStore('settings.proxyUrlHelp')}</small>
         </span>
         <input
-          type="checkbox"
-          checked={settings.showAppMenubar}
-          onchange={(event) => patch({ showAppMenubar: event.currentTarget.checked })}
-        />
-      </label>
-    {/if}
-  </div>
-
-  <div class="settings-section">
-    <h2>{$tStore('settings.appearance')}</h2>
-    <div class="setting-row">
-      <span><b>{$tStore('settings.theme')}</b></span><SelectMenu
-        label={$tStore('settings.theme')}
-        value={settings.theme}
-        options={[
-          { value: 'system', label: $tStore('settings.system') },
-          { value: 'light', label: $tStore('settings.light') },
-          { value: 'dark', label: $tStore('settings.dark') },
-        ]}
-        onChange={(value) => patch({ theme: value as AppSettings['theme'] })}
-      />
-    </div>
-    <div class="setting-row">
-      <span><b>{$tStore('settings.density')}</b></span><SelectMenu
-        label={$tStore('settings.density')}
-        value={settings.density}
-        options={[
-          { value: 'default', label: $tStore('settings.default') },
-          { value: 'compact', label: $tStore('settings.compact') },
-        ]}
-        onChange={(value) => patch({ density: value as AppSettings['density'] })}
-      />
-    </div>
-    <label class="setting-row"
-      ><span><b>{$tStore('settings.reduceAnimations')}</b></span><input
-        type="checkbox"
-        checked={settings.reduceAnimations}
-        onchange={(event) => patch({ reduceAnimations: event.currentTarget.checked })}
-      /></label
-    >
-    {#if settingsView.trayAvailable}
-      <div class="setting-row">
-        <span><b>{$tStore('settings.windowMode')}</b></span><SelectMenu
-          label={$tStore('settings.windowMode')}
-          value={settings.windowMode}
-          options={[
-            { value: 'popup', label: $tStore('settings.trayPopup') },
-            { value: 'floating', label: $tStore('settings.floatingWindow') },
-          ]}
-          onChange={(value) => patch({ windowMode: value as AppSettings['windowMode'] })}
+          id="settings-proxy-url"
+          class="proxy-url-input"
+          type="url"
+          bind:value={proxyUrlDraft}
+          oninput={() => (lastSubmittedProxyUrl = undefined)}
+          onblur={commitProxyUrl}
+          onkeydown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commitProxyUrl();
+            }
+          }}
         />
       </div>
-    {/if}
-    <div class="setting-row">
-      <span><b>{$tStore('settings.panelHeight')}</b></span><SelectMenu
-        label={$tStore('settings.panelHeight')}
-        value={panelHeightMode}
-        options={[
-          { value: 'automatic', label: $tStore('settings.automatic') },
-          { value: 'manual', label: $tStore('settings.manual') },
-        ]}
-        onChange={(value) => onPanelHeightModeChange(value as PanelHeightMode)}
-      />
-    </div>
-    <div class="setting-row">
-      <span><b>{$tStore('settings.timeFormat')}</b></span><SelectMenu
-        label={$tStore('settings.timeFormat')}
-        value={settings.timeFormat}
-        options={[
-          { value: 'system', label: $tStore('settings.auto') },
-          { value: 'twelveHour', label: $tStore('settings.twelveHour') },
-          { value: 'twentyFourHour', label: $tStore('settings.twentyFourHour') },
-        ]}
-        onChange={(value) => patch({ timeFormat: value as AppSettings['timeFormat'] })}
-      />
-    </div>
-  </div>
-
-  <div class="settings-section">
-    <h2>{$tStore('settings.usageDisplay')}</h2>
-    <div class="setting-row">
-      <span><b>{$tStore('settings.showUsageAs')}</b></span><SelectMenu
-        label={$tStore('settings.showUsageAs')}
-        value={settings.usageDisplay}
-        options={[
-          { value: 'left', label: $tStore('settings.left') },
-          { value: 'used', label: $tStore('settings.used') },
-        ]}
-        onChange={(value) => patch({ usageDisplay: value as AppSettings['usageDisplay'] })}
-      />
-    </div>
-    <div class="setting-row">
-      <span><b>{$tStore('settings.resetTimes')}</b></span><SelectMenu
-        label={$tStore('settings.resetTimes')}
-        value={settings.resetDisplay}
-        options={[
-          { value: 'countdown', label: $tStore('settings.countdown') },
-          { value: 'exact', label: $tStore('settings.exactTime') },
-        ]}
-        onChange={(value) => patch({ resetDisplay: value as AppSettings['resetDisplay'] })}
-      />
-    </div>
-    <label class="setting-row"
-      ><span
-        ><b>{$tStore('settings.alwaysShowPacing')}</b><i
-          class="setting-info"
-          data-tooltip={$tStore('settings.alwaysShowPacingTooltip')}
-          aria-label={$tStore('settings.alwaysShowPacingTooltip')}
-          ><Icon name="about" size={12} strokeWidth={1.8} /></i
-        ></span
-      ><input
-        type="checkbox"
-        checked={settings.alwaysShowPacing}
-        onchange={(event) => patch({ alwaysShowPacing: event.currentTarget.checked })}
-      /></label
-    >
-  </div>
-
-  {#if platform === 'windows'}
-    <div class="settings-section">
-      <h2>{$tStore('settings.taskbar')}</h2>
       <label class="setting-row"
-        ><span
-          ><b>{$tStore('settings.showMonitorsOnTaskbar')}</b><small
-            >{$tStore('settings.showMonitorsOnTaskbarDesc')}</small
-          ></span
-        ><input
+        ><span><b>{$tStore('settings.showTotalSpend')}</b></span><input
           type="checkbox"
-          checked={settings.taskband.enabled}
-          onchange={(event) => patchTaskband({ enabled: event.currentTarget.checked })}
+          checked={settings.showTotalSpend}
+          onchange={(event) => patch({ showTotalSpend: event.currentTarget.checked })}
+        /></label
+      >
+      <label class="setting-row"
+        ><span><b>{$tStore('settings.launchAtLogin')}</b></span><input
+          type="checkbox"
+          checked={settings.launchAtLogin}
+          onchange={(event) => patch({ launchAtLogin: event.currentTarget.checked })}
         /></label
       >
       <div class="setting-row">
-        <span><b>{$tStore('settings.defaultPosition')}</b></span><SelectMenu
-          label={$tStore('settings.defaultPosition')}
-          value={settings.taskband.defaultSide}
+        <span><b>{$tStore('settings.globalShortcut')}</b></span>
+        <div class="shortcut-field">
+          <button
+            class:recording
+            type="button"
+            aria-pressed={recording}
+            aria-describedby="shortcut-recording-help"
+            data-tooltip={$tStore('settings.openFromAnywhere')}
+            onclick={() => (recording = !recording)}
+            onkeydown={record}
+            onblur={() => (recording = false)}
+            >{recording
+              ? $tStore('settings.typeShortcut')
+              : (settings.globalShortcut ?? $tStore('settings.recordShortcut'))}</button
+          >{#if settings.globalShortcut}<button
+              type="button"
+              class="shortcut-clear"
+              aria-label={$tStore('settings.clearGlobalShortcut')}
+              onclick={() => patch({ globalShortcut: null })}
+              ><Icon name="close" size={10} strokeWidth={2.2} /></button
+            >{/if}
+        </div>
+        <small id="shortcut-recording-help" class="sr-only"
+          >{$tStore('settings.shortcutRecordingHelp')}</small
+        >
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h2>{$tStore('settings.appearance')}</h2>
+      <div class="setting-row">
+        <span><b>{$tStore('settings.theme')}</b></span><SelectMenu
+          label={$tStore('settings.theme')}
+          value={settings.theme}
           options={[
-            { value: 'left', label: $tStore('settings.leftStart') },
-            { value: 'right', label: $tStore('settings.rightTray') },
+            { value: 'system', label: $tStore('settings.system') },
+            { value: 'light', label: $tStore('settings.light') },
+            { value: 'dark', label: $tStore('settings.dark') },
           ]}
-          onChange={(value) => patchTaskband({ defaultSide: value as TaskbandSide })}
+          onChange={(value) => patch({ theme: value as AppSettings['theme'] })}
         />
       </div>
       <div class="setting-row">
-        <span
-          ><b>{$tStore('settings.labelSpacing')}</b><small
-            >{$tStore('settings.labelSpacingDesc')}</small
-          ></span
-        ><input
-          class="number-field"
-          type="number"
-          min="0"
-          max="40"
-          value={settings.taskband.margin}
-          aria-label={$tStore('settings.labelSpacing')}
-          onchange={(event) =>
-            patchTaskband({ margin: clampInt(event.currentTarget.value, 0, 40) })}
+        <span><b>{$tStore('settings.density')}</b></span><SelectMenu
+          label={$tStore('settings.density')}
+          value={settings.density}
+          options={[
+            { value: 'default', label: $tStore('settings.default') },
+            { value: 'compact', label: $tStore('settings.compact') },
+          ]}
+          onChange={(value) => patch({ density: value as AppSettings['density'] })}
+        />
+      </div>
+      <label class="setting-row"
+        ><span><b>{$tStore('settings.reduceAnimations')}</b></span><input
+          type="checkbox"
+          checked={settings.reduceAnimations}
+          onchange={(event) => patch({ reduceAnimations: event.currentTarget.checked })}
+        /></label
+      >
+      {#if settingsView.trayAvailable}
+        <div class="setting-row">
+          <span><b>{$tStore('settings.windowMode')}</b></span><SelectMenu
+            label={$tStore('settings.windowMode')}
+            value={settings.windowMode}
+            options={[
+              { value: 'popup', label: $tStore('settings.trayPopup') },
+              { value: 'floating', label: $tStore('settings.floatingWindow') },
+            ]}
+            onChange={(value) => patch({ windowMode: value as AppSettings['windowMode'] })}
+          />
+        </div>
+      {/if}
+      <div class="setting-row">
+        <span><b>{$tStore('settings.panelHeight')}</b></span><SelectMenu
+          label={$tStore('settings.panelHeight')}
+          value={panelHeightMode}
+          options={[
+            { value: 'automatic', label: $tStore('settings.automatic') },
+            { value: 'manual', label: $tStore('settings.manual') },
+          ]}
+          onChange={(value) => onPanelHeightModeChange(value as PanelHeightMode)}
         />
       </div>
       <div class="setting-row">
-        <span
-          ><b>{$tStore('settings.leftEdgeMargin')}</b><small
-            >{$tStore('settings.leftEdgeMarginDesc')}</small
-          ></span
-        ><input
-          class="number-field"
-          type="number"
-          min="0"
-          max="400"
-          value={settings.taskband.edgeMarginLeft}
-          aria-label={$tStore('settings.leftEdgeMargin')}
-          onchange={(event) =>
-            patchTaskband({ edgeMarginLeft: clampInt(event.currentTarget.value, 0, 400) })}
-        />
-      </div>
-      <div class="setting-row">
-        <span
-          ><b>{$tStore('settings.rightEdgeMargin')}</b><small
-            >{$tStore('settings.rightEdgeMarginDesc')}</small
-          ></span
-        ><input
-          class="number-field"
-          type="number"
-          min="0"
-          max="400"
-          value={settings.taskband.edgeMarginRight}
-          aria-label={$tStore('settings.rightEdgeMargin')}
-          onchange={(event) =>
-            patchTaskband({ edgeMarginRight: clampInt(event.currentTarget.value, 0, 400) })}
+        <span><b>{$tStore('settings.timeFormat')}</b></span><SelectMenu
+          label={$tStore('settings.timeFormat')}
+          value={settings.timeFormat}
+          options={[
+            { value: 'system', label: $tStore('settings.auto') },
+            { value: 'twelveHour', label: $tStore('settings.twelveHour') },
+            { value: 'twentyFourHour', label: $tStore('settings.twentyFourHour') },
+          ]}
+          onChange={(value) => patch({ timeFormat: value as AppSettings['timeFormat'] })}
         />
       </div>
     </div>
-  {/if}
 
-  <div class="settings-section">
-    <h2>
-      {$tStore('settings.notifications')}
-      {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
-    </h2>
-    <label class="setting-row"
-      ><span
-        ><b>{$tStore('settings.almostOut')}</b><i
-          class="setting-info"
-          data-tooltip={$tStore('settings.almostOutTooltip')}
-          aria-label={$tStore('settings.almostOutTooltip')}
-          ><Icon name="about" size={12} strokeWidth={1.8} /></i
-        ></span
-      ><input
-        type="checkbox"
-        checked={settings.notifications.almostOut}
-        onchange={(event) => patchNotification('almostOut', event.currentTarget.checked)}
-      /></label
-    >
-    <label class="setting-row"
-      ><span
-        ><b>{$tStore('settings.cuttingItClose')}</b><i
-          class="setting-info"
-          data-tooltip={$tStore('settings.cuttingItCloseTooltip')}
-          aria-label={$tStore('settings.cuttingItCloseTooltip')}
-          ><Icon name="about" size={12} strokeWidth={1.8} /></i
-        ></span
-      ><input
-        type="checkbox"
-        checked={settings.notifications.cuttingItClose}
-        onchange={(event) => patchNotification('cuttingItClose', event.currentTarget.checked)}
-      /></label
-    >
-    <label class="setting-row"
-      ><span
-        ><b>{$tStore('settings.willRunOut')}</b><i
-          class="setting-info"
-          data-tooltip={$tStore('settings.willRunOutTooltip')}
-          aria-label={$tStore('settings.willRunOutTooltip')}
-          ><Icon name="about" size={12} strokeWidth={1.8} /></i
-        ></span
-      ><input
-        type="checkbox"
-        checked={settings.notifications.willRunOut}
-        onchange={(event) => patchNotification('willRunOut', event.currentTarget.checked)}
-      /></label
-    >
-    {#if notificationsNeedAttention}
-      <div class="notification-actions">
-        <div class="notification-attention" role="status">
-          <span
-            ><b
-              >{settingsView.notificationPermission === 'denied'
-                ? $tStore('settings.notificationsBlocked')
-                : $tStore('settings.permissionRequired')}</b
-            ><small
-              >{settingsView.notificationPermission === 'denied'
-                ? $tStore('settings.notificationsBlockedDesc')
-                : $tStore('settings.permissionRequiredDesc')}</small
+    <div class="settings-section">
+      <h2>{$tStore('settings.usageDisplay')}</h2>
+      <div class="setting-row">
+        <span><b>{$tStore('settings.showUsageAs')}</b></span><SelectMenu
+          label={$tStore('settings.showUsageAs')}
+          value={settings.usageDisplay}
+          options={[
+            { value: 'left', label: $tStore('settings.left') },
+            { value: 'used', label: $tStore('settings.used') },
+          ]}
+          onChange={(value) => patch({ usageDisplay: value as AppSettings['usageDisplay'] })}
+        />
+      </div>
+      <div class="setting-row">
+        <span><b>{$tStore('settings.resetTimes')}</b></span><SelectMenu
+          label={$tStore('settings.resetTimes')}
+          value={settings.resetDisplay}
+          options={[
+            { value: 'countdown', label: $tStore('settings.countdown') },
+            { value: 'exact', label: $tStore('settings.exactTime') },
+          ]}
+          onChange={(value) => patch({ resetDisplay: value as AppSettings['resetDisplay'] })}
+        />
+      </div>
+      <label class="setting-row"
+        ><span
+          ><b>{$tStore('settings.alwaysShowPacing')}</b><i
+            class="setting-info"
+            data-tooltip={$tStore('settings.alwaysShowPacingTooltip')}
+            aria-label={$tStore('settings.alwaysShowPacingTooltip')}
+            ><Icon name="about" size={12} strokeWidth={1.8} /></i
+          ></span
+        ><input
+          type="checkbox"
+          checked={settings.alwaysShowPacing}
+          onchange={(event) => patch({ alwaysShowPacing: event.currentTarget.checked })}
+        /></label
+      >
+    </div>
+
+    {#if platform === 'windows'}
+      <div class="settings-section">
+        <h2>{$tStore('settings.taskbar')}</h2>
+        <label class="setting-row"
+          ><span
+            ><b>{$tStore('settings.showMonitorsOnTaskbar')}</b><small
+              >{$tStore('settings.showMonitorsOnTaskbarDesc')}</small
             ></span
-          >
-          <button
-            class="secondary-button"
-            type="button"
-            onclick={settingsView.notificationPermission === 'denied'
-              ? onOpenNotificationSettings
-              : onRequestNotifications}
-            >{settingsView.notificationPermission === 'denied'
-              ? $tStore('settings.openSettings')
-              : $tStore('settings.allow')}</button
-          >
+          ><input
+            type="checkbox"
+            checked={settings.taskband.enabled}
+            onchange={(event) => patchTaskband({ enabled: event.currentTarget.checked })}
+          /></label
+        >
+        <div class="setting-row">
+          <span><b>{$tStore('settings.defaultPosition')}</b></span><SelectMenu
+            label={$tStore('settings.defaultPosition')}
+            value={settings.taskband.defaultSide}
+            options={[
+              { value: 'left', label: $tStore('settings.leftStart') },
+              { value: 'right', label: $tStore('settings.rightTray') },
+            ]}
+            onChange={(value) => patchTaskband({ defaultSide: value as TaskbandSide })}
+          />
+        </div>
+        <div class="setting-row">
+          <span
+            ><b>{$tStore('settings.labelSpacing')}</b><small
+              >{$tStore('settings.labelSpacingDesc')}</small
+            ></span
+          ><input
+            class="number-field"
+            type="number"
+            min="0"
+            max="40"
+            value={settings.taskband.margin}
+            aria-label={$tStore('settings.labelSpacing')}
+            onchange={(event) =>
+              patchTaskband({ margin: clampInt(event.currentTarget.value, 0, 40) })}
+          />
+        </div>
+        <div class="setting-row">
+          <span
+            ><b>{$tStore('settings.leftEdgeMargin')}</b><small
+              >{$tStore('settings.leftEdgeMarginDesc')}</small
+            ></span
+          ><input
+            class="number-field"
+            type="number"
+            min="0"
+            max="400"
+            value={settings.taskband.edgeMarginLeft}
+            aria-label={$tStore('settings.leftEdgeMargin')}
+            onchange={(event) =>
+              patchTaskband({ edgeMarginLeft: clampInt(event.currentTarget.value, 0, 400) })}
+          />
+        </div>
+        <div class="setting-row">
+          <span
+            ><b>{$tStore('settings.rightEdgeMargin')}</b><small
+              >{$tStore('settings.rightEdgeMarginDesc')}</small
+            ></span
+          ><input
+            class="number-field"
+            type="number"
+            min="0"
+            max="400"
+            value={settings.taskband.edgeMarginRight}
+            aria-label={$tStore('settings.rightEdgeMargin')}
+            onchange={(event) =>
+              patchTaskband({ edgeMarginRight: clampInt(event.currentTarget.value, 0, 400) })}
+          />
         </div>
       </div>
     {/if}
-  </div>
 
-  <div class="settings-section">
-    <h2>{$tStore('settings.advanced')}</h2>
-    <div class="setting-row">
-      <span><b>{$tStore('settings.logLevel')}</b></span><SelectMenu
-        label={$tStore('settings.logLevel')}
-        value={settings.logLevel}
-        options={[
-          { value: 'error', label: $tStore('settings.error') },
-          { value: 'warn', label: $tStore('settings.warning') },
-          { value: 'info', label: $tStore('settings.info') },
-          { value: 'debug', label: $tStore('settings.debug') },
-        ]}
-        onChange={(value) => patch({ logLevel: value as AppSettings['logLevel'] })}
-      />
-    </div>
-    <div class="setting-row setting-row--button">
-      <button class="secondary-button settings-wide-button" type="button" onclick={copyLogPath}
-        >{$tStore('settings.copyLogPath')}</button
+    <div class="settings-section">
+      <h2>
+        {$tStore('settings.notifications')}
+        {#if notificationsNeedAttention}<span class="permission-warning">!</span>{/if}
+      </h2>
+      <label class="setting-row"
+        ><span
+          ><b>{$tStore('settings.almostOut')}</b><i
+            class="setting-info"
+            data-tooltip={$tStore('settings.almostOutTooltip')}
+            aria-label={$tStore('settings.almostOutTooltip')}
+            ><Icon name="about" size={12} strokeWidth={1.8} /></i
+          ></span
+        ><input
+          type="checkbox"
+          checked={settings.notifications.almostOut}
+          onchange={(event) => patchNotification('almostOut', event.currentTarget.checked)}
+        /></label
       >
-    </div>
-    <div class="setting-row setting-row--button">
-      <button class="secondary-button settings-wide-button" type="button" onclick={revealLogFile}
-        >{revealLogLabel}</button
+      <label class="setting-row"
+        ><span
+          ><b>{$tStore('settings.cuttingItClose')}</b><i
+            class="setting-info"
+            data-tooltip={$tStore('settings.cuttingItCloseTooltip')}
+            aria-label={$tStore('settings.cuttingItCloseTooltip')}
+            ><Icon name="about" size={12} strokeWidth={1.8} /></i
+          ></span
+        ><input
+          type="checkbox"
+          checked={settings.notifications.cuttingItClose}
+          onchange={(event) => patchNotification('cuttingItClose', event.currentTarget.checked)}
+        /></label
       >
-    </div>
-    {#if logActionError}<p class="settings-note log-action-error" role="alert">
-        {logActionError}
-      </p>{/if}
-    <div class="setting-row setting-row--button">
-      <button
-        class="secondary-button settings-wide-button settings-reset-button"
-        type="button"
-        onclick={onResetAllSettings}>{$tStore('settings.resetAllSettings')}</button
+      <label class="setting-row"
+        ><span
+          ><b>{$tStore('settings.willRunOut')}</b><i
+            class="setting-info"
+            data-tooltip={$tStore('settings.willRunOutTooltip')}
+            aria-label={$tStore('settings.willRunOutTooltip')}
+            ><Icon name="about" size={12} strokeWidth={1.8} /></i
+          ></span
+        ><input
+          type="checkbox"
+          checked={settings.notifications.willRunOut}
+          onchange={(event) => patchNotification('willRunOut', event.currentTarget.checked)}
+        /></label
       >
+      {#if notificationsNeedAttention}
+        <div class="notification-actions">
+          <div class="notification-attention" role="status">
+            <span
+              ><b
+                >{settingsView.notificationPermission === 'denied'
+                  ? $tStore('settings.notificationsBlocked')
+                  : $tStore('settings.permissionRequired')}</b
+              ><small
+                >{settingsView.notificationPermission === 'denied'
+                  ? $tStore('settings.notificationsBlockedDesc')
+                  : $tStore('settings.permissionRequiredDesc')}</small
+              ></span
+            >
+            <button
+              class="secondary-button"
+              type="button"
+              onclick={settingsView.notificationPermission === 'denied'
+                ? onOpenNotificationSettings
+                : onRequestNotifications}
+              >{settingsView.notificationPermission === 'denied'
+                ? $tStore('settings.openSettings')
+                : $tStore('settings.allow')}</button
+            >
+          </div>
+        </div>
+      {/if}
     </div>
-  </div>
-
-  <div class="settings-section">
-    <h2>{$tStore('settings.updates')}</h2>
-    <label class="setting-row"
-      ><span><b>{$tStore('settings.checkForUpdatesAutomatically')}</b></span><input
-        type="checkbox"
-        checked={settings.autoCheckUpdates}
-        onchange={(event) => patch({ autoCheckUpdates: event.currentTarget.checked })}
-      /></label
-    >
-    <div class="setting-row setting-row--button">
-      <button
-        type="button"
-        class="secondary-button settings-wide-button"
-        disabled={checkingUpdate}
-        onclick={onCheckForUpdates}
-        >{checkingUpdate
-          ? $tStore('settings.checking')
-          : $tStore('settings.checkForUpdates')}</button
-      >
-    </div>
-    {#if updateError}<div class="settings-update-error" role="alert">
-        <b>{$tBackendStore(updateError.message)}</b><small
-          >{$tBackendStore(updateError.action)}</small
+  {:else}
+    <div class="settings-section">
+      <h2>{$tStore('settings.advanced')}</h2>
+      <div class="setting-row">
+        <span><b>{$tStore('settings.logLevel')}</b></span><SelectMenu
+          label={$tStore('settings.logLevel')}
+          value={settings.logLevel}
+          options={[
+            { value: 'error', label: $tStore('settings.error') },
+            { value: 'warn', label: $tStore('settings.warning') },
+            { value: 'info', label: $tStore('settings.info') },
+            { value: 'debug', label: $tStore('settings.debug') },
+          ]}
+          onChange={(value) => patch({ logLevel: value as AppSettings['logLevel'] })}
+        />
+      </div>
+      <div class="setting-row setting-row--button">
+        <button class="secondary-button settings-wide-button" type="button" onclick={copyLogPath}
+          >{$tStore('settings.copyLogPath')}</button
         >
-      </div>{/if}
-  </div>
+      </div>
+      <div class="setting-row setting-row--button">
+        <button class="secondary-button settings-wide-button" type="button" onclick={revealLogFile}
+          >{revealLogLabel}</button
+        >
+      </div>
+      {#if logActionError}<p class="settings-note log-action-error" role="alert">
+          {logActionError}
+        </p>{/if}
+      <div class="setting-row setting-row--button">
+        <button
+          class="secondary-button settings-wide-button settings-reset-button"
+          type="button"
+          onclick={onResetAllCustomization}>{$tStore('app.resetAllCustomization')}…</button
+        >
+      </div>
+      <div class="setting-row setting-row--button">
+        <button
+          class="secondary-button settings-wide-button settings-reset-button"
+          type="button"
+          onclick={onResetAllSettings}>{$tStore('settings.resetAllSettings')}</button
+        >
+      </div>
+    </div>
 
-  <button
-    class="screen-cross-link"
-    type="button"
-    aria-label={$tStore('settings.customize')}
-    onclick={onCustomize}
-  >
-    <Icon name="sliders" size={17} />
-    <span
-      ><b>{$tStore('settings.customize')}</b><small>{$tStore('settings.customizeDesc')}</small
-      ></span
-    >
-    <Icon name="chevron-right" size={13} strokeWidth={2.2} />
-  </button>
+    <div class="settings-section">
+      <h2>{$tStore('settings.updates')}</h2>
+      <label class="setting-row"
+        ><span><b>{$tStore('settings.checkForUpdatesAutomatically')}</b></span><input
+          type="checkbox"
+          checked={settings.autoCheckUpdates}
+          onchange={(event) => patch({ autoCheckUpdates: event.currentTarget.checked })}
+        /></label
+      >
+      <div class="setting-row setting-row--button">
+        <button
+          type="button"
+          class="secondary-button settings-wide-button"
+          disabled={checkingUpdate}
+          onclick={onCheckForUpdates}
+          >{checkingUpdate
+            ? $tStore('settings.checking')
+            : $tStore('settings.checkForUpdates')}</button
+        >
+      </div>
+      {#if updateError}<div class="settings-update-error" role="alert">
+          <b>{$tBackendStore(updateError.message)}</b><small
+            >{$tBackendStore(updateError.action)}</small
+          >
+        </div>{/if}
+    </div>
+  {/if}
 </section>
 
 <style>
   :global {
+    .settings-screen {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+      align-content: start;
+      gap: 0 12px;
+    }
+
+    .settings-screen > .notice {
+      grid-column: 1 / -1;
+    }
+
     .settings-section {
-      margin-bottom: 10px;
+      margin: 0 0 14px;
     }
 
     .setting-row {
@@ -607,6 +646,27 @@
       min-width: 0;
       flex-direction: column;
       gap: 1px;
+    }
+
+    .proxy-url-row > span {
+      flex: 1;
+    }
+
+    .proxy-url-input {
+      width: min(220px, 48%);
+      min-width: 110px;
+      height: 30px;
+      padding: 0 9px;
+      border: 1px solid var(--separator);
+      border-radius: 8px;
+      color: var(--primary);
+      background: var(--tray);
+      font: inherit;
+    }
+
+    .proxy-url-input:focus-visible {
+      outline: 2px solid var(--meter-fill);
+      outline-offset: 2px;
     }
 
     .setting-row b {
@@ -735,7 +795,6 @@
     }
 
     .settings-section {
-      margin-bottom: 14px;
       overflow: visible;
       background: transparent;
     }
@@ -906,11 +965,6 @@
       gap: 8px;
       padding-right: 10px;
       padding-left: 10px;
-    }
-
-    :root[data-density='compact'] .screen-cross-link {
-      min-height: 42px;
-      margin-top: 8px;
     }
   }
 </style>

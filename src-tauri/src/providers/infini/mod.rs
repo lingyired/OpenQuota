@@ -19,7 +19,7 @@ use self::{
     mapper::{is_invalid_key, map_usage},
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 /// A Coding Plan is a request-counted subscription rather than a balance, so the
 /// card reports the plan name the endpoint implies instead of a spend figure.
@@ -124,8 +124,12 @@ impl InfiniProvider {
         }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let response = required_response(self.client.fetch(api_key))?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let response = required_response(self.client.fetch(context, api_key))?;
         if is_invalid_key(&response.body) {
             return Err(InfiniError::InvalidKey.into());
         }
@@ -155,12 +159,19 @@ impl UsageProvider for InfiniProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(InfiniError::MissingKey))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {

@@ -19,7 +19,9 @@ use self::{
     mapper::{map_summary, map_today_cost, DeepSeekMapError},
 };
 
-use super::{ProviderError, UsageProvider, WebviewAuth, WebviewCredentialSource};
+use super::{
+    ProviderError, ProviderRequestContext, UsageProvider, WebviewAuth, WebviewCredentialSource,
+};
 
 const LOGIN_URL: &str = "https://platform.deepseek.com/sign_in";
 const USER_TOKEN_STORAGE_KEY: &str = "userToken";
@@ -131,8 +133,12 @@ impl DeepSeekProvider {
         }
     }
 
-    fn refresh_snapshot(&self, user_token: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let response = self.client.fetch_summary(user_token)?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        user_token: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let response = self.client.fetch_summary(context, user_token)?;
         if matches!(
             response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
@@ -155,7 +161,7 @@ impl DeepSeekProvider {
             - i64::from(timezone);
         let cost_response =
             self.client
-                .fetch_today_cost(user_token, start, start + 86_400, timezone)?;
+                .fetch_today_cost(context, user_token, start, start + 86_400, timezone)?;
         if matches!(
             cost_response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
@@ -198,12 +204,19 @@ impl UsageProvider for DeepSeekProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let user_token = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(DeepSeekError::MissingToken))?;
-        self.refresh_snapshot(user_token.as_str())
+        self.refresh_snapshot(context, user_token.as_str())
     }
 
     fn webview_auth(&self) -> Option<WebviewAuth> {

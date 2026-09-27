@@ -292,6 +292,9 @@ pub enum SnapshotSource {
 #[serde(rename_all = "camelCase")]
 pub enum ProviderErrorKind {
     Authentication,
+    CredentialsUnavailable,
+    LocalServiceUnavailable,
+    Unsupported,
     Permission,
     RateLimited,
     Network,
@@ -674,9 +677,9 @@ pub struct ProviderLayout {
     pub enabled: bool,
     pub detected: bool,
     pub expanded: bool,
-    /// Set when the user turns this provider on by hand. Automatic enablement (startup
-    /// probing, fallback defaults) never sets it, because reading another application's
-    /// Keychain entry prompts for authorization on macOS.
+    #[serde(default)]
+    pub use_proxy: bool,
+    #[cfg(not(target_os = "macos"))]
     #[serde(default)]
     pub keychain_access_granted: bool,
     pub metrics: Vec<MetricLayout>,
@@ -914,8 +917,6 @@ pub struct AppSettings {
     pub provider_names: BTreeMap<String, String>,
     pub language: LanguagePreference,
     pub show_total_spend: bool,
-    #[serde(default = "default_true")]
-    pub show_app_menubar: bool,
     pub theme: ThemePreference,
     pub density: DensityPreference,
     pub reduce_animations: bool,
@@ -929,6 +930,8 @@ pub struct AppSettings {
     pub auto_check_updates: bool,
     pub dismissed_update_version: Option<String>,
     pub last_update_check_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_url: Option<String>,
     pub global_shortcut: Option<String>,
     pub log_level: LogLevel,
     pub notifications: NotificationPreferences,
@@ -944,13 +947,12 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            schema_version: 9,
+            schema_version: 10,
             providers: Vec::new(),
             known_provider_ids: Vec::new(),
             provider_names: BTreeMap::new(),
             language: LanguagePreference::System,
             show_total_spend: true,
-            show_app_menubar: true,
             theme: ThemePreference::System,
             density: DensityPreference::Default,
             reduce_animations: false,
@@ -964,6 +966,7 @@ impl Default for AppSettings {
             auto_check_updates: true,
             dismissed_update_version: None,
             last_update_check_at: None,
+            proxy_url: None,
             global_shortcut: None,
             log_level: LogLevel::Info,
             notifications: NotificationPreferences::default(),
@@ -996,7 +999,8 @@ pub struct SettingsViewState {
     pub integration_error: Option<String>,
     pub tray_available: bool,
     pub platform_summary: Option<String>,
-    pub app_menubar_forced: bool,
+    pub provider_instance_count: usize,
+    pub provider_instance_failures: Vec<String>,
 }
 
 /// 设备码登录的开始结果：只带前端展示所必需的信息。
@@ -1120,16 +1124,14 @@ mod tests {
     }
 
     #[test]
-    fn app_menubar_defaults_to_visible() {
-        assert!(AppSettings::default().show_app_menubar);
-    }
-
-    #[test]
-    fn older_settings_default_the_app_menubar_to_visible() {
+    fn legacy_app_menubar_setting_is_ignored() {
         let mut value = serde_json::to_value(AppSettings::default()).unwrap();
-        value.as_object_mut().unwrap().remove("showAppMenubar");
+        value["showAppMenubar"] = serde_json::json!(false);
         let settings: AppSettings = serde_json::from_value(value).unwrap();
-        assert!(settings.show_app_menubar);
+        assert_eq!(
+            serde_json::to_value(settings).unwrap()["showAppMenubar"],
+            serde_json::Value::Null
+        );
     }
 
     #[test]
@@ -1266,5 +1268,27 @@ mod tests {
                 ProviderLink::new("HTTP", "http://example.com/dashboard"),
             ]
         );
+    }
+
+    #[test]
+    fn local_credential_error_kinds_use_camel_case_names() {
+        let kinds = [
+            (
+                ProviderErrorKind::CredentialsUnavailable,
+                "credentialsUnavailable",
+            ),
+            (
+                ProviderErrorKind::LocalServiceUnavailable,
+                "localServiceUnavailable",
+            ),
+            (ProviderErrorKind::Unsupported, "unsupported"),
+        ];
+
+        for (kind, expected) in kinds {
+            assert_eq!(
+                serde_json::to_string(&kind).unwrap(),
+                format!("\"{expected}\"")
+            );
+        }
     }
 }

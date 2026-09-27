@@ -3,6 +3,8 @@ pub mod client;
 pub mod csv;
 pub mod mapper;
 
+#[cfg(all(test, target_os = "macos"))]
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use chrono::{Days, Local, TimeZone, Utc};
@@ -16,6 +18,7 @@ use crate::{
         UsageHistory, UsagePeriodSelection,
     },
     pricing::PricingStore,
+    providers::ProviderRequestContext,
 };
 
 use self::{
@@ -135,6 +138,8 @@ pub enum CursorError {
     TokenExpired,
     #[error("The refreshed Cursor login could not be saved.")]
     AuthWrite,
+    #[error("Cursor credentials could not be read from the local database.")]
+    CredentialRead,
     #[error("Could not connect to Cursor. Check your internet connection.")]
     ConnectionFailed,
     #[error("Cursor returned an invalid usage response.")]
@@ -164,19 +169,37 @@ impl CursorProvider {
         })
     }
 
+    #[allow(dead_code)]
     pub fn refresh(&self) -> Result<ProviderSnapshot, CursorError> {
-        let now = Utc::now();
-        let auth = CursorAuthState::load()?.ok_or(CursorError::NotLoggedIn)?;
-        self.refresh_with_auth(auth, now)
+        self.refresh_using_context(&ProviderRequestContext::direct(Arc::default()))
     }
 
+    fn refresh_using_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, CursorError> {
+        let now = Utc::now();
+        let auth = CursorAuthState::load()?.ok_or(CursorError::NotLoggedIn)?;
+        self.refresh_with_auth_context(context, auth, now)
+    }
+
+    #[allow(dead_code)]
     fn refresh_with_auth(
         &self,
+        auth: CursorAuthState,
+        now: chrono::DateTime<Utc>,
+    ) -> Result<ProviderSnapshot, CursorError> {
+        self.refresh_with_auth_context(&ProviderRequestContext::direct(Arc::default()), auth, now)
+    }
+
+    fn refresh_with_auth_context(
+        &self,
+        context: &ProviderRequestContext,
         mut auth: CursorAuthState,
         now: chrono::DateTime<Utc>,
     ) -> Result<ProviderSnapshot, CursorError> {
         if auth.needs_refresh(now) {
-            match self.refresh_access_token(&mut auth) {
+            match self.refresh_access_token(context, &mut auth) {
                 Ok(Some(_)) => {}
                 Ok(None) if auth.access_token.is_none() => return Err(CursorError::NotLoggedIn),
                 Err(error) if auth.access_token.is_none() => return Err(error),
@@ -191,23 +214,25 @@ impl CursorProvider {
             .ok_or(CursorError::NotLoggedIn)?
             .to_owned();
 
-        let usage_response = self.fetch_usage_with_retry(&access_token, &mut auth)?;
+        let usage_response = self.fetch_usage_with_retry(context, &access_token, &mut auth)?;
         require_success(&usage_response)?;
         let usage = json_object(&usage_response)?;
         let current_token = auth.access_token.as_deref().unwrap_or(&access_token);
-        let (plan_name, plan_unavailable) = self.fetch_plan_name(current_token);
+        let (plan_name, plan_unavailable) = self.fetch_plan_name(context, current_token);
 
         if let Some(message) = request_fallback(&usage, plan_name.as_deref(), plan_unavailable) {
             let mapped = self.usage_summary_and_request_result(
+                context,
                 current_token,
                 plan_name.as_deref(),
                 message,
             )?;
-            let history = self.fetch_usage_history(current_token, now);
+            let history = self.fetch_usage_history(context, current_token, now);
             return Ok(snapshot(mapped, history, Vec::new(), now));
         }
         if PlanUsageFacts::new(&usage).should_try_generic_request_fallback() {
             if let Ok(mapped) = self.request_based_result(
+                context,
                 current_token,
                 plan_name.as_deref(),
                 "Cursor request-based usage data unavailable. Try again later.",
@@ -218,13 +243,13 @@ impl CursorProvider {
 
         let credits = self
             .client
-            .fetch_credits(current_token)
+            .fetch_credits_with_context(context, current_token)
             .ok()
             .filter(|response| response.status.is_success())
             .and_then(|response| response.json());
         let stripe = self
             .client
-            .fetch_stripe_balance(current_token)
+            .fetch_stripe_balance_with_context(context, current_token)
             .ok()
             .flatten()
             .filter(|response| response.status.is_success())
@@ -235,16 +260,19 @@ impl CursorProvider {
             credits.as_ref(),
             stripe_balance_cents(stripe.as_ref()),
         )?;
-        let history = self.fetch_usage_history(current_token, now);
+        let history = self.fetch_usage_history(context, current_token, now);
         Ok(snapshot(mapped, history, Vec::new(), now))
     }
 
     fn fetch_usage_with_retry(
         &self,
+        context: &ProviderRequestContext,
         access_token: &str,
         auth: &mut CursorAuthState,
     ) -> Result<CursorResponse, CursorError> {
-        let first = self.client.fetch_usage(access_token)?;
+        let first = self
+            .client
+            .fetch_usage_with_context(context, access_token)?;
         if !matches!(
             first.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
@@ -252,15 +280,16 @@ impl CursorProvider {
             return Ok(first);
         }
         let refreshed = self
-            .refresh_access_token(auth)?
+            .refresh_access_token(context, auth)?
             .ok_or(CursorError::TokenExpired)?;
         self.client
-            .fetch_usage(&refreshed)
+            .fetch_usage_with_context(context, &refreshed)
             .map_err(|_| CursorError::UsageAfterRefreshFailed)
     }
 
     fn refresh_access_token(
         &self,
+        context: &ProviderRequestContext,
         auth: &mut CursorAuthState,
     ) -> Result<Option<String>, CursorError> {
         let Some(refresh_token) = auth
@@ -271,7 +300,9 @@ impl CursorProvider {
         else {
             return Ok(None);
         };
-        let response = self.client.refresh_token(refresh_token)?;
+        let response = self
+            .client
+            .refresh_token_with_context(context, refresh_token)?;
         let body = response.json();
         if matches!(
             response.status,
@@ -312,10 +343,14 @@ impl CursorProvider {
         Ok(None)
     }
 
-    fn fetch_plan_name(&self, access_token: &str) -> (Option<String>, bool) {
+    fn fetch_plan_name(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> (Option<String>, bool) {
         let Some(body) = self
             .client
-            .fetch_plan(access_token)
+            .fetch_plan_with_context(context, access_token)
             .ok()
             .filter(|response| response.status.is_success())
             .and_then(|response| response.json())
@@ -331,13 +366,14 @@ impl CursorProvider {
 
     fn request_based_result(
         &self,
+        context: &ProviderRequestContext,
         access_token: &str,
         plan_name: Option<&str>,
         unavailable_message: &str,
     ) -> Result<mapper::CursorMappedUsage, CursorError> {
         let response = self
             .client
-            .fetch_request_usage(access_token)
+            .fetch_request_usage_with_context(context, access_token)
             .map_err(|_| CursorError::RequestBasedUnavailable(unavailable_message.into()))?
             .filter(|response| response.status.is_success())
             .ok_or_else(|| CursorError::RequestBasedUnavailable(unavailable_message.into()))?;
@@ -349,17 +385,20 @@ impl CursorProvider {
 
     fn usage_summary_and_request_result(
         &self,
+        context: &ProviderRequestContext,
         access_token: &str,
         plan_name: Option<&str>,
         unavailable_message: &str,
     ) -> Result<mapper::CursorMappedUsage, CursorError> {
         let summary = self.optional_json(
             "usage-summary",
-            self.client.fetch_usage_summary(access_token),
+            self.client
+                .fetch_usage_summary_with_context(context, access_token),
         );
         let request_usage = self.optional_json(
             "request-based usage",
-            self.client.fetch_request_usage(access_token),
+            self.client
+                .fetch_request_usage_with_context(context, access_token),
         );
         map_summary_usage(
             summary.as_ref(),
@@ -403,7 +442,12 @@ impl CursorProvider {
         body
     }
 
-    fn fetch_usage_history(&self, access_token: &str, now: chrono::DateTime<Utc>) -> UsageHistory {
+    fn fetch_usage_history(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+        now: chrono::DateTime<Utc>,
+    ) -> UsageHistory {
         let local_now = now.with_timezone(&Local);
         let start_date = local_now.date_naive().checked_sub_days(Days::new(29));
         let Some(start) = start_date
@@ -414,7 +458,8 @@ impl CursorProvider {
         };
         let Some(response) = self
             .client
-            .fetch_usage_csv(
+            .fetch_usage_csv_with_context(
+                context,
                 access_token,
                 start.timestamp_millis(),
                 now.timestamp_millis(),
@@ -454,6 +499,13 @@ fn snapshot(
     }
 }
 
+#[cfg(all(test, target_os = "macos"))]
+fn load_refresh_auth_from_database_paths(
+    paths: &[PathBuf],
+) -> Result<Option<CursorAuthState>, CursorError> {
+    CursorAuthState::load_from_database_paths(paths)
+}
+
 fn require_success(response: &CursorResponse) -> Result<(), CursorError> {
     if response.status.is_success() {
         Ok(())
@@ -486,34 +538,39 @@ impl crate::providers::UsageProvider for CursorProvider {
         definition()
     }
 
-    fn accesses_system_keychain(&self) -> bool {
-        true
-    }
-
     fn has_local_credentials(&self) -> bool {
         CursorAuthState::has_local_credentials()
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        CursorProvider::refresh(self).map_err(|error| {
-            use crate::models::ProviderErrorKind as Kind;
-            let kind = match error {
-                CursorError::NotLoggedIn
-                | CursorError::SessionExpired
-                | CursorError::TokenExpired => Kind::Authentication,
-                CursorError::AuthWrite => Kind::CredentialStorage,
-                CursorError::RequestFailed(429) => Kind::RateLimited,
-                CursorError::ConnectionFailed
-                | CursorError::RequestFailed(_)
-                | CursorError::UsageAfterRefreshFailed
-                | CursorError::RequestBasedUnavailable(_) => Kind::Network,
-                CursorError::InvalidResponse
-                | CursorError::TotalUsageLimitMissing
-                | CursorError::NoActiveSubscription => Kind::InvalidResponse,
-            };
-            crate::providers::ProviderError::from_display(kind, error)
-        })
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
     }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
+        self.refresh_using_context(context).map_err(provider_error)
+    }
+}
+
+fn provider_error(error: CursorError) -> crate::providers::ProviderError {
+    use crate::models::ProviderErrorKind as Kind;
+    let kind = match error {
+        CursorError::NotLoggedIn => Kind::CredentialsUnavailable,
+        CursorError::SessionExpired | CursorError::TokenExpired => Kind::Authentication,
+        CursorError::AuthWrite => Kind::CredentialStorage,
+        CursorError::CredentialRead => Kind::CredentialStorage,
+        CursorError::RequestFailed(429) => Kind::RateLimited,
+        CursorError::ConnectionFailed
+        | CursorError::RequestFailed(_)
+        | CursorError::UsageAfterRefreshFailed
+        | CursorError::RequestBasedUnavailable(_) => Kind::Network,
+        CursorError::InvalidResponse
+        | CursorError::TotalUsageLimitMissing
+        | CursorError::NoActiveSubscription => Kind::InvalidResponse,
+    };
+    crate::providers::ProviderError::from_display(kind, error)
 }
 
 #[cfg(test)]
@@ -530,12 +587,69 @@ mod tests {
     use rusqlite::Connection;
     use tempfile::tempdir;
 
+    #[cfg(target_os = "macos")]
+    use super::load_refresh_auth_from_database_paths;
     use super::{
         auth::{CursorAuthSource, CursorAuthState},
         client::{CursorClient, Endpoints},
-        definition, CursorProvider,
+        definition, provider_error, CursorError, CursorProvider,
     };
     use crate::pricing::PricingStore;
+
+    #[test]
+    fn local_credential_errors_map_to_stable_provider_categories() {
+        use crate::models::ProviderErrorKind as Kind;
+
+        assert_eq!(
+            provider_error(CursorError::NotLoggedIn).kind(),
+            Kind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error(CursorError::TokenExpired).kind(),
+            Kind::Authentication
+        );
+        assert_eq!(
+            provider_error(CursorError::AuthWrite).kind(),
+            Kind::CredentialStorage
+        );
+        assert_eq!(
+            provider_error(CursorError::CredentialRead).kind(),
+            Kind::CredentialStorage
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn refresh_auth_loader_uses_only_the_selected_sqlite_database() {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("state.vscdb");
+        let connection = Connection::open(&path).unwrap();
+        connection
+            .execute(
+                "CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value TEXT)",
+                [],
+            )
+            .unwrap();
+        connection
+            .execute(
+                "INSERT INTO ItemTable (key, value) VALUES (?1, ?2)",
+                ("cursorAuth/accessToken", "sqlite-access"),
+            )
+            .unwrap();
+        drop(connection);
+
+        let auth = load_refresh_auth_from_database_paths(std::slice::from_ref(&path))
+            .unwrap()
+            .unwrap();
+
+        assert_eq!(auth.access_token.as_deref(), Some("sqlite-access"));
+        assert!(
+            matches!(&auth.source, CursorAuthSource::Sqlite(source) if source.as_path() == path.as_path())
+        );
+        assert!(load_refresh_auth_from_database_paths(&[])
+            .unwrap()
+            .is_none());
+    }
 
     fn jwt(subject: &str) -> String {
         let payload = URL_SAFE_NO_PAD

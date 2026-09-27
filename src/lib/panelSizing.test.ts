@@ -2,12 +2,20 @@ import { describe, expect, it } from 'vitest';
 import {
   PANEL_MIN_HEIGHT,
   panelMaximumHeight,
+  panelLayoutForScreen,
   panelTargetHeight,
   screenPanelHeight,
   shouldDeferPanelFit,
 } from './panelSizing';
 
 describe('panel sizing', () => {
+  it('uses a 440px popup and a work-area-clamped settings width', () => {
+    expect(panelLayoutForScreen('dashboard', 1920)).toEqual({ width: 440, compact: false });
+    expect(panelLayoutForScreen('settings', 1920)).toEqual({ width: 1000, compact: false });
+    expect(panelLayoutForScreen('settings', 760)).toEqual({ width: 728, compact: true });
+    expect(panelLayoutForScreen('settings', 400)).toEqual({ width: 400, compact: true });
+  });
+
   it('keeps dashboard geometry fixed while provider data is refreshing', () => {
     expect(shouldDeferPanelFit('dashboard', true)).toBe(true);
     expect(shouldDeferPanelFit('dashboard', false)).toBe(false);
@@ -32,10 +40,10 @@ describe('panel sizing', () => {
     expect(panelTargetHeight(487.2, 1080)).toBe(488);
   });
 
-  it('keeps Settings at the dashboard height while content screens size independently', () => {
+  it('keeps every settings workspace screen at the dashboard height', () => {
     expect(screenPanelHeight('dashboard', 610, 540)).toBe(610);
     expect(screenPanelHeight('settings', 850, 540)).toBe(540);
-    expect(screenPanelHeight('customize', 320, 540)).toBe(320);
-    expect(screenPanelHeight('provider:codex', 410, 540)).toBe(410);
+    expect(screenPanelHeight('customize', 320, 540)).toBe(540);
+    expect(screenPanelHeight('provider:codex', 410, 540)).toBe(540);
   });
 });

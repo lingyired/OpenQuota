@@ -33,6 +33,12 @@ export const pl = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const pl = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Dostawcy',
+    usagePreview: 'Podgląd użycia',
+    preferences: 'Preferencje aplikacji',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,6 +165,8 @@ export const pl = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    proxyUrl: 'Adres URL serwera proxy',
+    proxyUrlHelp: 'Dostawcy używają tego adresu URL, gdy opcja proxy jest włączona.',
     showAppMenubar: 'Pokaż ikonę Quota01 na pasku menu',
     appMenubarForced: 'Brak widocznych ikon Provider, więc Quota01 pozostaje widoczny.',
     showTotalSpend: 'Show Total Spend',
@@ -260,6 +271,7 @@ export const pl = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -281,7 +293,12 @@ export const pl = {
     removedFromMenuBar: 'Removed from menu bar',
     name: 'Name',
     nameFor: 'Name for {name}',
+    useProxy: 'Używaj proxy dla tego dostawcy',
+    useProxyHelp: 'Używa wspólnego adresu URL proxy skonfigurowanego w ustawieniach ogólnych.',
     taskbar: 'Taskbar',
+    menuBarInstance: 'Element paska menu',
+    showOnMenuBar: 'Pokaż na pasku menu',
+    showOnMenuBarDesc: 'Pokaż tego dostawcę na pasku menu systemu macOS.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

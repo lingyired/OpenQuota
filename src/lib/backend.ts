@@ -35,8 +35,16 @@ export function refreshProviderUsage(providerId: string) {
   return invoke<UsageViewState>('refresh_provider_usage', { providerId });
 }
 
+export function refreshSelectedProviderIfDue(providerId: string) {
+  return invoke<UsageViewState>('refresh_selected_provider_if_due', { providerId });
+}
+
 export function claimCodexResetCredit(expiresAt: string, redeemRequestId: string) {
   return invoke<ResetClaimOutcome>('claim_codex_reset_credit', { expiresAt, redeemRequestId });
+}
+
+export function resetCredentialVault(): Promise<void> {
+  return invoke<void>('reset_credential_vault');
 }
 
 export function openProviderLink(providerId: string, linkIndex: number) {
@@ -161,6 +169,14 @@ export function dismissMainWindow() {
   return invoke<void>('dismiss_main_window');
 }
 
+export function openSettingsWindow(target: string) {
+  return invoke<void>('open_settings_window', { target });
+}
+
+export function dismissSettingsWindow() {
+  return invoke<void>('dismiss_settings_window');
+}
+
 export function getPanelResizeEdge() {
   return invoke<PanelResizeEdge>('get_panel_resize_edge');
 }
@@ -171,6 +187,15 @@ export function getPanelHeightMode() {
 
 export function fitPanelToContent(height: number) {
   return invoke<boolean>('fit_panel_to_content', { height });
+}
+
+export interface PanelLayout {
+  width: number;
+  height: number;
+}
+
+export function setPanelLayoutForScreen(screen: 'dashboard' | 'settings') {
+  return invoke<PanelLayout>('set_panel_layout_for_screen', { screen });
 }
 
 export function setPanelHeightAutomatic() {
@@ -217,12 +242,20 @@ export function onOpenScreen(handler: PayloadHandler<string>) {
   return onEvent('open-screen', handler);
 }
 
+export function onSettingsWorkspaceSelection(handler: PayloadHandler<string>) {
+  return onEvent('settings-workspace-selection', handler);
+}
+
 export function onTaskbandOpen(handler: PayloadHandler<string>) {
   return onEvent('taskband-open', handler);
 }
 
 export function onMainWindowHidden(handler: PayloadHandler<void>) {
   return onEvent('main-window-hidden', handler);
+}
+
+export function onRequestLeaveSettings(handler: PayloadHandler<void>) {
+  return onEvent('request-leave-settings', handler);
 }
 
 export function onUpdateProgress(handler: PayloadHandler<UpdateProgress>) {

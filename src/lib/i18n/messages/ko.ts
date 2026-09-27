@@ -33,6 +33,12 @@ export const ko = {
     refreshAll: 'Refresh all provider usage',
     refreshProvider: 'Refresh {provider}',
     confirmations: {
+      leaveSettings: {
+        title: 'Quit Quota01?',
+        message:
+          'No provider menu bar or taskbar items are active. Quit the app to close Settings?',
+        confirm: 'Quit',
+      },
       resetAllCustomization: {
         title: 'Reset All Customization?',
         message:
@@ -137,6 +143,9 @@ export const ko = {
   },
   settings: {
     title: 'Settings',
+    providers: '제공업체',
+    usagePreview: '사용량 미리보기',
+    preferences: '앱 환경설정',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',
@@ -156,6 +165,8 @@ export const ko = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    proxyUrl: '프록시 URL',
+    proxyUrlHelp: '프록시 옵션을 활성화한 공급자는 이 URL을 사용합니다.',
     showAppMenubar: 'Quota01 메뉴 막대 아이콘 표시',
     appMenubarForced: '표시되는 Provider 메뉴 막대 아이콘이 없어 Quota01 아이콘이 계속 표시됩니다.',
     showTotalSpend: 'Show Total Spend',
@@ -260,6 +271,7 @@ export const ko = {
     shortcutCurrentlyUnavailable: 'The saved global shortcut is currently unavailable.',
   },
   customize: {
+    nativeInstanceCount: '{count} provider instances active',
     title: 'Customize',
     settings: 'Settings',
     settingsDesc: 'Notifications, appearance and more',
@@ -281,7 +293,12 @@ export const ko = {
     removedFromMenuBar: 'Removed from menu bar',
     name: 'Name',
     nameFor: 'Name for {name}',
+    useProxy: '이 공급자에 프록시 사용',
+    useProxyHelp: '일반 설정에 구성된 공유 프록시 URL을 사용합니다.',
     taskbar: 'Taskbar',
+    menuBarInstance: '메뉴 막대 항목',
+    showOnMenuBar: '메뉴 막대에 표시',
+    showOnMenuBarDesc: 'macOS 메뉴 막대에 이 제공자를 표시합니다.',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
     position: 'Position',

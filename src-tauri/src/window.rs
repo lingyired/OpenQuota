@@ -9,9 +9,11 @@ use std::{
 };
 
 use serde::Serialize;
+#[cfg(target_os = "macos")]
+use tauri::LogicalPosition;
 use tauri::{
-    webview::Color, AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, Theme,
-    WebviewWindow, Window, WindowEvent,
+    webview::Color, AppHandle, Emitter, LogicalSize, Manager, Theme, WebviewWindow, Window,
+    WindowEvent,
 };
 use tauri_plugin_positioner::{Position, WindowExt};
 
@@ -24,23 +26,33 @@ use crate::{
 };
 
 pub const MAIN_WINDOW: &str = "main";
+pub const SETTINGS_WINDOW: &str = "settings";
 pub const PANEL_WIDTH: f64 = 440.0;
+pub const SETTINGS_WIDTH: f64 = 1200.0;
 pub const PANEL_MIN_HEIGHT: u32 = 360;
 const PANEL_MAX_HEIGHT: u32 = 800;
+const SETTINGS_MAX_HEIGHT: u32 = 960;
 const PANEL_DEFAULT_HEIGHT: u32 = 800;
 const PANEL_SCREEN_FRACTION: f64 = 0.85;
 const PANEL_RESIZE_SAVE_DELAY: Duration = Duration::from_millis(120);
 const LIGHT_PANEL_SURFACE: Color = Color(0xff, 0xff, 0xff, 0xff);
 const DARK_PANEL_SURFACE: Color = Color(0x1d, 0x1d, 0x1f, 0xff);
+static POPUP_LAYOUT_POSITION: Mutex<Option<(i32, i32)>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum MainWindowDismissAction {
     Hide,
     Exit,
+    RequestLeaveSettings,
 }
 
-fn main_window_dismiss_action(exits_on_close: bool) -> MainWindowDismissAction {
-    if exits_on_close {
+fn main_window_dismiss_action(
+    exits_on_close: bool,
+    request_leave_settings: bool,
+) -> MainWindowDismissAction {
+    if request_leave_settings {
+        MainWindowDismissAction::RequestLeaveSettings
+    } else if exits_on_close {
         MainWindowDismissAction::Exit
     } else {
         MainWindowDismissAction::Hide
@@ -352,6 +364,12 @@ pub fn activate_existing_instance(app: &AppHandle) {
         return;
     };
     if app.try_state::<DesktopIntegration>().is_some() {
+        if cfg!(any(target_os = "macos", target_os = "windows"))
+            && app.state::<DesktopIntegration>().provider_instance_count() == 0
+        {
+            let _ = open_settings_window(app, "settings");
+            return;
+        }
         show_main_window(&window);
         return;
     }
@@ -451,6 +469,7 @@ fn position_popup_above(window: &WebviewWindow, anchor: &TaskbandAnchor) {
 /// instance instead of the tray icon. In floating mode the anchor is ignored.
 #[cfg(target_os = "windows")]
 pub fn show_main_window_anchored(window: &WebviewWindow, anchor: TaskbandAnchor) {
+    hide_settings_window(window.app_handle());
     finish_native_panel_resize(window);
     crate::webview_memory::set_inactive(window, false);
     if window
@@ -527,6 +546,7 @@ fn position_popup_below_menu_bar_item(
 /// ignored.
 #[cfg(target_os = "macos")]
 pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: MenuBarAnchor) {
+    hide_settings_window(window.app_handle());
     finish_native_panel_resize(window);
     crate::webview_memory::set_inactive(window, false);
     if window
@@ -550,18 +570,17 @@ pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: Menu
     let _ = window.set_focus();
 }
 
-#[cfg(target_os = "macos")]
-pub fn toggle_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: MenuBarAnchor) {
-    let visible = window.is_visible().unwrap_or(false);
-    let minimized = window.is_minimized().unwrap_or(false);
-    if visible && !minimized {
-        dismiss_or_hide_main_window(window.app_handle());
-    } else {
-        show_main_window_below_menu_bar_item(window, anchor);
-    }
-}
-
 pub fn show_main_window(window: &WebviewWindow) {
+    let app = window.app_handle();
+    if cfg!(any(target_os = "macos", target_os = "windows"))
+        && app
+            .try_state::<DesktopIntegration>()
+            .is_some_and(|integration| !integration.tray_available())
+    {
+        let _ = open_settings_window(app, "settings");
+        return;
+    }
+    hide_settings_window(window.app_handle());
     #[cfg(target_os = "macos")]
     clear_menu_bar_popup_position();
 
@@ -601,6 +620,7 @@ pub fn apply_window_mode(
     let integration = window.app_handle().state::<DesktopIntegration>();
     let previous_floating = integration.is_floating();
     let floating = !integration.tray_available() || mode == WindowMode::Floating;
+    let was_visible = window.is_visible().unwrap_or(false);
 
     window
         .app_handle()
@@ -618,8 +638,10 @@ pub fn apply_window_mode(
         .state::<PopupDismissGuard>()
         .cancel_pending();
     let result = {
-        crate::webview_memory::set_inactive(window, false);
-        let _ = window.unminimize();
+        if was_visible {
+            crate::webview_memory::set_inactive(window, false);
+            let _ = window.unminimize();
+        }
         if floating {
             if center_floating {
                 let _ = window.center();
@@ -628,10 +650,14 @@ pub fn apply_window_mode(
             position_popup(window);
         }
         let _ = restore_manual_panel_height(window);
-        window
-            .show()
-            .and_then(|_| window.set_focus())
-            .map_err(|_| "Quota01 window could not be shown.".to_owned())
+        if was_visible {
+            window
+                .show()
+                .and_then(|_| window.set_focus())
+                .map_err(|_| "Quota01 window could not be shown.".to_owned())
+        } else {
+            Ok(())
+        }
     };
     if result.is_err() {
         integration.set_floating(previous_floating);
@@ -664,17 +690,120 @@ pub fn dismiss_or_hide_main_window(app: &AppHandle) {
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
     };
-    match main_window_dismiss_action(app.state::<DesktopIntegration>().exits_on_close()) {
+    let integration = app.state::<DesktopIntegration>();
+    match main_window_dismiss_action(
+        integration.exits_on_close(),
+        cfg!(any(target_os = "macos", target_os = "windows")) && !integration.tray_available(),
+    ) {
         MainWindowDismissAction::Exit => {
             finish_native_panel_resize(&window);
             app.exit(0);
         }
         MainWindowDismissAction::Hide => hide_main_window(&window),
+        MainWindowDismissAction::RequestLeaveSettings => {
+            let _ = app.emit("request-leave-settings", ());
+        }
     }
+}
+
+fn hide_settings_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
+        if window.hide().is_ok() {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+                crate::app_warn!("window", "could not hide Settings from the Dock: {error}");
+            }
+        }
+    }
+}
+
+pub fn open_settings_window(app: &AppHandle, target: &str) -> Result<(), String> {
+    app.state::<PopupDismissGuard>().cancel_pending();
+    let settings_window = app
+        .get_webview_window(SETTINGS_WINDOW)
+        .ok_or("Quota01 Settings window is unavailable.")?;
+
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        if window.is_visible().unwrap_or(false) {
+            hide_main_window(&window);
+        }
+    }
+
+    fit_settings_window_to_work_area(&settings_window)?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+        crate::app_warn!("window", "could not show Settings in the Dock: {error}");
+    }
+    let show_result = settings_window
+        .unminimize()
+        .and_then(|_| settings_window.show())
+        .and_then(|_| settings_window.set_focus())
+        .map_err(|_| "Quota01 Settings window could not be shown.");
+    if show_result.is_err() {
+        hide_settings_window(app);
+    }
+    show_result?;
+    app.emit_to(SETTINGS_WINDOW, "settings-workspace-selection", target)
+        .map_err(|_| "Quota01 Settings window could not receive its selection request.".to_owned())
+}
+
+fn fit_settings_window_to_work_area(window: &WebviewWindow) -> Result<(), String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|_| "Quota01 display is unavailable.")?
+        .ok_or("Quota01 display is unavailable.")?;
+    let scale = window
+        .scale_factor()
+        .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let work_area = monitor.work_area();
+    let work_width = logical_work_area_width(work_area.size.width, scale);
+    let width = panel_width_for_screen("settings", work_width);
+    let max_width = if work_width > PANEL_WIDTH {
+        (work_width - 32.0).min(1400.0)
+    } else {
+        work_width
+    };
+    let min_width = 560.0_f64.min(max_width);
+    let max_height = settings_maximum_height(window)?;
+    let min_height = PANEL_MIN_HEIGHT.min(max_height);
+    let height = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?
+        .height;
+    let height = (f64::from(height) / scale)
+        .round()
+        .clamp(f64::from(min_height), f64::from(max_height));
+    window
+        .set_max_size(Some(LogicalSize::new(max_width, f64::from(max_height))))
+        .and_then(|_| window.set_min_size(Some(LogicalSize::new(min_width, f64::from(min_height)))))
+        .and_then(|_| window.set_size(LogicalSize::new(width, height)))
+        .and_then(|_| window.center())
+        .map_err(|_| "Quota01 Settings window could not fit the display.".to_owned())
+}
+
+pub fn dismiss_settings_window(app: &AppHandle) -> Result<(), String> {
+    let settings_window = app
+        .get_webview_window(SETTINGS_WINDOW)
+        .ok_or("Quota01 Settings window is unavailable.")?;
+    settings_window
+        .hide()
+        .map_err(|_| "Quota01 Settings window could not be hidden.")?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+        crate::app_warn!("window", "could not hide Settings from the Dock: {error}");
+    }
+    Ok(())
 }
 
 pub fn toggle_main_window(app: &AppHandle) {
     app.state::<PopupDismissGuard>().cancel_pending();
+
+    if cfg!(any(target_os = "macos", target_os = "windows"))
+        && !app.state::<DesktopIntegration>().tray_available()
+    {
+        let _ = open_settings_window(app, "settings");
+        return;
+    }
 
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
@@ -691,16 +820,151 @@ pub fn toggle_main_window(app: &AppHandle) {
 
 pub fn open_screen(app: &AppHandle, screen: &str) {
     app.state::<PopupDismissGuard>().cancel_pending();
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        show_main_window(&window);
-        let _ = app.emit("open-screen", screen);
+    if screen == "dashboard" {
+        if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+            show_main_window(&window);
+            let _ = app.emit_to(MAIN_WINDOW, "open-screen", screen);
+        }
+    } else if let Err(error) = open_settings_window(app, screen) {
+        crate::app_warn!("window", "Settings window request failed: {error}");
     }
+}
+
+pub fn set_panel_layout(window: &WebviewWindow, screen: &str) -> Result<PanelLayout, String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|_| "Quota01 display is unavailable.")?
+        .ok_or("Quota01 display is unavailable.")?;
+    let scale = window
+        .scale_factor()
+        .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let work_area = monitor.work_area();
+    let work_width = logical_work_area_width(work_area.size.width, scale);
+    let target_width = panel_width_for_screen(screen, work_width);
+    let inner = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?;
+    let outer = window
+        .outer_size()
+        .map_err(|_| "Quota01 window size is unavailable.")?;
+    let position = window
+        .outer_position()
+        .map_err(|_| "Quota01 window position is unavailable.")?;
+    let frame_width = outer.width.saturating_sub(inner.width);
+    let target_outer_width = ((target_width * scale)
+        .round()
+        .clamp(1.0, f64::from(u32::MAX)) as u32)
+        .saturating_add(frame_width);
+    let saved_popup_position = if screen == "dashboard" {
+        POPUP_LAYOUT_POSITION
+            .lock()
+            .ok()
+            .and_then(|mut value| value.take())
+    } else {
+        if let Ok(mut value) = POPUP_LAYOUT_POSITION.lock() {
+            value.get_or_insert((position.x, position.y));
+        }
+        None
+    };
+    let horizontal_origin = saved_popup_position.map_or(
+        HorizontalFrame {
+            left: position.x,
+            width: outer.width,
+        },
+        |(left, _)| HorizontalFrame {
+            left,
+            width: target_outer_width,
+        },
+    );
+    let horizontal = centered_horizontal_frame(
+        horizontal_origin,
+        work_area.position.x,
+        work_area.size.width,
+        target_outer_width,
+    );
+    let height = f64::from(inner.height) / scale;
+    let maximum = panel_maximum_height(window)?;
+    let minimum = PANEL_MIN_HEIGHT.min(maximum);
+    window
+        .set_min_size::<LogicalSize<f64>>(None)
+        .and_then(|_| window.set_max_size(Some(LogicalSize::new(target_width, f64::from(maximum)))))
+        .and_then(|_| window.set_size(LogicalSize::new(target_width, height)))
+        .and_then(|_| {
+            window.set_position(tauri::PhysicalPosition::new(
+                horizontal.left,
+                saved_popup_position.map_or(position.y, |(_, top)| top),
+            ))
+        })
+        .and_then(|_| window.set_min_size(Some(LogicalSize::new(target_width, f64::from(minimum)))))
+        .map_err(|_| "Quota01 panel size limits could not be applied.".to_owned())?;
+    let inner = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?;
+    Ok(PanelLayout {
+        width: f64::from(inner.width) / scale,
+        height: f64::from(inner.height) / scale,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct VerticalFrame {
     top: i32,
     height: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct HorizontalFrame {
+    left: i32,
+    width: u32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct PanelLayout {
+    pub width: f64,
+    pub height: f64,
+}
+
+fn panel_width_for_screen(screen: &str, work_area_width: f64) -> f64 {
+    let available = if work_area_width.is_finite() && work_area_width > 0.0 {
+        work_area_width
+    } else {
+        SETTINGS_WIDTH
+    };
+    let inset = if available > PANEL_WIDTH {
+        available - 32.0
+    } else {
+        available
+    };
+    if screen == "dashboard" {
+        PANEL_WIDTH
+    } else {
+        SETTINGS_WIDTH.min(inset)
+    }
+}
+
+fn logical_work_area_width(physical_width: u32, scale: f64) -> f64 {
+    if scale.is_finite() && scale > 0.0 {
+        f64::from(physical_width) / scale
+    } else {
+        f64::from(physical_width)
+    }
+}
+
+fn centered_horizontal_frame(
+    current: HorizontalFrame,
+    work_left: i32,
+    work_width: u32,
+    target_width: u32,
+) -> HorizontalFrame {
+    let center = i64::from(current.left) + i64::from(current.width) / 2;
+    let max_left =
+        i64::from(work_left) + i64::from(work_width).saturating_sub(i64::from(target_width));
+    let left = (center - i64::from(target_width) / 2)
+        .clamp(i64::from(work_left), max_left.max(i64::from(work_left)));
+    HorizontalFrame {
+        left: left.clamp(i64::from(i32::MIN), i64::from(i32::MAX)) as i32,
+        width: target_width,
+    }
 }
 
 fn panel_resize_edge_for_frames(
@@ -774,6 +1038,33 @@ pub fn panel_resize_edge(window: &WebviewWindow) -> Result<PanelResizeEdge, Stri
     ))
 }
 
+fn settings_maximum_height(window: &WebviewWindow) -> Result<u32, String> {
+    let outer_size = window
+        .outer_size()
+        .map_err(|_| "Quota01 window size is unavailable.")?;
+    let inner_size = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?;
+    let scale = window
+        .scale_factor()
+        .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let monitor = window
+        .current_monitor()
+        .map_err(|_| "Quota01 display is unavailable.")?
+        .ok_or("Quota01 display is unavailable.")?;
+    let frame_overhead = outer_size.height.saturating_sub(inner_size.height);
+    let vertical_inset = (32.0 * scale).round().max(0.0) as u32;
+    let available_height = monitor
+        .work_area()
+        .size
+        .height
+        .saturating_sub(frame_overhead)
+        .saturating_sub(vertical_inset);
+    Ok(((f64::from(available_height) / scale).floor())
+        .min(f64::from(SETTINGS_MAX_HEIGHT))
+        .clamp(1.0, f64::from(u32::MAX)) as u32)
+}
+
 fn panel_maximum_height(window: &WebviewWindow) -> Result<u32, String> {
     let position = window
         .outer_position()
@@ -831,9 +1122,10 @@ fn logical_panel_height(inner_cap: f64, scale: f64) -> u32 {
 fn configure_panel_size_constraints(window: &WebviewWindow) -> Result<u32, String> {
     let maximum = panel_maximum_height(window)?;
     let minimum = PANEL_MIN_HEIGHT.min(maximum);
+    let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
     window
-        .set_max_size(Some(LogicalSize::new(PANEL_WIDTH, f64::from(maximum))))
-        .and_then(|_| window.set_min_size(Some(LogicalSize::new(PANEL_WIDTH, f64::from(minimum)))))
+        .set_max_size(Some(LogicalSize::new(width, f64::from(maximum))))
+        .and_then(|_| window.set_min_size(Some(LogicalSize::new(width, f64::from(minimum)))))
         .map_err(|_| "Quota01 panel size limits could not be applied.".to_owned())?;
     Ok(maximum)
 }
@@ -867,8 +1159,9 @@ fn restore_fixed_panel_height(window: &WebviewWindow) -> Result<u32, String> {
         .and_then(|session| session.saved_height());
     let height = resolved_fixed_panel_height(saved, minimum, maximum);
     configure_panel_size_constraints(window)?;
+    let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
     window
-        .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+        .set_size(LogicalSize::new(width, f64::from(height)))
         .map_err(|_| "Quota01 window could not be resized.".to_owned())?;
     Ok(height)
 }
@@ -879,8 +1172,9 @@ fn resize_panel_for_context(window: &WebviewWindow, height: u32) -> Result<(), S
         .state::<DesktopIntegration>()
         .is_floating()
     {
+        let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
         return window
-            .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+            .set_size(LogicalSize::new(width, f64::from(height)))
             .map_err(|_| "Quota01 window could not be resized.".to_owned());
     }
     resize_popup_anchored(window, height)
@@ -945,9 +1239,10 @@ pub fn lock_native_panel_resize_axis(window: &WebviewWindow) -> Result<(), Strin
     let scale = window
         .scale_factor()
         .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let width = f64::from(size.width) / scale;
     let height = f64::from(size.height) / scale;
     window
-        .set_size(LogicalSize::new(PANEL_WIDTH, height))
+        .set_size(LogicalSize::new(width, height))
         .map_err(|_| "Quota01 panel resize could not be settled.".to_owned())
 }
 
@@ -959,6 +1254,12 @@ fn current_logical_height(window: &Window) -> Option<u32> {
             .round()
             .clamp(1.0, f64::from(u32::MAX)) as u32,
     )
+}
+
+fn current_logical_width(window: &WebviewWindow) -> Option<f64> {
+    let size = window.inner_size().ok()?;
+    let scale = window.scale_factor().ok()?;
+    Some(f64::from(size.width) / scale)
 }
 
 #[cfg(target_os = "windows")]
@@ -985,10 +1286,12 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         .ok_or("Quota01 display is unavailable.")?;
     let work_area = monitor.work_area();
     let frame_overhead = outer_size.height.saturating_sub(inner_size.height);
+    let frame_width = outer_size.width.saturating_sub(inner_size.width);
     let target_inner_height = (f64::from(height) * scale)
         .round()
         .clamp(1.0, f64::from(u32::MAX));
     let target_outer_height = (target_inner_height as u32).saturating_add(frame_overhead);
+    let target_outer_width = inner_size.width.saturating_add(frame_width);
     let anchored = anchored_vertical_frame(
         VerticalFrame {
             top: outer_position.y,
@@ -1009,7 +1312,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
             std::ptr::null_mut(),
             outer_position.x,
             anchored.top,
-            i32::try_from(outer_size.width).unwrap_or(i32::MAX),
+            i32::try_from(target_outer_width).unwrap_or(i32::MAX),
             i32::try_from(anchored.height).unwrap_or(i32::MAX),
             SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
         )
@@ -1024,8 +1327,9 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
 pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     if let Some((x, y)) = menu_bar_popup_position() {
+        let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
         return window
-            .set_size(LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+            .set_size(LogicalSize::new(width, f64::from(height)))
             .and_then(|_| window.set_position(LogicalPosition::new(f64::from(x), f64::from(y))))
             .map_err(|_| "Quota01 window could not be resized.".into());
     }
@@ -1047,6 +1351,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
     let target_outer_height = (f64::from(height) * scale)
         .round()
         .clamp(1.0, f64::from(u32::MAX)) as u32;
+    let width = current_logical_width(window).ok_or("Quota01 content size is unavailable.")?;
     let anchored = anchored_vertical_frame(
         VerticalFrame {
             top: outer_position.y,
@@ -1059,7 +1364,7 @@ pub fn resize_popup_anchored(window: &WebviewWindow, height: u32) -> Result<(), 
         target_outer_height,
     );
     window
-        .set_size(tauri::LogicalSize::new(PANEL_WIDTH, f64::from(height)))
+        .set_size(tauri::LogicalSize::new(width, f64::from(height)))
         .and_then(|_| {
             window.set_position(tauri::PhysicalPosition::new(outer_position.x, anchored.top))
         })
@@ -1089,6 +1394,48 @@ fn schedule_outside_click_dismiss(window: Window) {
 }
 
 pub fn handle_window_event(window: &Window, event: &WindowEvent) {
+    if window.label() == SETTINGS_WINDOW {
+        let app = window.app_handle();
+        match event {
+            WindowEvent::ThemeChanged(theme) => {
+                let preference = app
+                    .try_state::<Arc<SettingsService>>()
+                    .map(|settings| settings.get().theme);
+                if preference == Some(ThemePreference::System) {
+                    if let Some(webview) = app.get_webview_window(SETTINGS_WINDOW) {
+                        let _ = apply_panel_surface_for_theme(
+                            &webview,
+                            ThemePreference::System,
+                            *theme,
+                        );
+                    }
+                }
+            }
+            WindowEvent::Focused(false)
+                if cfg!(any(target_os = "macos", target_os = "windows"))
+                    && app
+                        .try_state::<DesktopIntegration>()
+                        .is_some_and(|integration| !integration.tray_available()) =>
+            {
+                let _ = app.emit_to(SETTINGS_WINDOW, "request-leave-settings", ());
+            }
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let requires_confirmation = cfg!(any(target_os = "macos", target_os = "windows"))
+                    && app
+                        .try_state::<DesktopIntegration>()
+                        .is_some_and(|integration| !integration.tray_available());
+                if requires_confirmation {
+                    let _ = app.emit_to(SETTINGS_WINDOW, "request-leave-settings", ());
+                } else if let Err(error) = dismiss_settings_window(app) {
+                    crate::app_warn!("window", "Settings window could not close: {error}");
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
     if window.label() != MAIN_WINDOW {
         return;
     }
@@ -1130,12 +1477,19 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             let _ = window.set_resizable(false);
             api.prevent_close();
             let integration = window.app_handle().state::<DesktopIntegration>();
-            match main_window_dismiss_action(integration.exits_on_close()) {
+            #[cfg(any(target_os = "macos", target_os = "windows"))]
+            if !integration.tray_available() {
+                let _ = window
+                    .app_handle()
+                    .emit_to(SETTINGS_WINDOW, "request-leave-settings", ());
+                return;
+            }
+            match main_window_dismiss_action(integration.exits_on_close(), false) {
                 MainWindowDismissAction::Exit => {
                     window.app_handle().exit(0);
                     return;
                 }
-                MainWindowDismissAction::Hide => {}
+                MainWindowDismissAction::Hide | MainWindowDismissAction::RequestLeaveSettings => {}
             }
             window
                 .app_handle()
@@ -1155,25 +1509,95 @@ mod tests {
 
     use super::{
         anchored_menu_bar_position, anchored_taskband_position, anchored_vertical_frame,
-        logical_panel_height, main_window_dismiss_action, panel_resize_edge_for_context,
-        panel_resize_edge_for_frames, panel_surface_color, resolved_fixed_panel_height,
+        centered_horizontal_frame, logical_panel_height, logical_work_area_width,
+        main_window_dismiss_action, panel_resize_edge_for_context, panel_resize_edge_for_frames,
+        panel_surface_color, panel_width_for_screen, resolved_fixed_panel_height, HorizontalFrame,
         MainWindowDismissAction, MenuBarAnchor, PanelHeightMode, PanelResizeEdge,
         PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
-        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
+        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT, PANEL_WIDTH, SETTINGS_WIDTH,
     };
     use crate::models::ThemePreference;
     use crate::storage::Storage;
     use tauri::Theme;
 
     #[test]
+    fn settings_layout_clamps_to_available_work_area_and_popup_restores_fixed_width() {
+        assert_eq!(panel_width_for_screen("dashboard", 1920.0), PANEL_WIDTH);
+        assert_eq!(panel_width_for_screen("settings", 1920.0), SETTINGS_WIDTH);
+        assert_eq!(panel_width_for_screen("settings", 760.0), 728.0);
+        assert_eq!(panel_width_for_screen("settings", 400.0), 400.0);
+        assert_eq!(
+            panel_width_for_screen("settings", logical_work_area_width(1520, 2.0)),
+            728.0
+        );
+    }
+
+    #[test]
+    fn settings_layout_centers_and_clamps_on_the_active_monitor() {
+        assert_eq!(
+            centered_horizontal_frame(
+                HorizontalFrame {
+                    left: 200,
+                    width: 440
+                },
+                0,
+                1920,
+                1000,
+            ),
+            HorizontalFrame {
+                left: 0,
+                width: 1000
+            }
+        );
+        assert_eq!(
+            centered_horizontal_frame(
+                HorizontalFrame {
+                    left: 1920,
+                    width: 440
+                },
+                1920,
+                1280,
+                1000,
+            ),
+            HorizontalFrame {
+                left: 1920,
+                width: 1000
+            }
+        );
+        assert_eq!(
+            centered_horizontal_frame(
+                HorizontalFrame {
+                    left: -800,
+                    width: 440
+                },
+                -1280,
+                1280,
+                1000,
+            ),
+            HorizontalFrame {
+                left: -1080,
+                width: 1000
+            }
+        );
+    }
+
+    #[test]
     fn dismissing_a_no_menu_floating_window_exits_instead_of_hiding() {
         assert_eq!(
-            main_window_dismiss_action(true),
+            main_window_dismiss_action(true, false),
             MainWindowDismissAction::Exit
         );
         assert_eq!(
-            main_window_dismiss_action(false),
+            main_window_dismiss_action(false, false),
             MainWindowDismissAction::Hide
+        );
+    }
+
+    #[test]
+    fn dismissing_settings_without_a_provider_entry_requests_confirmed_exit() {
+        assert_eq!(
+            main_window_dismiss_action(false, true),
+            MainWindowDismissAction::RequestLeaveSettings
         );
     }
 
