@@ -1,6 +1,10 @@
+use std::sync::Arc;
+
 use reqwest::{blocking::Client, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+use crate::providers::ProviderRequestContext;
 
 use super::{discovery::LanguageServer, AntigravityError};
 
@@ -19,7 +23,9 @@ const DEFAULT_TOKEN_LIFETIME_SECONDS: f64 = 3_600.0;
 
 pub struct AntigravityClient {
     local: Client,
+    #[allow(dead_code)]
     remote: Client,
+    remote_timeout: std::time::Duration,
     cloud_bases: Vec<String>,
     google_token_url: String,
 }
@@ -79,6 +85,7 @@ impl AntigravityClient {
     ) -> Result<Self, AntigravityError> {
         Ok(Self {
             local: Client::builder()
+                .no_proxy()
                 .danger_accept_invalid_certs(true)
                 .timeout(std::time::Duration::from_secs(5))
                 .build()
@@ -87,9 +94,26 @@ impl AntigravityClient {
                 .timeout(remote_timeout)
                 .build()
                 .map_err(|_| AntigravityError::Unavailable)?,
+            remote_timeout,
             cloud_bases,
             google_token_url,
         })
+    }
+
+    fn client_for_context(
+        &self,
+        context: &ProviderRequestContext,
+        profile: &str,
+    ) -> Result<Arc<Client>, AntigravityError> {
+        context
+            .http_clients
+            .client(
+                "antigravity",
+                profile,
+                context.proxy_url.as_ref(),
+                |builder| builder.timeout(self.remote_timeout),
+            )
+            .map_err(|_| AntigravityError::Unavailable)
     }
 
     pub fn call_language_server(&self, server: &LanguageServer, method: &str) -> Option<Value> {
@@ -137,6 +161,7 @@ impl AntigravityClient {
         None
     }
 
+    #[allow(dead_code)]
     pub fn cloud_code(
         &self,
         path: &str,
@@ -144,9 +169,33 @@ impl AntigravityClient {
         body: Value,
         user_agent: CloudUserAgent,
     ) -> CloudOutcome {
+        self.cloud_code_using(&self.remote, path, token, body, user_agent)
+    }
+
+    pub fn cloud_code_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        path: &str,
+        token: &str,
+        body: Value,
+        user_agent: CloudUserAgent,
+    ) -> CloudOutcome {
+        let Ok(client) = self.client_for_context(context, "cloud") else {
+            return CloudOutcome::Unavailable;
+        };
+        self.cloud_code_using(client.as_ref(), path, token, body, user_agent)
+    }
+
+    fn cloud_code_using(
+        &self,
+        remote: &Client,
+        path: &str,
+        token: &str,
+        body: Value,
+        user_agent: CloudUserAgent,
+    ) -> CloudOutcome {
         for base in &self.cloud_bases {
-            let response = self
-                .remote
+            let response = remote
                 .post(format!("{base}{path}"))
                 .bearer_auth(token)
                 .header("Accept", "application/json")
@@ -177,11 +226,26 @@ impl AntigravityClient {
         CloudOutcome::Unavailable
     }
 
+    #[allow(dead_code)]
     pub fn refresh_google_token(&self, refresh_token: &str) -> RefreshOutcome {
+        self.refresh_google_token_using(&self.remote, refresh_token)
+    }
+
+    pub fn refresh_google_token_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        refresh_token: &str,
+    ) -> RefreshOutcome {
+        let Ok(client) = self.client_for_context(context, "oauth") else {
+            return RefreshOutcome::Unavailable;
+        };
+        self.refresh_google_token_using(client.as_ref(), refresh_token)
+    }
+
+    fn refresh_google_token_using(&self, remote: &Client, refresh_token: &str) -> RefreshOutcome {
         crate::app_info!("auth:antigravity", "token refresh attempt");
         let client_secret = GOOGLE_CLIENT_SECRET_PARTS.concat();
-        let response = self
-            .remote
+        let response = remote
             .post(&self.google_token_url)
             .form(&[
                 ("client_id", GOOGLE_CLIENT_ID),
@@ -234,12 +298,23 @@ impl AntigravityClient {
 
 #[cfg(test)]
 mod tests {
-    use std::time::Duration;
+    use std::{sync::Arc, time::Duration};
 
+    use reqwest::Url;
     use serde_json::json;
 
     use super::{AntigravityClient, CloudOutcome, CloudUserAgent, RefreshOutcome};
-    use crate::providers::test_http;
+    use crate::providers::{
+        antigravity::discovery::LanguageServer, http::ProviderHttpClientFactory, test_http,
+        ProviderRequestContext,
+    };
+
+    fn context(proxy_url: Option<&str>) -> ProviderRequestContext {
+        ProviderRequestContext {
+            proxy_url: proxy_url.map(|url| Url::parse(url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        }
+    }
 
     fn client(base: &str) -> AntigravityClient {
         AntigravityClient::with_endpoints(
@@ -248,6 +323,61 @@ mod tests {
             Duration::from_secs(1),
         )
         .unwrap()
+    }
+
+    #[test]
+    fn provider_proxy_identity_route_antigravity() {
+        let (proxy_base, proxy_server) =
+            test_http::serve_once_capturing_request(200, r#"{"quota":"available"}"#);
+        let proxy = client(&proxy_base);
+        assert!(matches!(
+            proxy.cloud_code_with_context(
+                &context(Some(&proxy_base)),
+                "/quota",
+                "secret-token",
+                json!({}),
+                CloudUserAgent::Antigravity,
+            ),
+            CloudOutcome::Ok(_)
+        ));
+        let request = proxy_server.join().unwrap();
+        assert!(
+            request.starts_with(&format!("POST {proxy_base}/quota HTTP/1.1")),
+            "{request}"
+        );
+
+        let (direct_base, direct_server) =
+            test_http::serve_once_capturing_request(200, r#"{"quota":"available"}"#);
+        assert!(matches!(
+            client(&direct_base).cloud_code_with_context(
+                &context(None),
+                "/quota",
+                "secret-token",
+                json!({}),
+                CloudUserAgent::Antigravity,
+            ),
+            CloudOutcome::Ok(_)
+        ));
+        let request = direct_server.join().unwrap();
+        assert!(request.starts_with("POST /quota HTTP/1.1"), "{request}");
+
+        let (local_base, local_server) = test_http::serve_once_capturing_request(200, "{}");
+        let local_port = Url::parse(&local_base).unwrap().port().unwrap();
+        let language_server = LanguageServer {
+            csrf: "test-csrf".into(),
+            ports: Vec::new(),
+            extension_port: Some(local_port),
+        };
+        assert!(client(&proxy_base)
+            .call_language_server(&language_server, "GetUserStatus")
+            .is_some());
+        let request = local_server.join().unwrap();
+        assert!(
+            request.starts_with(
+                "POST /exa.language_server_pb.LanguageServerService/GetUserStatus HTTP/1.1"
+            ),
+            "{request}"
+        );
     }
 
     #[test]

@@ -1,7 +1,11 @@
+use std::sync::Arc;
+
 use chrono::{DateTime, Utc};
 use reqwest::{blocking::Client, StatusCode};
 use serde::Deserialize;
 use serde_json::{json, Value};
+
+use crate::providers::ProviderRequestContext;
 
 use super::{auth::ClaudeOAuthConfig, ClaudeError};
 
@@ -17,7 +21,9 @@ pub struct ClaudeRefreshResponse {
 
 #[derive(Clone)]
 pub struct ClaudeClient {
+    #[allow(dead_code)]
     client: Client,
+    timeout: std::time::Duration,
 }
 
 impl ClaudeClient {
@@ -26,22 +32,53 @@ impl ClaudeClient {
     }
 
     fn with_timeout(timeout: std::time::Duration) -> Result<Self, ClaudeError> {
-        Ok(Self {
-            client: Client::builder()
-                .timeout(timeout)
-                .build()
-                .map_err(|_| ClaudeError::ConnectionFailed)?,
-        })
+        let client = Client::builder()
+            .timeout(timeout)
+            .build()
+            .map_err(|_| ClaudeError::ConnectionFailed)?;
+        Ok(Self { client, timeout })
     }
 
+    fn client_for_context(
+        &self,
+        context: &ProviderRequestContext,
+        profile: &str,
+    ) -> Result<Arc<Client>, ClaudeError> {
+        context
+            .http_clients
+            .client("claude", profile, context.proxy_url.as_ref(), |builder| {
+                builder.timeout(self.timeout)
+            })
+            .map_err(|_| ClaudeError::ConnectionFailed)
+    }
+
+    #[allow(dead_code)]
     pub fn fetch_usage(
         &self,
         token: &str,
         config: &ClaudeOAuthConfig,
     ) -> Result<(StatusCode, Value, Option<u64>), ClaudeError> {
+        self.fetch_usage_using(&self.client, token, config)
+    }
+
+    pub fn fetch_usage_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        token: &str,
+        config: &ClaudeOAuthConfig,
+    ) -> Result<(StatusCode, Value, Option<u64>), ClaudeError> {
+        let client = self.client_for_context(context, "usage")?;
+        self.fetch_usage_using(client.as_ref(), token, config)
+    }
+
+    fn fetch_usage_using(
+        &self,
+        client: &Client,
+        token: &str,
+        config: &ClaudeOAuthConfig,
+    ) -> Result<(StatusCode, Value, Option<u64>), ClaudeError> {
         let started = std::time::Instant::now();
-        let response = self
-            .client
+        let response = client
             .get(&config.usage_url)
             .bearer_auth(token.trim())
             .header("Accept", "application/json")
@@ -68,15 +105,34 @@ impl ClaudeClient {
         Ok((status, body, retry_after))
     }
 
+    #[allow(dead_code)]
     pub fn refresh_token(
         &self,
         token: &str,
         config: &ClaudeOAuthConfig,
     ) -> Result<ClaudeRefreshResponse, ClaudeError> {
+        self.refresh_token_using(&self.client, token, config)
+    }
+
+    pub fn refresh_token_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        token: &str,
+        config: &ClaudeOAuthConfig,
+    ) -> Result<ClaudeRefreshResponse, ClaudeError> {
+        let client = self.client_for_context(context, "oauth")?;
+        self.refresh_token_using(client.as_ref(), token, config)
+    }
+
+    fn refresh_token_using(
+        &self,
+        client: &Client,
+        token: &str,
+        config: &ClaudeOAuthConfig,
+    ) -> Result<ClaudeRefreshResponse, ClaudeError> {
         let started = std::time::Instant::now();
         crate::app_info!("auth:claude", "token refresh attempt");
-        let response = self
-            .client
+        let response = client
             .post(&config.refresh_url)
             .json(&json!({
                 "grant_type": "refresh_token",
@@ -132,15 +188,26 @@ fn parse_retry_after(value: &str, now: DateTime<Utc>) -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use reqwest::StatusCode;
+    use reqwest::Url;
 
     use chrono::{TimeZone, Utc};
 
     use super::{parse_retry_after, ClaudeClient};
     use crate::providers::{
         claude::{auth::ClaudeOAuthConfig, ClaudeError},
-        test_http,
+        http::ProviderHttpClientFactory,
+        test_http, ProviderRequestContext,
     };
+
+    fn context(proxy_url: Option<&str>) -> ProviderRequestContext {
+        ProviderRequestContext {
+            proxy_url: proxy_url.map(|url| Url::parse(url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        }
+    }
 
     fn config(base: &str) -> ClaudeOAuthConfig {
         ClaudeOAuthConfig {
@@ -148,6 +215,32 @@ mod tests {
             refresh_url: format!("{base}/token"),
             client_id: "test-client".into(),
         }
+    }
+
+    #[test]
+    fn provider_proxy_identity_route_claude() {
+        let (proxy_base, proxy_server) = test_http::serve_once_capturing_request(200, "{}");
+        ClaudeClient::new()
+            .unwrap()
+            .fetch_usage_with_context(
+                &context(Some(&proxy_base)),
+                "secret-token",
+                &config(&proxy_base),
+            )
+            .unwrap();
+        let request = proxy_server.join().unwrap();
+        assert!(
+            request.starts_with(&format!("GET {proxy_base}/usage HTTP/1.1")),
+            "{request}"
+        );
+
+        let (direct_base, direct_server) = test_http::serve_once_capturing_request(200, "{}");
+        ClaudeClient::new()
+            .unwrap()
+            .fetch_usage_with_context(&context(None), "secret-token", &config(&direct_base))
+            .unwrap();
+        let request = direct_server.join().unwrap();
+        assert!(request.starts_with("GET /usage HTTP/1.1"), "{request}");
     }
 
     #[test]

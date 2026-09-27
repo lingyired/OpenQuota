@@ -1,7 +1,9 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use reqwest::{blocking::Client, StatusCode, Url};
 use serde_json::Value;
+
+use crate::providers::ProviderRequestContext;
 
 use super::CopilotError;
 
@@ -17,6 +19,7 @@ pub(super) struct CopilotResponse {
 
 pub(super) struct CopilotClient {
     client: Client,
+    timeout: Duration,
     usage_url: String,
     orgs_url: String,
     api_base_url: String,
@@ -43,16 +46,47 @@ impl CopilotClient {
         Url::parse(api_base_url).map_err(|_| CopilotError::InvalidResponse)?;
         Ok(Self {
             client,
+            timeout,
             usage_url: usage_url.to_owned(),
             orgs_url: orgs_url.to_owned(),
             api_base_url: api_base_url.to_owned(),
         })
     }
 
+    fn client_for_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<Arc<Client>, CopilotError> {
+        context
+            .http_clients
+            .client("copilot", "api", context.proxy_url.as_ref(), |builder| {
+                builder
+                    .connect_timeout(Duration::from_secs(8))
+                    .timeout(self.timeout)
+            })
+            .map_err(|_| CopilotError::ConnectionFailed)
+    }
+
     pub(super) fn fetch_usage(&self, token: &str) -> Result<CopilotResponse, CopilotError> {
+        self.fetch_usage_using(&self.client, token)
+    }
+
+    pub(super) fn fetch_usage_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        token: &str,
+    ) -> Result<CopilotResponse, CopilotError> {
+        let client = self.client_for_context(context)?;
+        self.fetch_usage_using(client.as_ref(), token)
+    }
+
+    fn fetch_usage_using(
+        &self,
+        client: &Client,
+        token: &str,
+    ) -> Result<CopilotResponse, CopilotError> {
         let started = std::time::Instant::now();
-        let response = self
-            .client
+        let response = client
             .get(&self.usage_url)
             .header("Authorization", format!("token {token}"))
             .header("Accept", "application/json")
@@ -74,14 +108,38 @@ impl CopilotClient {
         response_body(response)
     }
 
+    #[allow(dead_code)]
     pub(super) fn fetch_orgs(
         &self,
         token: &str,
         timeout: Duration,
     ) -> Result<CopilotResponse, CopilotError> {
-        self.fetch_org_endpoint(&self.orgs_url, token, "organization list", timeout)
+        self.fetch_org_endpoint(
+            &self.client,
+            &self.orgs_url,
+            token,
+            "organization list",
+            timeout,
+        )
     }
 
+    pub(super) fn fetch_orgs_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        token: &str,
+        timeout: Duration,
+    ) -> Result<CopilotResponse, CopilotError> {
+        let client = self.client_for_context(context)?;
+        self.fetch_org_endpoint(
+            client.as_ref(),
+            &self.orgs_url,
+            token,
+            "organization list",
+            timeout,
+        )
+    }
+
+    #[allow(dead_code)]
     pub(super) fn fetch_org_usage(
         &self,
         org: &str,
@@ -102,19 +160,56 @@ impl CopilotClient {
                 .push("usage")
                 .push("summary");
         }
-        self.fetch_org_endpoint(url.as_str(), token, "organization billing", timeout)
+        self.fetch_org_endpoint(
+            &self.client,
+            url.as_str(),
+            token,
+            "organization billing",
+            timeout,
+        )
+    }
+
+    pub(super) fn fetch_org_usage_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        org: &str,
+        token: &str,
+        timeout: Duration,
+    ) -> Result<CopilotResponse, CopilotError> {
+        let mut url = Url::parse(&self.api_base_url).map_err(|_| CopilotError::InvalidResponse)?;
+        {
+            let mut segments = url
+                .path_segments_mut()
+                .map_err(|_| CopilotError::InvalidResponse)?;
+            segments
+                .pop_if_empty()
+                .push("orgs")
+                .push(org)
+                .push("settings")
+                .push("billing")
+                .push("usage")
+                .push("summary");
+        }
+        let client = self.client_for_context(context)?;
+        self.fetch_org_endpoint(
+            client.as_ref(),
+            url.as_str(),
+            token,
+            "organization billing",
+            timeout,
+        )
     }
 
     fn fetch_org_endpoint(
         &self,
+        client: &Client,
         url: &str,
         token: &str,
         endpoint: &str,
         timeout: Duration,
     ) -> Result<CopilotResponse, CopilotError> {
         let started = std::time::Instant::now();
-        let response = self
-            .client
+        let response = client
             .get(url)
             .header("Authorization", format!("token {token}"))
             .header("Accept", "application/vnd.github+json")
@@ -158,13 +253,24 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
-        sync::mpsc,
+        sync::{mpsc, Arc},
         thread,
         time::Duration,
     };
 
+    use reqwest::Url;
+
     use super::CopilotClient;
-    use crate::providers::{copilot::CopilotError, test_http};
+    use crate::providers::{
+        copilot::CopilotError, http::ProviderHttpClientFactory, test_http, ProviderRequestContext,
+    };
+
+    fn context(proxy_url: Option<&str>) -> ProviderRequestContext {
+        ProviderRequestContext {
+            proxy_url: proxy_url.map(|url| Url::parse(url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        }
+    }
 
     fn capture_once(body: &str) -> (String, mpsc::Receiver<String>, thread::JoinHandle<()>) {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -196,6 +302,38 @@ mod tests {
             let _ = stream.write_all(response.as_bytes());
         });
         (format!("http://{address}"), receiver, handle)
+    }
+
+    #[test]
+    fn provider_proxy_identity_route_copilot() {
+        let (proxy_base, proxy_server) = test_http::serve_once_capturing_request(200, "{}");
+        let client = CopilotClient::for_test(
+            &format!("{proxy_base}/usage"),
+            &format!("{proxy_base}/orgs"),
+            &format!("{proxy_base}/"),
+            Duration::from_secs(1),
+        );
+        client
+            .fetch_usage_with_context(&context(Some(&proxy_base)), "secret-token")
+            .unwrap();
+        let request = proxy_server.join().unwrap();
+        assert!(
+            request.starts_with(&format!("GET {proxy_base}/usage HTTP/1.1")),
+            "{request}"
+        );
+
+        let (direct_base, direct_server) = test_http::serve_once_capturing_request(200, "{}");
+        let client = CopilotClient::for_test(
+            &format!("{direct_base}/usage"),
+            &format!("{direct_base}/orgs"),
+            &format!("{direct_base}/"),
+            Duration::from_secs(1),
+        );
+        client
+            .fetch_usage_with_context(&context(None), "secret-token")
+            .unwrap();
+        let request = direct_server.join().unwrap();
+        assert!(request.starts_with("GET /usage HTTP/1.1"), "{request}");
     }
 
     #[test]

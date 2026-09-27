@@ -4,7 +4,7 @@ mod mapper;
 
 use std::{
     ops::ControlFlow,
-    sync::Mutex,
+    sync::{Arc, Mutex},
     time::{Duration, Instant},
 };
 
@@ -23,7 +23,7 @@ use self::{
     mapper::{map_org_usage, map_usage, org_logins},
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 const ORG_LOOKUP_BUDGET: Duration = Duration::from_secs(20);
 const ORG_REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
@@ -164,11 +164,17 @@ impl CopilotProvider {
         }
     }
 
-    fn refresh_inner(&self) -> Result<ProviderSnapshot, CopilotError> {
+    fn refresh_inner(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, CopilotError> {
         let mut saw_auth_failure = false;
         self.auth
             .visit_candidates(|token| {
-                let response = match self.client.fetch_usage(token.as_str()) {
+                let response = match self
+                    .client
+                    .fetch_usage_with_context(context, token.as_str())
+                {
                     Ok(response) => response,
                     Err(error) => return ControlFlow::Break(Err(error)),
                 };
@@ -185,7 +191,7 @@ impl CopilotProvider {
                     Err(error) => return ControlFlow::Break(Err(error)),
                 };
                 if mapped.is_org_managed_seat {
-                    mapped.value_metrics = self.org_billing_metrics(token.as_str());
+                    mapped.value_metrics = self.org_billing_metrics(context, token.as_str());
                 }
                 ControlFlow::Break(Ok(ProviderSnapshot {
                     credit_packages: Vec::new(),
@@ -209,14 +215,18 @@ impl CopilotProvider {
             })
     }
 
-    fn org_billing_metrics(&self, token: &str) -> Vec<ValueMetric> {
+    fn org_billing_metrics(
+        &self,
+        context: &ProviderRequestContext,
+        token: &str,
+    ) -> Vec<ValueMetric> {
         let started = Instant::now();
         let cached = self.cached_org.lock().ok().and_then(|value| value.clone());
         if let Some(org) = cached {
             let Some(timeout) = org_request_timeout(started) else {
                 return Vec::new();
             };
-            match self.org_usage(&org, token, timeout) {
+            match self.org_usage(context, &org, token, timeout) {
                 OrgUsageOutcome::Metrics(metrics) => return metrics,
                 OrgUsageOutcome::Transient => {
                     crate::app_warn!(
@@ -236,7 +246,7 @@ impl CopilotProvider {
         let Some(timeout) = org_request_timeout(started) else {
             return Vec::new();
         };
-        let response = match self.client.fetch_orgs(token, timeout) {
+        let response = match self.client.fetch_orgs_with_context(context, token, timeout) {
             Ok(response) => response,
             Err(_) => {
                 crate::app_warn!(
@@ -263,7 +273,7 @@ impl CopilotProvider {
                 );
                 break;
             };
-            match self.org_usage(&org, token, timeout) {
+            match self.org_usage(context, &org, token, timeout) {
                 OrgUsageOutcome::Metrics(metrics) => {
                     if let Ok(mut cached) = self.cached_org.lock() {
                         *cached = Some(org);
@@ -276,8 +286,17 @@ impl CopilotProvider {
         Vec::new()
     }
 
-    fn org_usage(&self, org: &str, token: &str, timeout: Duration) -> OrgUsageOutcome {
-        let response = match self.client.fetch_org_usage(org, token, timeout) {
+    fn org_usage(
+        &self,
+        context: &ProviderRequestContext,
+        org: &str,
+        token: &str,
+        timeout: Duration,
+    ) -> OrgUsageOutcome {
+        let response = match self
+            .client
+            .fetch_org_usage_with_context(context, org, token, timeout)
+        {
             Ok(response) => response,
             Err(_) => return OrgUsageOutcome::Transient,
         };
@@ -336,7 +355,14 @@ impl UsageProvider for CopilotProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
-        self.refresh_inner().map_err(ProviderError::from)
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_inner(context).map_err(ProviderError::from)
     }
 }
 

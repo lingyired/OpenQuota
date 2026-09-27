@@ -19,6 +19,7 @@ use crate::{
         ProviderNoticeTone, ProviderSnapshot, UsagePeriodSelection,
     },
     pricing::{ModelPricing, PricingStore},
+    providers::ProviderRequestContext,
     storage::Storage,
 };
 
@@ -293,18 +294,22 @@ impl ClaudeProvider {
         &self.definition.id
     }
 
-    fn refresh_inner(&self) -> Result<ProviderSnapshot, ClaudeError> {
+    fn refresh_inner(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ClaudeError> {
         let config = oauth_config()?;
-        self.refresh_inner_with_config(&config)
+        self.refresh_inner_with_config(&config, context)
     }
 
     fn refresh_inner_with_config(
         &self,
         config: &auth::ClaudeOAuthConfig,
+        context: &ProviderRequestContext,
     ) -> Result<ProviderSnapshot, ClaudeError> {
         let mut credential_reloads_remaining = 1;
         loop {
-            match self.refresh_inner_once(config) {
+            match self.refresh_inner_once(config, context) {
                 Err(ClaudeError::CredentialsChanged) if credential_reloads_remaining > 0 => {
                     credential_reloads_remaining -= 1;
                     crate::app_info!(
@@ -324,6 +329,7 @@ impl ClaudeProvider {
     fn refresh_inner_once(
         &self,
         config: &auth::ClaudeOAuthConfig,
+        context: &ProviderRequestContext,
     ) -> Result<ProviderSnapshot, ClaudeError> {
         self.ensure_account_identity_current()?;
         let candidates = load_candidates(&self.credential_scope);
@@ -350,6 +356,7 @@ impl ClaudeProvider {
         let mut last_auth_error = None;
         for mut credential in candidates {
             match self.refresh_candidate(
+                context,
                 &mut credential,
                 config,
                 now,
@@ -377,6 +384,7 @@ impl ClaudeProvider {
 
     fn refresh_candidate(
         &self,
+        context: &ProviderRequestContext,
         credential: &mut ClaudeCredential,
         config: &auth::ClaudeOAuthConfig,
         now: chrono::DateTime<Utc>,
@@ -440,6 +448,7 @@ impl ClaudeProvider {
             let previous_fingerprint = credential.fingerprint();
             refresh_credential(
                 &self.client,
+                context,
                 credential,
                 config,
                 now,
@@ -486,11 +495,14 @@ impl ClaudeProvider {
         }
 
         let token = credential.access_token().ok_or(ClaudeError::NotLoggedIn)?;
-        let (mut status, mut body, mut retry_after) = self.client.fetch_usage(token, config)?;
+        let (mut status, mut body, mut retry_after) = self
+            .client
+            .fetch_usage_with_context(context, token, config)?;
         if matches!(status, StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN) {
             let previous_fingerprint = credential.fingerprint();
             refresh_credential(
                 &self.client,
+                context,
                 credential,
                 config,
                 now,
@@ -500,7 +512,9 @@ impl ClaudeProvider {
             )?;
             self.replace_live_usage_fingerprint(previous_fingerprint, credential.fingerprint());
             let token = credential.access_token().ok_or(ClaudeError::TokenExpired)?;
-            (status, body, retry_after) = self.client.fetch_usage(token, config)?;
+            (status, body, retry_after) = self
+                .client
+                .fetch_usage_with_context(context, token, config)?;
         }
         if auth::credential_generation(&self.credential_scope) != *credential_generation {
             return Err(ClaudeError::CredentialsChanged);
@@ -632,6 +646,7 @@ fn retry_minutes(retry_seconds: u64) -> String {
 
 fn refresh_credential(
     client: &ClaudeClient,
+    context: &ProviderRequestContext,
     credential: &mut ClaudeCredential,
     config: &auth::ClaudeOAuthConfig,
     now: chrono::DateTime<Utc>,
@@ -645,7 +660,7 @@ fn refresh_credential(
         .as_deref()
         .filter(|value| !value.is_empty())
         .ok_or(ClaudeError::TokenExpired)?;
-    let refreshed = client.refresh_token(refresh_token, config)?;
+    let refreshed = client.refresh_token_with_context(context, refresh_token, config)?;
     match credential.update_and_save(
         refreshed.access_token,
         refreshed.refresh_token,
@@ -714,7 +729,14 @@ impl crate::providers::UsageProvider for ClaudeProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        self.refresh_inner().map_err(|error| {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
+        self.refresh_inner(context).map_err(|error| {
             use crate::models::ProviderErrorKind as Kind;
 
             let kind = match error {
@@ -755,6 +777,7 @@ mod tests {
     use crate::{
         models::{ProviderNoticeTone, ProviderSnapshot, UsageHistory},
         pricing::PricingStore,
+        providers::ProviderRequestContext,
         storage::Storage,
     };
 
@@ -980,7 +1003,8 @@ mod tests {
             refresh_url: format!("{base}/token"),
             client_id: "test-client".into(),
         };
-        let refresh = thread::spawn(move || provider.refresh_inner_with_config(&config));
+        let context = ProviderRequestContext::direct(Arc::default());
+        let refresh = thread::spawn(move || provider.refresh_inner_with_config(&config, &context));
 
         first_request_rx
             .recv_timeout(StdDuration::from_secs(2))
