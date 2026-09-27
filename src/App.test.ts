@@ -1740,6 +1740,7 @@ describe('Quota01 dashboard', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            useProxy: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],

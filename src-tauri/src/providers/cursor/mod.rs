@@ -499,10 +499,6 @@ fn snapshot(
     }
 }
 
-fn load_refresh_auth() -> Result<Option<CursorAuthState>, CursorError> {
-    CursorAuthState::load()
-}
-
 #[cfg(all(test, target_os = "macos"))]
 fn load_refresh_auth_from_database_paths(
     paths: &[PathBuf],
@@ -535,26 +531,6 @@ fn should_logout(value: Option<&Value>) -> bool {
         .and_then(|value| value.get("shouldLogout"))
         .and_then(Value::as_bool)
         == Some(true)
-}
-
-fn provider_error(error: CursorError) -> crate::providers::ProviderError {
-    use crate::models::ProviderErrorKind as Kind;
-
-    let kind = match error {
-        CursorError::NotLoggedIn | CursorError::SessionExpired | CursorError::TokenExpired => {
-            Kind::Authentication
-        }
-        CursorError::AuthWrite => Kind::CredentialStorage,
-        CursorError::RequestFailed(429) => Kind::RateLimited,
-        CursorError::ConnectionFailed
-        | CursorError::RequestFailed(_)
-        | CursorError::UsageAfterRefreshFailed
-        | CursorError::RequestBasedUnavailable(_) => Kind::Network,
-        CursorError::InvalidResponse
-        | CursorError::TotalUsageLimitMissing
-        | CursorError::NoActiveSubscription => Kind::InvalidResponse,
-    };
-    crate::providers::ProviderError::from_display(kind, error)
 }
 
 impl crate::providers::UsageProvider for CursorProvider {

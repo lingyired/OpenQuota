@@ -268,6 +268,7 @@ impl AntigravityClient {
     }
 
     #[cfg(any(test, not(target_os = "macos")))]
+    #[allow(dead_code)]
     pub fn refresh_google_token_with_context(
         &self,
         context: &ProviderRequestContext,

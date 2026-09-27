@@ -966,6 +966,7 @@ mod tests {
         };
 
         let result = provider.refresh_candidate(
+            &ProviderRequestContext::direct(Arc::default()),
             &mut environment,
             &config,
             Utc::now(),

@@ -28,6 +28,7 @@ function show(selectedProviderId = 'claude') {
         enabled: true,
         detected: true,
         expanded: false,
+        useProxy: false,
         metrics: [
           { id: 'antigravity.geminiPro', enabled: true, section: 'alwaysVisible', pinned: true },
         ],

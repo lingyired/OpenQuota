@@ -132,7 +132,6 @@ const settings: AppSettings = {
   providerNames: {},
   language: 'en',
   showTotalSpend: true,
-  showAppMenubar: true,
   theme: 'system',
   density: 'default',
   reduceAnimations: false,

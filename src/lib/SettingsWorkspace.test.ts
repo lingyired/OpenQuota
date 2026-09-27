@@ -77,6 +77,7 @@ function disabledClaude(state: SettingsViewState) {
           enabled: false,
           detected: true,
           expanded: false,
+          useProxy: false,
           metrics: [
             {
               id: 'claude.session',

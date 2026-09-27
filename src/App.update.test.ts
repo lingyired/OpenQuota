@@ -119,6 +119,7 @@ describe('Quota01 update lifecycle', () => {
             enabled: true,
             detected: true,
             expanded: false,
+            useProxy: false,
             metrics: [
               { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
             ],
@@ -203,7 +204,7 @@ describe('Quota01 update lifecycle', () => {
       enabled: true,
       detected: true,
       expanded: false,
-      keychainAccessGranted: false,
+      useProxy: false,
       metrics: [
         { id: 'claude.session', enabled: true, section: 'alwaysVisible' as const, pinned: true },
       ],
