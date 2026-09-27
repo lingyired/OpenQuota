@@ -465,6 +465,7 @@ export const zhCn = {
       '在自定义中添加 SiliconFlow CN API 密钥，或设置 SILICONFLOW_CN_API_KEY。',
     addInfiniApiKey: '在自定义中添加 Infini API 密钥，或设置 INFINI_API_KEY。',
     addOpenCodeGoApiKey: '在自定义中添加 OpenCode Go API 密钥，或设置 OPENCODE_GO_API_KEY。',
+    addCommandCodeApiKey: '在自定义中添加 CommandCode API 密钥，或设置 COMMANDCODE_API_KEY。',
     noActiveGlmPlanCn: '没有有效的 GLM 编程套餐。请在 bigmodel.cn/glm-coding 订阅以查看用量。',
     noActiveMiniMaxPlanCn:
       '没有有效的 MiniMax Token 套餐。请在 platform.minimaxi.com 订阅以查看用量。',

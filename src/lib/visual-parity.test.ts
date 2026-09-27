@@ -17,6 +17,7 @@ describe('native visual contract', () => {
     'copilot',
     'grok',
     'opencode',
+    'commandcode',
     'openrouter',
     'zai',
     'zai-cn',
@@ -70,6 +71,9 @@ describe('native visual contract', () => {
     cleanup();
     const opencode = render(ProviderIcon, { providerId: 'opencode' });
     expect(opencode.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
+    cleanup();
+    const commandcode = render(ProviderIcon, { providerId: 'commandcode' });
+    expect(commandcode.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');
     cleanup();
     const zai = render(ProviderIcon, { providerId: 'zai' });
     expect(zai.container.querySelector('path')).toHaveAttribute('fill', 'currentColor');

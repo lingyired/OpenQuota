@@ -2,6 +2,7 @@ pub mod antigravity;
 pub mod api_key;
 pub mod claude;
 pub mod codex;
+pub mod commandcode;
 pub mod copilot;
 pub mod credential_store;
 pub(crate) mod credential_vault;
@@ -280,8 +281,9 @@ pub trait UsageProvider: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::{
-        antigravity, claude, codex, copilot, cursor, deepseek, grok, infini, kimi, minimax,
-        opencode, openrouter, remember_default_account, siliconflow, trae, zai, ProviderError,
+        antigravity, claude, codex, commandcode, copilot, cursor, deepseek, grok, infini, kimi,
+        minimax, opencode, openrouter, remember_default_account, siliconflow, trae, zai,
+        ProviderError,
     };
     use crate::models::ProviderErrorKind;
     use tempfile::tempdir;
@@ -481,6 +483,13 @@ mod tests {
             [(
                 "Dashboard".into(),
                 "https://cloud.infini-ai.com/platform/ai".into()
+            )]
+        );
+        assert_eq!(
+            links(commandcode::definition()),
+            [(
+                "Dashboard".into(),
+                "https://commandcode.ai/dashboard".into()
             )]
         );
         assert_eq!(

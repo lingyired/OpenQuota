@@ -134,6 +134,15 @@ describe('translation helpers', () => {
     expect(tBackend('Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.')).toBe(
       '在自定义中添加 OpenCode Go API 密钥，或设置 OPENCODE_GO_API_KEY。',
     );
+    expect(tBackend('Add a CommandCode API key in Customize or set COMMANDCODE_API_KEY.')).toBe(
+      '在自定义中添加 CommandCode API 密钥，或设置 COMMANDCODE_API_KEY。',
+    );
+    expect(tBackend('The CommandCode API key is invalid. Check it at commandcode.ai.')).toBe(
+      'CommandCode API 密钥无效。请在 commandcode.ai 查看。',
+    );
+    expect(tBackend('Could not reach CommandCode. Check your internet connection.')).toBe(
+      '无法访问 CommandCode。请检查你的网络连接。',
+    );
   });
 
   it('translates the WorkBuddy sign-in and device-code backend messages', async () => {

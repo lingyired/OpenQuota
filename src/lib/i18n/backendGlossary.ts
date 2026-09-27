@@ -171,6 +171,12 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Add an Infini API key in Customize or set INFINI_API_KEY.': 'providerError.addInfiniApiKey',
   'Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.':
     'providerError.addOpenCodeGoApiKey',
+  'Add a CommandCode API key in Customize or set COMMANDCODE_API_KEY.':
+    'providerError.addCommandCodeApiKey',
+  'The CommandCode API key is invalid. Check it at commandcode.ai.': [
+    'providerError.apiKeyInvalid',
+    { provider: 'CommandCode', url: 'commandcode.ai' },
+  ],
   'Add an OpenRouter API key in Customize to view usage.': 'providerError.addOpenRouterApiKey',
   'The Kimi API key is invalid. Check it in the Kimi Code console.':
     'providerError.apiKeyInvalidInConsole',

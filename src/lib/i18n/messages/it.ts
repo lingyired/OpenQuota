@@ -479,6 +479,7 @@ export const it = {
       'Add a SiliconFlow CN API key in Customize or set SILICONFLOW_CN_API_KEY.',
     addInfiniApiKey: 'Add an Infini API key in Customize or set INFINI_API_KEY.',
     addOpenCodeGoApiKey: 'Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.',
+    addCommandCodeApiKey: 'Add a CommandCode API key in Customize or set COMMANDCODE_API_KEY.',
     noActiveGlmPlanCn:
       'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.',
     noActiveMiniMaxPlanCn:

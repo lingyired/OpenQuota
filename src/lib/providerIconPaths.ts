@@ -12,6 +12,7 @@ import siliconcloudColor from '@lobehub/icons-static-svg/icons/siliconcloud-colo
 import antigravity from '../assets/provider-icons/antigravity.svg?raw';
 import claude from '../assets/provider-icons/claude.svg?raw';
 import codex from '../assets/provider-icons/codex.svg?raw';
+import commandcode from '../assets/provider-icons/commandcode.svg?raw';
 import copilot from '../assets/provider-icons/copilot.svg?raw';
 import cursor from '../assets/provider-icons/cursor.svg?raw';
 import deepseek from '../assets/provider-icons/deepseek.svg?raw';
@@ -30,6 +31,7 @@ const visuals: Record<string, { source: string; color: string | null }> = {
   antigravity: { source: antigravity, color: '#4285F4' },
   claude: { source: claude, color: '#DE7356' },
   codex: { source: codex, color: null },
+  commandcode: { source: commandcode, color: null },
   copilot: { source: copilot, color: null },
   cursor: { source: cursor, color: null },
   deepseek: { source: deepseek, color: '#4D6BFE' },
@@ -75,6 +77,7 @@ const colorAssets: Record<string, string> = {
 };
 
 const fallbackColors: Record<string, string> = {
+  commandcode: 'var(--provider-commandcode)',
   cursor: 'var(--provider-cursor)',
   grok: 'var(--provider-grok)',
   opencode: 'var(--provider-opencode)',

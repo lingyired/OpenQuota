@@ -57,13 +57,13 @@ use crate::{
     pricing::PricingStore,
     providers::{
         antigravity::AntigravityProvider, claude, codex::reset_claim::CodexResetClaimService,
-        codex::CodexProvider, copilot::CopilotProvider, credential_vault, cursor::CursorProvider,
-        deepseek::DeepSeekProvider, detect_local_credentials, grok::GrokProvider,
-        infini::InfiniProvider, kimi::KimiProvider, minimax::MiniMaxCnProvider,
-        minimax::MiniMaxProvider, opencode::OpenCodeProvider, openrouter::OpenRouterProvider,
-        siliconflow::SiliconFlowCnProvider, siliconflow::SiliconFlowProvider, trae::TraeProvider,
-        workbuddy::WorkBuddyProvider, zai::ZaiCnProvider, zai::ZaiProvider, ProviderRegistry,
-        UsageProvider,
+        codex::CodexProvider, commandcode::CommandCodeProvider, copilot::CopilotProvider,
+        credential_vault, cursor::CursorProvider, deepseek::DeepSeekProvider,
+        detect_local_credentials, grok::GrokProvider, infini::InfiniProvider, kimi::KimiProvider,
+        minimax::MiniMaxCnProvider, minimax::MiniMaxProvider, opencode::OpenCodeProvider,
+        openrouter::OpenRouterProvider, siliconflow::SiliconFlowCnProvider,
+        siliconflow::SiliconFlowProvider, trae::TraeProvider, workbuddy::WorkBuddyProvider,
+        zai::ZaiCnProvider, zai::ZaiProvider, ProviderRegistry, UsageProvider,
     },
     storage::Storage,
     window::{
@@ -425,6 +425,7 @@ pub fn run() {
                 Arc::new(GrokProvider::new(storage.clone(), pricing.clone())?)
                     as Arc<dyn UsageProvider>,
                 Arc::new(OpenCodeProvider::new()?) as Arc<dyn UsageProvider>,
+                Arc::new(CommandCodeProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(OpenRouterProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(WorkBuddyProvider::new()?) as Arc<dyn UsageProvider>,
                 Arc::new(ZaiProvider::new()?) as Arc<dyn UsageProvider>,
