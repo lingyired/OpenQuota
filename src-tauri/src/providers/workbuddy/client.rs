@@ -6,6 +6,7 @@ use serde_json::{json, Value};
 use thiserror::Error;
 
 use super::auth::WorkBuddyAuth;
+use crate::providers::ProviderRequestContext;
 
 pub(crate) const USER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36";
 const PAID_PACKAGE_CODES: &[&str] = &[
@@ -169,6 +170,15 @@ impl WorkBuddyClient {
         )
     }
 
+    pub(super) fn fetch_resource_summary_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        auth: &WorkBuddyAuth,
+        now: DateTime<Local>,
+    ) -> Result<EndpointResponse, WorkBuddyClientError> {
+        self.fetch_resource_summary(auth, now)
+    }
+
     pub fn fetch_paid_packages(
         &self,
         auth: &WorkBuddyAuth,
@@ -182,6 +192,15 @@ impl WorkBuddyClient {
             "paid-packages",
             now,
         )
+    }
+
+    pub(super) fn fetch_paid_packages_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        auth: &WorkBuddyAuth,
+        now: DateTime<Local>,
+    ) -> Result<EndpointResponse, WorkBuddyClientError> {
+        self.fetch_paid_packages(auth, now)
     }
 
     pub fn fetch_free_packages(
@@ -198,6 +217,15 @@ impl WorkBuddyClient {
             "free-packages",
             now,
         )
+    }
+
+    pub(super) fn fetch_free_packages_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        auth: &WorkBuddyAuth,
+        now: DateTime<Local>,
+    ) -> Result<EndpointResponse, WorkBuddyClientError> {
+        self.fetch_free_packages(auth, now)
     }
 
     pub fn fetch_usage_page(
@@ -220,6 +248,17 @@ impl WorkBuddyClient {
             "usage",
             end,
         )
+    }
+
+    pub(super) fn fetch_usage_page_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        auth: &WorkBuddyAuth,
+        start: DateTime<Local>,
+        end: DateTime<Local>,
+        page: u32,
+    ) -> Result<EndpointResponse, WorkBuddyClientError> {
+        self.fetch_usage_page(auth, start, end, page)
     }
 
     pub fn refresh_token(
@@ -257,6 +296,14 @@ impl WorkBuddyClient {
             .and_then(Value::as_str)
             .map(str::to_owned);
         Ok((access, refresh))
+    }
+
+    pub(super) fn refresh_token_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        auth: &WorkBuddyAuth,
+    ) -> Result<(String, Option<String>), WorkBuddyClientError> {
+        self.refresh_token(auth)
     }
 
     fn post_with_retry(
@@ -380,7 +427,7 @@ impl WorkBuddyClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::providers::test_http;
+    use crate::providers::{test_http, ProviderRequestContext};
     use serde_json::json;
 
     #[test]
@@ -452,6 +499,27 @@ mod tests {
         let auth = WorkBuddyAuth::load_from_path(&dir.path().join("auth.info")).unwrap();
         let client = WorkBuddyClient::for_test(&server);
         let response = client.fetch_resource_summary(&auth, Local::now()).unwrap();
+        assert!(response.is_success());
+    }
+
+    #[test]
+    fn context_aware_summary_entry_point_keeps_the_current_direct_transport() {
+        let server = test_http::serve_once(200, &[], r#"{"code":0,"data":{}}"#);
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("auth.info"),
+            r#"{"auth":{"accessToken":"token"},"domain":"www.codebuddy.cn","uid":"u"}"#,
+        )
+        .unwrap();
+        let auth = WorkBuddyAuth::load_from_path(&dir.path().join("auth.info")).unwrap();
+        let context = ProviderRequestContext {
+            proxy_url: Some(reqwest::Url::parse("http://127.0.0.1:1").unwrap()),
+        };
+
+        let response = WorkBuddyClient::for_test(&server)
+            .fetch_resource_summary_with_context(&context, &auth, Local::now())
+            .unwrap();
+
         assert!(response.is_success());
     }
 

@@ -387,7 +387,10 @@ impl WorkBuddyProvider {
         load_credentials_at(&self.sessions, &self.auth_path)
     }
 
-    fn refresh_with_identity(&self) -> Result<(ProviderSnapshot, Option<String>), WorkBuddyError> {
+    fn refresh_with_identity(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<(ProviderSnapshot, Option<String>), WorkBuddyError> {
         let now = Local::now();
         let mut credential = self.load_credentials()?;
         let account_identity = credential
@@ -396,14 +399,18 @@ impl WorkBuddyProvider {
         let mut warnings = Vec::new();
         let mut refresh_attempted = false;
 
-        let mut resources = self.fetch_resources(&credential.view(), now);
+        let mut resources = self.fetch_resources(context, &credential.view(), now);
         if resources.iter().any(ResourceOutcome::is_unauthorized) {
             if credential.has_refresh_token() {
                 refresh_attempted = true;
-                match self.refresh_auth(&mut credential, &mut warnings) {
+                match self.refresh_auth_with_context(context, &mut credential, &mut warnings) {
                     Ok(()) => {
-                        resources =
-                            self.retry_unauthorized_resources(&credential.view(), now, resources);
+                        resources = self.retry_unauthorized_resources(
+                            context,
+                            &credential.view(),
+                            now,
+                            resources,
+                        );
                     }
                     Err(error) => warnings.push(error.to_string()),
                 }
@@ -436,8 +443,10 @@ impl WorkBuddyProvider {
             .and_then(|date| date.and_hms_opt(0, 0, 0))
             .and_then(|value| Local.from_local_datetime(&value).single())
             .unwrap_or(now);
-        let usage_attempt = self.fetch_usage_pages(&credential.view(), start, now, Vec::new(), 1);
+        let usage_attempt =
+            self.fetch_usage_pages(context, &credential.view(), start, now, Vec::new(), 1);
         let (usage, usage_succeeded) = self.finish_usage(
+            context,
             &mut credential,
             start,
             now,
@@ -454,11 +463,25 @@ impl WorkBuddyProvider {
         Ok((snapshot, account_identity))
     }
 
-    fn fetch_resources(&self, auth: &WorkBuddyAuth, now: DateTime<Local>) -> ResourceOutcomes {
+    fn fetch_resources(
+        &self,
+        context: &ProviderRequestContext,
+        auth: &WorkBuddyAuth,
+        now: DateTime<Local>,
+    ) -> ResourceOutcomes {
         let (summary, paid, free) = std::thread::scope(|scope| {
-            let summary = scope.spawn(|| self.client.fetch_resource_summary(auth, now));
-            let paid = scope.spawn(|| self.client.fetch_paid_packages(auth, now));
-            let free = scope.spawn(|| self.client.fetch_free_packages(auth, now));
+            let summary = scope.spawn(|| {
+                self.client
+                    .fetch_resource_summary_with_context(context, auth, now)
+            });
+            let paid = scope.spawn(|| {
+                self.client
+                    .fetch_paid_packages_with_context(context, auth, now)
+            });
+            let free = scope.spawn(|| {
+                self.client
+                    .fetch_free_packages_with_context(context, auth, now)
+            });
             (
                 summary
                     .join()
@@ -476,27 +499,49 @@ impl WorkBuddyProvider {
 
     fn retry_unauthorized_resources(
         &self,
+        context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
         now: DateTime<Local>,
         resources: ResourceOutcomes,
     ) -> ResourceOutcomes {
         let [summary, paid, free] = resources.0;
         ResourceOutcomes([
-            retry_resource(summary, || self.client.fetch_resource_summary(auth, now)),
-            retry_resource(paid, || self.client.fetch_paid_packages(auth, now)),
-            retry_resource(free, || self.client.fetch_free_packages(auth, now)),
+            retry_resource(summary, || {
+                self.client
+                    .fetch_resource_summary_with_context(context, auth, now)
+            }),
+            retry_resource(paid, || {
+                self.client
+                    .fetch_paid_packages_with_context(context, auth, now)
+            }),
+            retry_resource(free, || {
+                self.client
+                    .fetch_free_packages_with_context(context, auth, now)
+            }),
         ])
     }
 
+    #[cfg(test)]
     fn refresh_auth(
         &self,
+        credential: &mut WorkBuddyCredential,
+        warnings: &mut Vec<String>,
+    ) -> Result<(), WorkBuddyError> {
+        self.refresh_auth_with_context(&ProviderRequestContext::direct(), credential, warnings)
+    }
+
+    fn refresh_auth_with_context(
+        &self,
+        context: &ProviderRequestContext,
         credential: &mut WorkBuddyCredential,
         warnings: &mut Vec<String>,
     ) -> Result<(), WorkBuddyError> {
         if !credential.has_refresh_token() {
             return Err(WorkBuddyError::TokenExpired);
         }
-        let (access_token, refresh_token) = self.client.refresh_token(&credential.view())?;
+        let (access_token, refresh_token) = self
+            .client
+            .refresh_token_with_context(context, &credential.view())?;
         if let Err(error) = credential.persist_refresh(&self.sessions, access_token, refresh_token)
         {
             warnings.push(format!(
@@ -508,6 +553,7 @@ impl WorkBuddyProvider {
 
     fn fetch_usage_pages(
         &self,
+        context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
         start: DateTime<Local>,
         end: DateTime<Local>,
@@ -515,7 +561,13 @@ impl WorkBuddyProvider {
         mut page_number: u32,
     ) -> UsageFetchOutcome {
         loop {
-            let response = match self.client.fetch_usage_page(auth, start, end, page_number) {
+            let response = match self.client.fetch_usage_page_with_context(
+                context,
+                auth,
+                start,
+                end,
+                page_number,
+            ) {
                 Ok(response) => response,
                 Err(error) => {
                     let total = latest_total(&pages);
@@ -590,6 +642,7 @@ impl WorkBuddyProvider {
 
     fn finish_usage(
         &self,
+        context: &ProviderRequestContext,
         credential: &mut WorkBuddyCredential,
         start: DateTime<Local>,
         end: DateTime<Local>,
@@ -603,10 +656,15 @@ impl WorkBuddyProvider {
         {
             if !*refresh_attempted && credential.has_refresh_token() {
                 *refresh_attempted = true;
-                match self.refresh_auth(credential, warnings) {
-                    Ok(()) => {
-                        self.fetch_usage_pages(&credential.view(), start, end, pages, page_number)
-                    }
+                match self.refresh_auth_with_context(context, credential, warnings) {
+                    Ok(()) => self.fetch_usage_pages(
+                        context,
+                        &credential.view(),
+                        start,
+                        end,
+                        pages,
+                        page_number,
+                    ),
                     Err(error) => {
                         warnings.push(error.to_string());
                         UsageFetchOutcome::Unauthorized {
@@ -664,7 +722,8 @@ impl WorkBuddyProvider {
     }
 
     pub fn refresh(&self) -> Result<ProviderSnapshot, WorkBuddyError> {
-        self.refresh_with_identity().map(|(snapshot, _)| snapshot)
+        self.refresh_with_identity(&ProviderRequestContext::direct())
+            .map(|(snapshot, _)| snapshot)
     }
 }
 
@@ -763,9 +822,11 @@ impl UsageProvider for WorkBuddyProvider {
 
     fn refresh_for_service_with_context(
         &self,
-        _context: &ProviderRequestContext,
+        context: &ProviderRequestContext,
     ) -> Result<ProviderRefresh, ProviderError> {
-        let (snapshot, identity) = self.refresh_with_identity().map_err(ProviderError::from)?;
+        let (snapshot, identity) = self
+            .refresh_with_identity(context)
+            .map_err(ProviderError::from)?;
         Ok(ProviderRefresh {
             snapshot,
             cache_identity: identity.clone(),

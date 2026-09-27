@@ -186,10 +186,14 @@ impl CodexProvider {
     }
 
     pub fn refresh(&self) -> Result<ProviderSnapshot, CodexError> {
-        self.refresh_with_identity().map(|(snapshot, _)| snapshot)
+        self.refresh_with_identity(&ProviderRequestContext::direct())
+            .map(|(snapshot, _)| snapshot)
     }
 
-    fn refresh_with_identity(&self) -> Result<(ProviderSnapshot, Option<String>), CodexError> {
+    fn refresh_with_identity(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<(ProviderSnapshot, Option<String>), CodexError> {
         let now = Utc::now();
         let candidates = CodexAuthState::load_candidates()?;
         crate::app_debug!(
@@ -202,7 +206,7 @@ impl CodexProvider {
             let identity = auth
                 .account_identity()
                 .map(|identity| account_identity_key(&identity));
-            match self.refresh_candidate(&mut auth, now, identity.as_deref()) {
+            match self.refresh_candidate(context, &mut auth, now, identity.as_deref()) {
                 Ok(snapshot) => return Ok((snapshot, identity)),
                 Err(
                     error @ (CodexError::SessionExpired
@@ -236,6 +240,7 @@ impl CodexProvider {
 
     fn refresh_candidate(
         &self,
+        context: &ProviderRequestContext,
         auth: &mut CodexAuthState,
         now: chrono::DateTime<Utc>,
         account_identity: Option<&str>,
@@ -251,26 +256,34 @@ impl CodexProvider {
             }
         }
         if auth.needs_refresh(now) {
-            self.refresh_access_token(auth, now, &mut warnings)?;
+            self.refresh_access_token(context, auth, now, &mut warnings)?;
             Self::ensure_candidate_identity(auth, account_identity)?;
         }
 
-        let mut response = self
-            .client
-            .fetch_usage(&auth.access_token, auth.account_id.as_deref())?;
+        let mut response = self.client.fetch_usage_with_context(
+            context,
+            &auth.access_token,
+            auth.account_id.as_deref(),
+        )?;
         if matches!(
             response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
         ) {
-            self.refresh_access_token(auth, now, &mut warnings)?;
+            self.refresh_access_token(context, auth, now, &mut warnings)?;
             Self::ensure_candidate_identity(auth, account_identity)?;
-            response = self
-                .client
-                .fetch_usage(&auth.access_token, auth.account_id.as_deref())?;
+            response = self.client.fetch_usage_with_context(
+                context,
+                &auth.access_token,
+                auth.account_id.as_deref(),
+            )?;
         }
         let reset_credits = if response.status.is_success() {
             self.client
-                .fetch_reset_credits(&auth.access_token, auth.account_id.as_deref())
+                .fetch_reset_credits_with_context(
+                    context,
+                    &auth.access_token,
+                    auth.account_id.as_deref(),
+                )
                 .ok()
         } else {
             None
@@ -304,6 +317,7 @@ impl CodexProvider {
 
     fn refresh_access_token(
         &self,
+        context: &ProviderRequestContext,
         auth: &mut CodexAuthState,
         now: chrono::DateTime<Utc>,
         warnings: &mut Vec<String>,
@@ -313,7 +327,9 @@ impl CodexProvider {
             .as_deref()
             .filter(|value| !value.is_empty())
             .ok_or(CodexError::TokenExpired)?;
-        let refreshed = self.client.refresh_token(refresh_token)?;
+        let refreshed = self
+            .client
+            .refresh_token_with_context(context, refresh_token)?;
         if let Err(error) = auth.update_and_save_if_current(
             refreshed.access_token,
             refreshed.refresh_token,
@@ -411,9 +427,11 @@ impl crate::providers::UsageProvider for CodexProvider {
 
     fn refresh_for_service_with_context(
         &self,
-        _context: &ProviderRequestContext,
+        context: &ProviderRequestContext,
     ) -> Result<crate::providers::ProviderRefresh, crate::providers::ProviderError> {
-        let (snapshot, identity) = self.refresh_with_identity().map_err(provider_error)?;
+        let (snapshot, identity) = self
+            .refresh_with_identity(context)
+            .map_err(provider_error)?;
         Ok(crate::providers::ProviderRefresh {
             snapshot,
             cache_identity: identity.clone(),

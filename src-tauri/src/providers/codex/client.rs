@@ -4,6 +4,8 @@ use reqwest::{blocking::Client, header::HeaderMap, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
 
+use crate::providers::ProviderRequestContext;
+
 use super::CodexError;
 
 const CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
@@ -106,6 +108,15 @@ impl CodexClient {
         })
     }
 
+    pub(super) fn fetch_usage_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        access_token: &str,
+        account_id: Option<&str>,
+    ) -> Result<UsageResponse, CodexError> {
+        self.fetch_usage(access_token, account_id)
+    }
+
     pub fn fetch_reset_credits(
         &self,
         access_token: &str,
@@ -144,6 +155,15 @@ impl CodexClient {
             headers,
             body,
         })
+    }
+
+    pub(super) fn fetch_reset_credits_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        access_token: &str,
+        account_id: Option<&str>,
+    ) -> Result<UsageResponse, CodexError> {
+        self.fetch_reset_credits(access_token, account_id)
     }
 
     pub fn consume_reset_credit(
@@ -237,6 +257,14 @@ impl CodexClient {
         crate::app_info!("auth:codex", "token refresh succeeded");
         Ok(refreshed)
     }
+
+    pub(super) fn refresh_token_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+        refresh_token: &str,
+    ) -> Result<TokenRefresh, CodexError> {
+        self.refresh_token(refresh_token)
+    }
 }
 
 fn normalized_headers(headers: &HeaderMap) -> HashMap<String, String> {
@@ -276,7 +304,7 @@ mod tests {
     use reqwest::StatusCode;
 
     use super::CodexClient;
-    use crate::providers::{codex::CodexError, test_http};
+    use crate::providers::{codex::CodexError, test_http, ProviderRequestContext};
 
     fn client(base: &str) -> CodexClient {
         CodexClient::with_endpoints(
@@ -342,6 +370,21 @@ mod tests {
             response.headers.get("x-test-quota").map(String::as_str),
             Some("42")
         );
+        assert_eq!(response.body["plan"], "plus");
+    }
+
+    #[test]
+    fn context_aware_usage_entry_point_keeps_the_current_direct_transport() {
+        let base = test_http::serve_once(200, &[], r#"{"plan":"plus"}"#);
+        let context = ProviderRequestContext {
+            proxy_url: Some(reqwest::Url::parse("http://127.0.0.1:1").unwrap()),
+        };
+
+        let response = client(&base)
+            .fetch_usage_with_context(&context, "secret-token", None)
+            .unwrap();
+
+        assert_eq!(response.status, StatusCode::OK);
         assert_eq!(response.body["plan"], "plus");
     }
 
