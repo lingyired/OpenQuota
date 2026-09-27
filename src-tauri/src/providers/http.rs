@@ -47,7 +47,7 @@ impl ProviderHttpClientFactory {
             return Ok(Arc::clone(client));
         }
 
-        let mut builder = configure(Client::builder());
+        let mut builder = configure(Client::builder().no_proxy());
         if let Some(url) = proxy_url {
             builder = builder.proxy(reqwest::Proxy::all(url.as_str()).map_err(|_| {
                 ProviderHttpClientError::ProxyConfiguration {
@@ -82,6 +82,7 @@ mod tests {
     use reqwest::Url;
 
     use super::{ProviderHttpClientError, ProviderHttpClientFactory};
+    use crate::providers::test_http::serve_once_capturing_request;
 
     #[test]
     fn provider_proxy_client_reuses_unchanged_policy() {
@@ -157,5 +158,20 @@ mod tests {
         assert!(!display.contains("proxy-user"));
         assert!(!display.contains("proxy-password"));
         assert!(!display.contains("proxy.invalid"));
+    }
+
+    #[test]
+    fn provider_proxy_client_without_proxy_sends_directly() {
+        let factory = ProviderHttpClientFactory::default();
+        let (url, server) = serve_once_capturing_request(200, "direct");
+        let client = factory
+            .client("openai", "quota", None, |builder| builder)
+            .unwrap();
+
+        let response = client.get(&url).send().unwrap().text().unwrap();
+        let request = server.join().unwrap();
+
+        assert_eq!(response, "direct");
+        assert!(request.starts_with("GET / HTTP/1.1\r\n"));
     }
 }
