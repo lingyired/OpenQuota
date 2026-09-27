@@ -11,7 +11,10 @@ use crate::{
         MetricSource, ProviderErrorKind, ProviderSnapshot, ProviderViewState, SnapshotSource,
     },
     policy::{FAILURE_RETRY_BACKOFF, REFRESH_INTERVAL, STALE_AFTER},
-    providers::{ProviderError, ProviderRefresh, ProviderRegistry, ProviderRequestContext},
+    providers::{
+        http::ProviderHttpClientFactory, ProviderError, ProviderRefresh, ProviderRegistry,
+        ProviderRequestContext,
+    },
     settings::SettingsService,
     storage::Storage,
 };
@@ -50,6 +53,7 @@ pub struct ProviderService {
     last_full_refresh_at: RwLock<Option<chrono::DateTime<Utc>>>,
     refresh_timeout: Duration,
     settings: Option<Arc<SettingsService>>,
+    http_clients: Arc<ProviderHttpClientFactory>,
 }
 
 impl ProviderService {
@@ -118,6 +122,7 @@ impl ProviderService {
             last_full_refresh_at: RwLock::new(None),
             refresh_timeout,
             settings,
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
         }
     }
 
@@ -143,7 +148,7 @@ impl ProviderService {
 
     pub fn request_context_for(&self, provider_id: &str) -> ProviderRequestContext {
         let Some(settings_service) = &self.settings else {
-            return ProviderRequestContext::direct();
+            return ProviderRequestContext::direct(Arc::clone(&self.http_clients));
         };
         let settings = settings_service.get();
         let use_proxy = settings
@@ -152,13 +157,16 @@ impl ProviderService {
             .find(|provider| provider.id == provider_id)
             .is_some_and(|provider| provider.use_proxy);
         match resolve_proxy_url(settings.proxy_url, use_proxy) {
-            Ok(proxy_url) => ProviderRequestContext { proxy_url },
+            Ok(proxy_url) => ProviderRequestContext {
+                proxy_url,
+                http_clients: Arc::clone(&self.http_clients),
+            },
             Err(error) => {
                 crate::app_warn!(
                     "config",
                     "proxy policy for {provider_id} could not be resolved: {error}"
                 );
-                ProviderRequestContext::direct()
+                ProviderRequestContext::direct(Arc::clone(&self.http_clients))
             }
         }
     }
@@ -799,6 +807,14 @@ mod tests {
             storage,
             Arc::new(settings),
         ));
+        let enabled_context = service.request_context_for("proxy-enabled");
+        let disabled_context = service.request_context_for("proxy-disabled");
+        assert!(enabled_context.proxy_url.is_some());
+        assert!(disabled_context.proxy_url.is_none());
+        assert!(Arc::ptr_eq(
+            &enabled_context.http_clients,
+            &disabled_context.http_clients
+        ));
         assert!(refresh_with_test_timeout(&service, "proxy-enabled", true)
             .error
             .is_none());
@@ -968,7 +984,9 @@ mod tests {
         }
 
         fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
-            self.refresh_for_service_with_context(&ProviderRequestContext::direct())
+            self.refresh_for_service_with_context(&ProviderRequestContext::direct(
+                std::sync::Arc::default(),
+            ))
         }
 
         fn refresh_for_service_with_context(

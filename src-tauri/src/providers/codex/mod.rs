@@ -186,7 +186,7 @@ impl CodexProvider {
     }
 
     pub fn refresh(&self) -> Result<ProviderSnapshot, CodexError> {
-        self.refresh_with_identity(&ProviderRequestContext::direct())
+        self.refresh_with_identity(&ProviderRequestContext::direct(Arc::default()))
             .map(|(snapshot, _)| snapshot)
     }
 
@@ -422,7 +422,7 @@ impl crate::providers::UsageProvider for CodexProvider {
     fn refresh_for_service(
         &self,
     ) -> Result<crate::providers::ProviderRefresh, crate::providers::ProviderError> {
-        self.refresh_for_service_with_context(&ProviderRequestContext::direct())
+        self.refresh_for_service_with_context(&ProviderRequestContext::direct(Arc::default()))
     }
 
     fn refresh_for_service_with_context(

@@ -514,6 +514,7 @@ mod tests {
         let auth = WorkBuddyAuth::load_from_path(&dir.path().join("auth.info")).unwrap();
         let context = ProviderRequestContext {
             proxy_url: Some(reqwest::Url::parse("http://127.0.0.1:1").unwrap()),
+            http_clients: std::sync::Arc::default(),
         };
 
         let response = WorkBuddyClient::for_test(&server)

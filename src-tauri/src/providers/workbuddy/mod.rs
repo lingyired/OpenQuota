@@ -527,7 +527,11 @@ impl WorkBuddyProvider {
         credential: &mut WorkBuddyCredential,
         warnings: &mut Vec<String>,
     ) -> Result<(), WorkBuddyError> {
-        self.refresh_auth_with_context(&ProviderRequestContext::direct(), credential, warnings)
+        self.refresh_auth_with_context(
+            &ProviderRequestContext::direct(Arc::default()),
+            credential,
+            warnings,
+        )
     }
 
     fn refresh_auth_with_context(
@@ -722,7 +726,7 @@ impl WorkBuddyProvider {
     }
 
     pub fn refresh(&self) -> Result<ProviderSnapshot, WorkBuddyError> {
-        self.refresh_with_identity(&ProviderRequestContext::direct())
+        self.refresh_with_identity(&ProviderRequestContext::direct(Arc::default()))
             .map(|(snapshot, _)| snapshot)
     }
 }
@@ -817,7 +821,7 @@ impl UsageProvider for WorkBuddyProvider {
     }
 
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
-        self.refresh_for_service_with_context(&ProviderRequestContext::direct())
+        self.refresh_for_service_with_context(&ProviderRequestContext::direct(Arc::default()))
     }
 
     fn refresh_for_service_with_context(

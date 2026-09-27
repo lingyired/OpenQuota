@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 pub mod antigravity;
 pub mod api_key;
 pub mod claude;
@@ -10,6 +12,9 @@ mod daily_usage;
 pub mod deepseek;
 mod detection;
 pub mod grok;
+// Provider migrations in follow-up tasks consume the factory through their request contexts.
+#[allow(dead_code)]
+pub mod http;
 pub mod infini;
 pub(crate) mod keychain_access;
 pub mod kimi;
@@ -134,14 +139,19 @@ pub struct ProviderRefresh {
     pub account: Option<AccountRefresh>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone)]
+#[allow(dead_code)]
 pub struct ProviderRequestContext {
     pub proxy_url: Option<reqwest::Url>,
+    pub http_clients: Arc<http::ProviderHttpClientFactory>,
 }
 
 impl ProviderRequestContext {
-    pub fn direct() -> Self {
-        Self { proxy_url: None }
+    pub fn direct(http_clients: Arc<http::ProviderHttpClientFactory>) -> Self {
+        Self {
+            proxy_url: None,
+            http_clients,
+        }
     }
 }
 

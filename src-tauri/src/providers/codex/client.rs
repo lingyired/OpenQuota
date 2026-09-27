@@ -378,6 +378,7 @@ mod tests {
         let base = test_http::serve_once(200, &[], r#"{"plan":"plus"}"#);
         let context = ProviderRequestContext {
             proxy_url: Some(reqwest::Url::parse("http://127.0.0.1:1").unwrap()),
+            http_clients: std::sync::Arc::default(),
         };
 
         let response = client(&base)
