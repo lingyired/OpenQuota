@@ -19,7 +19,7 @@ use self::{
     mapper::{is_no_coding_plan, map_usage},
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 /// Z.ai ships the same GLM Coding Plan backend under two brands: `z.ai` for the
 /// international site and 智谱 BigModel (`open.bigmodel.cn`) for mainland China.
@@ -242,14 +242,18 @@ impl ZaiProvider {
         }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let quota = required_response(self.site, self.client.fetch_quota(api_key))?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let quota = required_response(self.site, self.client.fetch_quota(context, api_key))?;
         if is_no_coding_plan(&quota.body) {
             return Err(ZaiError::NoCodingPlan(self.site).into());
         }
         let subscription = self
             .client
-            .fetch_subscription(api_key)
+            .fetch_subscription(context, api_key)
             .ok()
             .filter(|response| response.status.is_success());
         let mapped = map_usage(
@@ -281,12 +285,19 @@ impl UsageProvider for ZaiProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(ZaiError::MissingKey(self.site)))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
@@ -327,6 +338,13 @@ impl UsageProvider for ZaiCnProvider {
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
         self.0.refresh()
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        self.0.refresh_with_context(context)
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {

@@ -257,6 +257,14 @@ pub trait UsageProvider: Send + Sync {
         ))
     }
 
+    fn start_device_code_login_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<DeviceCodeChallenge, ProviderError> {
+        let _ = context;
+        self.start_device_code_login()
+    }
+
     /// 轮询只回传「是否完成」和错误文案：会话在 provider 内部落库，
     /// token 绝不经过这条线进入前端。
     fn poll_device_code_login(&self, _login_id: &str) -> DeviceCodePoll {
@@ -264,6 +272,15 @@ pub trait UsageProvider: Send + Sync {
             done: true,
             error: Some("That provider does not use a device-code sign-in.".to_owned()),
         }
+    }
+
+    fn poll_device_code_login_with_context(
+        &self,
+        login_id: &str,
+        context: &ProviderRequestContext,
+    ) -> DeviceCodePoll {
+        let _ = context;
+        self.poll_device_code_login(login_id)
     }
 
     fn cancel_device_code_login(&self, _login_id: &str) -> bool {

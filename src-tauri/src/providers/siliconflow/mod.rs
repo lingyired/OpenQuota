@@ -19,7 +19,7 @@ use self::{
     mapper::{map_usage, BalanceMetrics},
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 /// SiliconFlow serves the same user-info endpoint from the international site
 /// (`api.siliconflow.com`) and the mainland-China site (`api.siliconflow.cn`).
@@ -230,8 +230,12 @@ impl SiliconFlowProvider {
         }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let response = required_response(self.site, self.client.fetch(api_key))?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let response = required_response(self.site, self.client.fetch(context, api_key))?;
         let BalanceMetrics {
             balance,
             granted,
@@ -265,12 +269,19 @@ impl UsageProvider for SiliconFlowProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(SiliconFlowError::MissingKey(self.site)))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
@@ -312,6 +323,13 @@ impl UsageProvider for SiliconFlowCnProvider {
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
         self.0.refresh()
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        self.0.refresh_with_context(context)
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {

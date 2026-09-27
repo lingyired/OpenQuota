@@ -87,12 +87,14 @@ fn quota(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use reqwest::StatusCode;
     use serde_json::json;
 
     use super::super::OpenCodeError;
     use super::{map_go_usage, UsageResponse};
-    use crate::providers::test_http;
+    use crate::providers::{test_http, ProviderRequestContext};
 
     #[test]
     fn maps_authoritative_go_usage_windows() {
@@ -172,6 +174,8 @@ mod tests {
         let url = test_http::serve_once(status, &[], body);
         let client =
             super::super::client::OpenCodeClient::for_test(&url, std::time::Duration::from_secs(1));
-        client.fetch_go_usage("test-key").unwrap()
+        client
+            .fetch_go_usage(&ProviderRequestContext::direct(Arc::default()), "test-key")
+            .unwrap()
     }
 }

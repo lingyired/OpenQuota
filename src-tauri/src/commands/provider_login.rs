@@ -21,9 +21,12 @@ use crate::{
 pub async fn start_provider_login(
     app: AppHandle,
     registry: State<'_, Arc<ProviderRegistry>>,
+    service: State<'_, Arc<ProviderService>>,
     provider_id: String,
 ) -> Result<DeviceCodeChallenge, String> {
-    let challenge = start_provider_login_inner(registry.inner().clone(), provider_id).await?;
+    let service = service.inner().clone();
+    let challenge =
+        start_provider_login_inner(registry.inner().clone(), service, provider_id).await?;
     // 打开失败不回滚这次登录：挑战已经申请好了，界面仍能显示地址让用户手动打开，
     // 把整条命令变成错误反而会让这次登录的 login_id 一起丢掉。
     //
@@ -49,15 +52,17 @@ pub async fn start_provider_login(
 
 async fn start_provider_login_inner(
     registry: Arc<ProviderRegistry>,
+    service: Arc<ProviderService>,
     provider_id: String,
 ) -> Result<DeviceCodeChallenge, String> {
     let runtime = registry
         .runtime(&provider_id)
         .ok_or_else(|| "Unknown provider.".to_owned())?;
+    let context = service.request_context_for(&provider_id);
     // 申请要发一次网络请求，放在阻塞线程上，别占住异步运行时。
     tauri::async_runtime::spawn_blocking(move || {
         runtime
-            .start_device_code_login()
+            .start_device_code_login_with_context(&context)
             .map_err(|error| error.to_string())
     })
     .await
@@ -80,11 +85,13 @@ pub async fn poll_provider_login(
     login_id: String,
 ) -> Result<DeviceCodePoll, String> {
     let service = service.inner().clone();
+    let login_service = Arc::clone(&service);
     let settings = settings.inner().clone();
     let notifications = notifications.inner().clone();
     let settle_provider_id = provider_id.clone();
     poll_provider_login_and_settle(
         registry.inner().clone(),
+        login_service,
         provider_id,
         login_id,
         move || async move {
@@ -107,6 +114,7 @@ pub async fn poll_provider_login(
 /// 未完成的 `done: false` 更是如此；这两种结果触发刷新只会把旧状态再播一遍。
 async fn poll_provider_login_and_settle<F, Fut>(
     registry: Arc<ProviderRegistry>,
+    service: Arc<ProviderService>,
     provider_id: String,
     login_id: String,
     credentials_stored: F,
@@ -115,7 +123,7 @@ where
     F: FnOnce() -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
-    let poll = poll_provider_login_inner(registry, provider_id, login_id).await?;
+    let poll = poll_provider_login_inner(registry, service, provider_id, login_id).await?;
     if poll.done && poll.error.is_none() {
         credentials_stored().await;
     }
@@ -162,15 +170,19 @@ async fn finish_provider_login(
 
 async fn poll_provider_login_inner(
     registry: Arc<ProviderRegistry>,
+    service: Arc<ProviderService>,
     provider_id: String,
     login_id: String,
 ) -> Result<DeviceCodePoll, String> {
     let runtime = registry
         .runtime(&provider_id)
         .ok_or_else(|| "Unknown provider.".to_owned())?;
-    tauri::async_runtime::spawn_blocking(move || runtime.poll_device_code_login(&login_id))
-        .await
-        .map_err(|_| "The sign-in status could not be read.".to_owned())
+    let context = service.request_context_for(&provider_id);
+    tauri::async_runtime::spawn_blocking(move || {
+        runtime.poll_device_code_login_with_context(&login_id, &context)
+    })
+    .await
+    .map_err(|_| "The sign-in status could not be read.".to_owned())
 }
 
 /// 放弃一次设备码登录；返回这次尝试此前是否仍在进行中。
@@ -207,6 +219,8 @@ mod tests {
             test_definition, DeviceCodeStubProvider, ProviderRegistry, StubProvider, UsageProvider,
             DEVICE_CODE_FAILED_LOGIN_ID, DEVICE_CODE_LOGIN_ID,
         },
+        service::ProviderService,
+        storage::Storage,
     };
 
     use super::{
@@ -225,10 +239,19 @@ mod tests {
         )
     }
 
+    fn service(registry: Arc<ProviderRegistry>) -> (Arc<ProviderService>, tempfile::TempDir) {
+        let directory = tempfile::tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("provider-login.db")).unwrap());
+        (Arc::new(ProviderService::new(registry, storage)), directory)
+    }
+
     #[test]
     fn an_unknown_provider_cannot_start_a_login() {
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
         let error = tauri::async_runtime::block_on(start_provider_login_inner(
-            registry(),
+            registry,
+            service,
             "missing".into(),
         ))
         .unwrap_err();
@@ -238,9 +261,14 @@ mod tests {
 
     #[test]
     fn a_provider_without_device_code_sign_in_cannot_start_a_login() {
-        let error =
-            tauri::async_runtime::block_on(start_provider_login_inner(registry(), "plain".into()))
-                .unwrap_err();
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
+        let error = tauri::async_runtime::block_on(start_provider_login_inner(
+            registry,
+            service,
+            "plain".into(),
+        ))
+        .unwrap_err();
 
         assert!(error.contains("device-code"), "unexpected message: {error}");
     }
@@ -251,8 +279,11 @@ mod tests {
             .start_device_code_login()
             .unwrap();
 
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
         let challenge = tauri::async_runtime::block_on(start_provider_login_inner(
-            registry(),
+            registry,
+            service,
             "device-code".into(),
         ))
         .unwrap();
@@ -263,8 +294,11 @@ mod tests {
 
     #[test]
     fn an_unknown_provider_cannot_poll_a_login() {
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
         let error = tauri::async_runtime::block_on(poll_provider_login_inner(
-            registry(),
+            registry,
+            service,
             "missing".into(),
             DEVICE_CODE_LOGIN_ID.into(),
         ))
@@ -275,14 +309,18 @@ mod tests {
 
     #[test]
     fn polling_forwards_the_login_id_to_the_provider() {
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
         let completed = tauri::async_runtime::block_on(poll_provider_login_inner(
-            registry(),
+            registry.clone(),
+            service.clone(),
             "device-code".into(),
             DEVICE_CODE_LOGIN_ID.into(),
         ))
         .unwrap();
         let pending = tauri::async_runtime::block_on(poll_provider_login_inner(
-            registry(),
+            registry,
+            service,
             "device-code".into(),
             "another-login".into(),
         ))
@@ -306,8 +344,11 @@ mod tests {
 
     #[test]
     fn a_failed_attempt_travels_as_poll_data_instead_of_a_command_error() {
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
         let poll = tauri::async_runtime::block_on(poll_provider_login_inner(
-            registry(),
+            registry,
+            service,
             "device-code".into(),
             DEVICE_CODE_FAILED_LOGIN_ID.into(),
         ))
@@ -323,9 +364,12 @@ mod tests {
     fn a_completed_poll_settles_the_stored_credentials_exactly_once() {
         let settled = Arc::new(AtomicUsize::new(0));
         let counter = settled.clone();
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
 
         let poll = tauri::async_runtime::block_on(poll_provider_login_and_settle(
-            registry(),
+            registry,
+            service,
             "device-code".into(),
             DEVICE_CODE_LOGIN_ID.into(),
             move || async move {
@@ -350,9 +394,12 @@ mod tests {
     fn a_failed_poll_does_not_settle_credentials() {
         let settled = Arc::new(AtomicUsize::new(0));
         let counter = settled.clone();
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
 
         let poll = tauri::async_runtime::block_on(poll_provider_login_and_settle(
-            registry(),
+            registry,
+            service,
             "device-code".into(),
             DEVICE_CODE_FAILED_LOGIN_ID.into(),
             move || async move {
@@ -370,9 +417,12 @@ mod tests {
     fn a_pending_poll_does_not_settle_credentials() {
         let settled = Arc::new(AtomicUsize::new(0));
         let counter = settled.clone();
+        let registry = registry();
+        let (service, _directory) = service(registry.clone());
 
         let poll = tauri::async_runtime::block_on(poll_provider_login_and_settle(
-            registry(),
+            registry,
+            service,
             "device-code".into(),
             "another-login".into(),
             move || async move {

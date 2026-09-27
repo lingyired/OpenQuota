@@ -771,7 +771,14 @@ impl UsageProvider for WorkBuddyProvider {
     /// 申请 state 的两种失败要分开：连不上是网络问题，响应不可信是服务端问题，
     /// 前端据此给用户不同的提示。
     fn start_device_code_login(&self) -> Result<DeviceCodeChallenge, ProviderError> {
-        self.login.start().map_err(|error| {
+        self.start_device_code_login_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn start_device_code_login_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<DeviceCodeChallenge, ProviderError> {
+        self.login.start_with_context(context).map_err(|error| {
             let kind = match error {
                 WorkBuddyLoginError::Connection => ProviderErrorKind::Network,
                 WorkBuddyLoginError::InvalidResponse => ProviderErrorKind::InvalidResponse,
@@ -784,7 +791,18 @@ impl UsageProvider for WorkBuddyProvider {
     /// 落库失败时这次尝试同样已经结束（done 为 true），但必须把失败报成错误文案，
     /// 不能让前端以为凭据已经可用。
     fn poll_device_code_login(&self, login_id: &str) -> DeviceCodePoll {
-        match self.login.poll(login_id) {
+        self.poll_device_code_login_with_context(
+            login_id,
+            &ProviderRequestContext::direct(Arc::default()),
+        )
+    }
+
+    fn poll_device_code_login_with_context(
+        &self,
+        login_id: &str,
+        context: &ProviderRequestContext,
+    ) -> DeviceCodePoll {
+        match self.login.poll_with_context(login_id, context) {
             LoginPoll::Pending => DeviceCodePoll {
                 done: false,
                 error: None,

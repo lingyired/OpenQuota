@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use chrono::{DateTime, Local};
 use reqwest::{blocking::Client, StatusCode};
@@ -118,16 +118,34 @@ impl EndpointResponse {
 }
 
 pub struct WorkBuddyClient {
+    #[cfg(test)]
     client: Client,
+    #[cfg(test)]
     test_base_url: Option<String>,
 }
 
 impl WorkBuddyClient {
     pub fn new() -> Result<Self, WorkBuddyClientError> {
-        Self::with_base_url(None)
+        #[cfg(test)]
+        let client = Self::new_client()?;
+        Ok(Self {
+            #[cfg(test)]
+            client,
+            #[cfg(test)]
+            test_base_url: None,
+        })
     }
 
+    #[cfg(test)]
     fn with_base_url(test_base_url: Option<String>) -> Result<Self, WorkBuddyClientError> {
+        Ok(Self {
+            client: Self::new_client()?,
+            test_base_url,
+        })
+    }
+
+    #[cfg(test)]
+    fn new_client() -> Result<Client, WorkBuddyClientError> {
         let client = Client::builder()
             .connect_timeout(Duration::from_secs(8))
             .timeout(Duration::from_secs(30))
@@ -138,13 +156,11 @@ impl WorkBuddyClient {
             .user_agent(USER_AGENT)
             .build()
             .map_err(|_| WorkBuddyClientError::Connection)?;
-        Ok(Self {
-            client,
-            test_base_url,
-        })
+        Ok(client)
     }
 
     fn base_url(&self, auth: &WorkBuddyAuth, usage: bool) -> String {
+        #[cfg(test)]
         if let Some(base) = &self.test_base_url {
             return base.trim_end_matches('/').to_owned();
         }
@@ -155,12 +171,35 @@ impl WorkBuddyClient {
         }
     }
 
+    fn http_client(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<Arc<Client>, WorkBuddyClientError> {
+        context
+            .http_clients
+            .client(
+                "workbuddy",
+                "default",
+                context.proxy_url.as_ref(),
+                |builder| {
+                    builder
+                        .connect_timeout(Duration::from_secs(8))
+                        .timeout(Duration::from_secs(30))
+                        .redirect(reqwest::redirect::Policy::none())
+                        .user_agent(USER_AGENT)
+                },
+            )
+            .map_err(|_| WorkBuddyClientError::Connection)
+    }
+
+    #[cfg(test)]
     pub fn fetch_resource_summary(
         &self,
         auth: &WorkBuddyAuth,
         now: DateTime<Local>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
         self.post_with_retry(
+            &self.client,
             auth,
             false,
             "/billing/meter/get-user-resource-summary",
@@ -172,19 +211,31 @@ impl WorkBuddyClient {
 
     pub(super) fn fetch_resource_summary_with_context(
         &self,
-        _context: &ProviderRequestContext,
+        context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
         now: DateTime<Local>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
-        self.fetch_resource_summary(auth, now)
+        let client = self.http_client(context)?;
+        self.post_with_retry(
+            client.as_ref(),
+            auth,
+            false,
+            "/billing/meter/get-user-resource-summary",
+            json!({}),
+            "summary",
+            now,
+        )
     }
 
-    pub fn fetch_paid_packages(
+    pub(super) fn fetch_paid_packages_with_context(
         &self,
+        context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
         now: DateTime<Local>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
+        let client = self.http_client(context)?;
         self.post_with_retry(
+            client.as_ref(),
             auth,
             false,
             "/billing/meter/get-user-resource-paid-packages",
@@ -194,22 +245,16 @@ impl WorkBuddyClient {
         )
     }
 
-    pub(super) fn fetch_paid_packages_with_context(
+    pub(super) fn fetch_free_packages_with_context(
         &self,
-        _context: &ProviderRequestContext,
+        context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
         now: DateTime<Local>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
-        self.fetch_paid_packages(auth, now)
-    }
-
-    pub fn fetch_free_packages(
-        &self,
-        auth: &WorkBuddyAuth,
-        now: DateTime<Local>,
-    ) -> Result<EndpointResponse, WorkBuddyClientError> {
+        let client = self.http_client(context)?;
         let date = now.format("%Y-%m-%d").to_string();
         self.post_with_retry(
+            client.as_ref(),
             auth,
             false,
             "/billing/meter/get-user-resource-free-packages",
@@ -219,23 +264,17 @@ impl WorkBuddyClient {
         )
     }
 
-    pub(super) fn fetch_free_packages_with_context(
+    pub(super) fn fetch_usage_page_with_context(
         &self,
-        _context: &ProviderRequestContext,
-        auth: &WorkBuddyAuth,
-        now: DateTime<Local>,
-    ) -> Result<EndpointResponse, WorkBuddyClientError> {
-        self.fetch_free_packages(auth, now)
-    }
-
-    pub fn fetch_usage_page(
-        &self,
+        context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
         start: DateTime<Local>,
         end: DateTime<Local>,
         page: u32,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
+        let client = self.http_client(context)?;
         self.post_with_retry(
+            client.as_ref(),
             auth,
             true,
             "/billing/meter/get-user-request-usage",
@@ -250,23 +289,13 @@ impl WorkBuddyClient {
         )
     }
 
-    pub(super) fn fetch_usage_page_with_context(
+    fn refresh_token_using(
         &self,
-        _context: &ProviderRequestContext,
-        auth: &WorkBuddyAuth,
-        start: DateTime<Local>,
-        end: DateTime<Local>,
-        page: u32,
-    ) -> Result<EndpointResponse, WorkBuddyClientError> {
-        self.fetch_usage_page(auth, start, end, page)
-    }
-
-    pub fn refresh_token(
-        &self,
+        client: &Client,
         auth: &WorkBuddyAuth,
     ) -> Result<(String, Option<String>), WorkBuddyClientError> {
         let url = self.url(auth, false, "/v2/plugin/auth/token/refresh");
-        let request = self.request(auth, &url, json!({}));
+        let request = self.request(client, auth, &url, json!({}));
         let response = request
             .header(
                 "X-Refresh-Token",
@@ -300,14 +329,16 @@ impl WorkBuddyClient {
 
     pub(super) fn refresh_token_with_context(
         &self,
-        _context: &ProviderRequestContext,
+        context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
     ) -> Result<(String, Option<String>), WorkBuddyClientError> {
-        self.refresh_token(auth)
+        let client = self.http_client(context)?;
+        self.refresh_token_using(client.as_ref(), auth)
     }
 
     fn post_with_retry(
         &self,
+        client: &Client,
         auth: &WorkBuddyAuth,
         usage: bool,
         path: &str,
@@ -315,15 +346,16 @@ impl WorkBuddyClient {
         label: &str,
         _now: impl Into<DateTime<Local>>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
-        let response = self.post_once(auth, usage, path, &payload, label)?;
+        let response = self.post_once(client, auth, usage, path, &payload, label)?;
         if response.is_retryable_transport() {
-            return self.post_once(auth, usage, path, &payload, label);
+            return self.post_once(client, auth, usage, path, &payload, label);
         }
         Ok(response)
     }
 
     fn post_once(
         &self,
+        client: &Client,
         auth: &WorkBuddyAuth,
         usage: bool,
         path: &str,
@@ -333,7 +365,7 @@ impl WorkBuddyClient {
         let url = self.url(auth, usage, path);
         let started = std::time::Instant::now();
         let response = self
-            .request(auth, &url, payload.clone())
+            .request(client, auth, &url, payload.clone())
             .send()
             .map_err(|_| {
                 crate::app_warn!("http", "workbuddy {label} request failed (transport)");
@@ -354,6 +386,7 @@ impl WorkBuddyClient {
 
     fn request(
         &self,
+        client: &Client,
         auth: &WorkBuddyAuth,
         url: &str,
         payload: Value,
@@ -363,8 +396,7 @@ impl WorkBuddyClient {
             .nth(1)
             .and_then(|part| part.split('/').next())
             .unwrap_or("www.codebuddy.cn");
-        let mut request = self
-            .client
+        let mut request = client
             .post(url)
             .json(&payload)
             .header("Accept", "application/json, text/plain, */*")
@@ -503,8 +535,9 @@ mod tests {
     }
 
     #[test]
-    fn context_aware_summary_entry_point_keeps_the_current_direct_transport() {
-        let server = test_http::serve_once(200, &[], r#"{"code":0,"data":{}}"#);
+    fn provider_proxy_remaining_route_workbuddy() {
+        let (server, request) =
+            test_http::serve_once_capturing_request(200, r#"{"code":0,"data":{}}"#);
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("auth.info"),
@@ -512,9 +545,12 @@ mod tests {
         )
         .unwrap();
         let auth = WorkBuddyAuth::load_from_path(&dir.path().join("auth.info")).unwrap();
+        let proxy_url = server.replacen("http://", "http://proxy-user:proxy-pass@", 1);
         let context = ProviderRequestContext {
-            proxy_url: Some(reqwest::Url::parse("http://127.0.0.1:1").unwrap()),
-            http_clients: std::sync::Arc::default(),
+            proxy_url: Some(reqwest::Url::parse(&proxy_url).unwrap()),
+            http_clients: std::sync::Arc::new(
+                crate::providers::http::ProviderHttpClientFactory::default(),
+            ),
         };
 
         let response = WorkBuddyClient::for_test(&server)
@@ -522,6 +558,13 @@ mod tests {
             .unwrap();
 
         assert!(response.is_success());
+        let request = request.join().unwrap().to_ascii_lowercase();
+        assert!(request.contains("proxy-authorization: basic "));
+        assert!(request.contains("authorization: bearer token"));
+        assert!(request.contains("x-domain: www.codebuddy.cn"));
+        assert!(request.contains("x-client-platform: web"));
+        assert!(request.contains("accept: application/json, text/plain, */*"));
+        assert!(request.contains("chrome/152.0.0.0 safari/537.36"));
     }
 
     /// 每个 billing / usage 请求都带着 bearer token，所以 3xx 绝不能被跟随：

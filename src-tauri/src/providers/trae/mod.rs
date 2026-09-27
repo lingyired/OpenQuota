@@ -21,7 +21,9 @@ use self::{
     mapper::{map_entitlement, map_token},
 };
 
-use super::{ProviderError, UsageProvider, WebviewAuth, WebviewCredentialSource};
+use super::{
+    ProviderError, ProviderRequestContext, UsageProvider, WebviewAuth, WebviewCredentialSource,
+};
 
 const LOGIN_URL: &str = "https://www.trae.cn/account-setting#usage";
 const SESSION_COOKIE: &str = "X-Cloudide-Session";
@@ -152,8 +154,12 @@ impl TraeProvider {
         }
     }
 
-    fn refresh_snapshot(&self, session: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let token_response = self.client.exchange_token(session)?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        session: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let token_response = self.client.exchange_token(context, session)?;
         if matches!(
             token_response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
@@ -165,7 +171,7 @@ impl TraeProvider {
         }
         let token = map_token(&token_response.body).ok_or(TraeError::InvalidResponse)?;
 
-        let credits_response = self.client.fetch_credits(&token.token)?;
+        let credits_response = self.client.fetch_credits(context, &token.token)?;
         if matches!(
             credits_response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
@@ -254,12 +260,19 @@ impl UsageProvider for TraeProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let session = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(TraeError::SessionMissing))?;
-        self.refresh_snapshot(session.as_str())
+        self.refresh_snapshot(context, session.as_str())
     }
 
     fn webview_auth(&self) -> Option<WebviewAuth> {
