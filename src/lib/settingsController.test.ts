@@ -24,7 +24,7 @@ function settingsView(
     platformSummary: null,
     appMenubarForced: false,
     settings: {
-      schemaVersion: 9,
+      schemaVersion: 10,
       proxyUrl: null,
       providerNames: {},
       language: 'en',

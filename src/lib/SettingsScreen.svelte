@@ -206,12 +206,14 @@
       />
     </div>
     <div class="setting-row proxy-url-row">
-      <label for="settings-proxy-url"><b>Proxy URL</b></label>
+      <span>
+        <b><label for="settings-proxy-url">{$tStore('settings.proxyUrl')}</label></b>
+        <small>{$tStore('settings.proxyUrlHelp')}</small>
+      </span>
       <input
         id="settings-proxy-url"
         class="proxy-url-input"
         type="url"
-        aria-label="Proxy URL"
         bind:value={proxyUrlDraft}
         oninput={() => (lastSubmittedProxyUrl = undefined)}
         onblur={commitProxyUrl}

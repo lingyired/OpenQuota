@@ -8,7 +8,7 @@ import type { AppSettings } from './types';
 afterEach(cleanup);
 
 const settings: AppSettings = {
-  schemaVersion: 9,
+  schemaVersion: 10,
   proxyUrl: null,
   providerNames: {},
   language: 'en',

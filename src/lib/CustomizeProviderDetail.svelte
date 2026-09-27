@@ -196,16 +196,16 @@
     {#if canRenameProvider(provider.id, renamableProviderIds)}
       <ProviderNameSection {settings} {provider} {catalog} onChange={onNameChange} />
     {/if}
-    <div class="taskband-section proxy-setting-section" role="group" aria-label="Proxy settings">
+    <div class="taskband-section proxy-setting-section">
       <div class="taskband-row proxy-setting-row">
         <span class="taskband-row-label">
-          <b>Use proxy for this provider</b>
-          <small>Uses the shared proxy URL configured in General settings.</small>
+          <b>{$tStore('customize.useProxy')}</b>
+          <small>{$tStore('customize.useProxyHelp')}</small>
         </span>
         <label class="switch">
           <input
             type="checkbox"
-            aria-label="Use proxy for this provider"
+            aria-label={$tStore('customize.useProxy')}
             checked={provider.useProxy}
             onchange={(event) => updateProviderProxy(event.currentTarget.checked)}
           /><span></span>
