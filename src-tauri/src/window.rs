@@ -26,10 +26,12 @@ use crate::{
 };
 
 pub const MAIN_WINDOW: &str = "main";
+pub const SETTINGS_WINDOW: &str = "settings";
 pub const PANEL_WIDTH: f64 = 440.0;
-pub const SETTINGS_WIDTH: f64 = 1000.0;
+pub const SETTINGS_WIDTH: f64 = 1200.0;
 pub const PANEL_MIN_HEIGHT: u32 = 360;
 const PANEL_MAX_HEIGHT: u32 = 800;
+const SETTINGS_MAX_HEIGHT: u32 = 960;
 const PANEL_DEFAULT_HEIGHT: u32 = 800;
 const PANEL_SCREEN_FRACTION: f64 = 0.85;
 const PANEL_RESIZE_SAVE_DELAY: Duration = Duration::from_millis(120);
@@ -362,6 +364,12 @@ pub fn activate_existing_instance(app: &AppHandle) {
         return;
     };
     if app.try_state::<DesktopIntegration>().is_some() {
+        if cfg!(any(target_os = "macos", target_os = "windows"))
+            && app.state::<DesktopIntegration>().provider_instance_count() == 0
+        {
+            let _ = open_settings_window(app, "settings");
+            return;
+        }
         show_main_window(&window);
         return;
     }
@@ -461,6 +469,7 @@ fn position_popup_above(window: &WebviewWindow, anchor: &TaskbandAnchor) {
 /// instance instead of the tray icon. In floating mode the anchor is ignored.
 #[cfg(target_os = "windows")]
 pub fn show_main_window_anchored(window: &WebviewWindow, anchor: TaskbandAnchor) {
+    hide_settings_window(window.app_handle());
     finish_native_panel_resize(window);
     crate::webview_memory::set_inactive(window, false);
     if window
@@ -537,6 +546,7 @@ fn position_popup_below_menu_bar_item(
 /// ignored.
 #[cfg(target_os = "macos")]
 pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: MenuBarAnchor) {
+    hide_settings_window(window.app_handle());
     finish_native_panel_resize(window);
     crate::webview_memory::set_inactive(window, false);
     if window
@@ -561,6 +571,16 @@ pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: Menu
 }
 
 pub fn show_main_window(window: &WebviewWindow) {
+    let app = window.app_handle();
+    if cfg!(any(target_os = "macos", target_os = "windows"))
+        && app
+            .try_state::<DesktopIntegration>()
+            .is_some_and(|integration| !integration.tray_available())
+    {
+        let _ = open_settings_window(app, "settings");
+        return;
+    }
+    hide_settings_window(window.app_handle());
     #[cfg(target_os = "macos")]
     clear_menu_bar_popup_position();
 
@@ -600,6 +620,7 @@ pub fn apply_window_mode(
     let integration = window.app_handle().state::<DesktopIntegration>();
     let previous_floating = integration.is_floating();
     let floating = !integration.tray_available() || mode == WindowMode::Floating;
+    let was_visible = window.is_visible().unwrap_or(false);
 
     window
         .app_handle()
@@ -617,8 +638,10 @@ pub fn apply_window_mode(
         .state::<PopupDismissGuard>()
         .cancel_pending();
     let result = {
-        crate::webview_memory::set_inactive(window, false);
-        let _ = window.unminimize();
+        if was_visible {
+            crate::webview_memory::set_inactive(window, false);
+            let _ = window.unminimize();
+        }
         if floating {
             if center_floating {
                 let _ = window.center();
@@ -627,10 +650,14 @@ pub fn apply_window_mode(
             position_popup(window);
         }
         let _ = restore_manual_panel_height(window);
-        window
-            .show()
-            .and_then(|_| window.set_focus())
-            .map_err(|_| "Quota01 window could not be shown.".to_owned())
+        if was_visible {
+            window
+                .show()
+                .and_then(|_| window.set_focus())
+                .map_err(|_| "Quota01 window could not be shown.".to_owned())
+        } else {
+            Ok(())
+        }
     };
     if result.is_err() {
         integration.set_floating(previous_floating);
@@ -679,8 +706,104 @@ pub fn dismiss_or_hide_main_window(app: &AppHandle) {
     }
 }
 
+fn hide_settings_window(app: &AppHandle) {
+    if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
+        if window.hide().is_ok() {
+            #[cfg(target_os = "macos")]
+            if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+                crate::app_warn!("window", "could not hide Settings from the Dock: {error}");
+            }
+        }
+    }
+}
+
+pub fn open_settings_window(app: &AppHandle, target: &str) -> Result<(), String> {
+    app.state::<PopupDismissGuard>().cancel_pending();
+    let settings_window = app
+        .get_webview_window(SETTINGS_WINDOW)
+        .ok_or("Quota01 Settings window is unavailable.")?;
+
+    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+        if window.is_visible().unwrap_or(false) {
+            hide_main_window(&window);
+        }
+    }
+
+    fit_settings_window_to_work_area(&settings_window)?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+        crate::app_warn!("window", "could not show Settings in the Dock: {error}");
+    }
+    let show_result = settings_window
+        .unminimize()
+        .and_then(|_| settings_window.show())
+        .and_then(|_| settings_window.set_focus())
+        .map_err(|_| "Quota01 Settings window could not be shown.");
+    if show_result.is_err() {
+        hide_settings_window(app);
+    }
+    show_result?;
+    app.emit_to(SETTINGS_WINDOW, "settings-workspace-selection", target)
+        .map_err(|_| "Quota01 Settings window could not receive its selection request.".to_owned())
+}
+
+fn fit_settings_window_to_work_area(window: &WebviewWindow) -> Result<(), String> {
+    let monitor = window
+        .current_monitor()
+        .map_err(|_| "Quota01 display is unavailable.")?
+        .ok_or("Quota01 display is unavailable.")?;
+    let scale = window
+        .scale_factor()
+        .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let work_area = monitor.work_area();
+    let work_width = logical_work_area_width(work_area.size.width, scale);
+    let width = panel_width_for_screen("settings", work_width);
+    let max_width = if work_width > PANEL_WIDTH {
+        (work_width - 32.0).min(1400.0)
+    } else {
+        work_width
+    };
+    let min_width = 560.0_f64.min(max_width);
+    let max_height = settings_maximum_height(window)?;
+    let min_height = PANEL_MIN_HEIGHT.min(max_height);
+    let height = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?
+        .height;
+    let height = (f64::from(height) / scale)
+        .round()
+        .clamp(f64::from(min_height), f64::from(max_height));
+    window
+        .set_max_size(Some(LogicalSize::new(max_width, f64::from(max_height))))
+        .and_then(|_| window.set_min_size(Some(LogicalSize::new(min_width, f64::from(min_height)))))
+        .and_then(|_| window.set_size(LogicalSize::new(width, height)))
+        .and_then(|_| window.center())
+        .map_err(|_| "Quota01 Settings window could not fit the display.".to_owned())
+}
+
+pub fn dismiss_settings_window(app: &AppHandle) -> Result<(), String> {
+    let settings_window = app
+        .get_webview_window(SETTINGS_WINDOW)
+        .ok_or("Quota01 Settings window is unavailable.")?;
+    settings_window
+        .hide()
+        .map_err(|_| "Quota01 Settings window could not be hidden.")?;
+    #[cfg(target_os = "macos")]
+    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+        crate::app_warn!("window", "could not hide Settings from the Dock: {error}");
+    }
+    Ok(())
+}
+
 pub fn toggle_main_window(app: &AppHandle) {
     app.state::<PopupDismissGuard>().cancel_pending();
+
+    if cfg!(any(target_os = "macos", target_os = "windows"))
+        && !app.state::<DesktopIntegration>().tray_available()
+    {
+        let _ = open_settings_window(app, "settings");
+        return;
+    }
 
     let Some(window) = app.get_webview_window(MAIN_WINDOW) else {
         return;
@@ -697,9 +820,13 @@ pub fn toggle_main_window(app: &AppHandle) {
 
 pub fn open_screen(app: &AppHandle, screen: &str) {
     app.state::<PopupDismissGuard>().cancel_pending();
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        show_main_window(&window);
-        let _ = app.emit("open-screen", screen);
+    if screen == "dashboard" {
+        if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
+            show_main_window(&window);
+            let _ = app.emit_to(MAIN_WINDOW, "open-screen", screen);
+        }
+    } else if let Err(error) = open_settings_window(app, screen) {
+        crate::app_warn!("window", "Settings window request failed: {error}");
     }
 }
 
@@ -909,6 +1036,33 @@ pub fn panel_resize_edge(window: &WebviewWindow) -> Result<PanelResizeEdge, Stri
             .state::<DesktopIntegration>()
             .is_floating(),
     ))
+}
+
+fn settings_maximum_height(window: &WebviewWindow) -> Result<u32, String> {
+    let outer_size = window
+        .outer_size()
+        .map_err(|_| "Quota01 window size is unavailable.")?;
+    let inner_size = window
+        .inner_size()
+        .map_err(|_| "Quota01 content size is unavailable.")?;
+    let scale = window
+        .scale_factor()
+        .map_err(|_| "Quota01 display scale is unavailable.")?;
+    let monitor = window
+        .current_monitor()
+        .map_err(|_| "Quota01 display is unavailable.")?
+        .ok_or("Quota01 display is unavailable.")?;
+    let frame_overhead = outer_size.height.saturating_sub(inner_size.height);
+    let vertical_inset = (32.0 * scale).round().max(0.0) as u32;
+    let available_height = monitor
+        .work_area()
+        .size
+        .height
+        .saturating_sub(frame_overhead)
+        .saturating_sub(vertical_inset);
+    Ok(((f64::from(available_height) / scale).floor())
+        .min(f64::from(SETTINGS_MAX_HEIGHT))
+        .clamp(1.0, f64::from(u32::MAX)) as u32)
 }
 
 fn panel_maximum_height(window: &WebviewWindow) -> Result<u32, String> {
@@ -1240,6 +1394,48 @@ fn schedule_outside_click_dismiss(window: Window) {
 }
 
 pub fn handle_window_event(window: &Window, event: &WindowEvent) {
+    if window.label() == SETTINGS_WINDOW {
+        let app = window.app_handle();
+        match event {
+            WindowEvent::ThemeChanged(theme) => {
+                let preference = app
+                    .try_state::<Arc<SettingsService>>()
+                    .map(|settings| settings.get().theme);
+                if preference == Some(ThemePreference::System) {
+                    if let Some(webview) = app.get_webview_window(SETTINGS_WINDOW) {
+                        let _ = apply_panel_surface_for_theme(
+                            &webview,
+                            ThemePreference::System,
+                            *theme,
+                        );
+                    }
+                }
+            }
+            WindowEvent::Focused(false)
+                if cfg!(any(target_os = "macos", target_os = "windows"))
+                    && app
+                        .try_state::<DesktopIntegration>()
+                        .is_some_and(|integration| !integration.tray_available()) =>
+            {
+                let _ = app.emit_to(SETTINGS_WINDOW, "request-leave-settings", ());
+            }
+            WindowEvent::CloseRequested { api, .. } => {
+                api.prevent_close();
+                let requires_confirmation = cfg!(any(target_os = "macos", target_os = "windows"))
+                    && app
+                        .try_state::<DesktopIntegration>()
+                        .is_some_and(|integration| !integration.tray_available());
+                if requires_confirmation {
+                    let _ = app.emit_to(SETTINGS_WINDOW, "request-leave-settings", ());
+                } else if let Err(error) = dismiss_settings_window(app) {
+                    crate::app_warn!("window", "Settings window could not close: {error}");
+                }
+            }
+            _ => {}
+        }
+        return;
+    }
+
     if window.label() != MAIN_WINDOW {
         return;
     }
@@ -1267,15 +1463,6 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             }
         }
         WindowEvent::Focused(false)
-            if cfg!(any(target_os = "macos", target_os = "windows"))
-                && !window
-                    .app_handle()
-                    .state::<DesktopIntegration>()
-                    .tray_available() =>
-        {
-            let _ = window.app_handle().emit("request-leave-settings", ());
-        }
-        WindowEvent::Focused(false)
             if !window
                 .app_handle()
                 .state::<DesktopIntegration>()
@@ -1292,7 +1479,9 @@ pub fn handle_window_event(window: &Window, event: &WindowEvent) {
             let integration = window.app_handle().state::<DesktopIntegration>();
             #[cfg(any(target_os = "macos", target_os = "windows"))]
             if !integration.tray_available() {
-                let _ = window.app_handle().emit("request-leave-settings", ());
+                let _ = window
+                    .app_handle()
+                    .emit_to(SETTINGS_WINDOW, "request-leave-settings", ());
                 return;
             }
             match main_window_dismiss_action(integration.exits_on_close(), false) {

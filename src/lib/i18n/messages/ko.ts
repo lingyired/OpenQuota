@@ -143,6 +143,9 @@ export const ko = {
   },
   settings: {
     title: 'Settings',
+    providers: '제공업체',
+    usagePreview: '사용량 미리보기',
+    preferences: '앱 환경설정',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

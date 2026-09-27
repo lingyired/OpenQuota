@@ -505,15 +505,15 @@
         }}
         oncontextmenu={(event) => openProviderMenu(event, provider.id)}
       >
-        <header
-          class="provider-header"
-          data-reorder-handle
-          role="group"
-          aria-label={$tStore('dashboard.dragProvider', {
-            provider: providerDisplayName(provider.id),
-          })}
-        >
-          {#if !readOnlyPreview}<span
+        {#if !readOnlyPreview}<header
+            class="provider-header"
+            data-reorder-handle
+            role="group"
+            aria-label={$tStore('dashboard.dragProvider', {
+              provider: providerDisplayName(provider.id),
+            })}
+          >
+            <span
               class="drag-grip"
               data-reorder-handle
               data-reorder-touch-handle
@@ -564,9 +564,9 @@
                   ></span
                 >
               {/if}
-            </span>{/if}
-          <span class="provider-mark"><ProviderIcon providerId={provider.id} size={17} /></span>
-          {#if !readOnlyPreview}<button
+            </span>
+            <span class="provider-mark"><ProviderIcon providerId={provider.id} size={17} /></span>
+            <button
               class="provider-settings-button"
               type="button"
               aria-label={$tStore('dashboard.providerSettings', {
@@ -581,8 +581,8 @@
                 event.stopPropagation();
                 onOpenProviderCustomize(provider.id);
               }}><Icon name="gear" size={14} strokeWidth={1.8} /></button
-            >{/if}
-        </header>
+            >
+          </header>{/if}
         <section
           class="provider-card"
           aria-label={$tStore('dashboard.providerUsage', {

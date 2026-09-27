@@ -27,10 +27,27 @@ pub fn get_panel_height_mode(app: AppHandle) -> PanelHeightMode {
 
 #[tauri::command]
 pub fn set_panel_layout_for_screen(app: AppHandle, screen: String) -> Result<PanelLayout, String> {
+    if !popup_supports_screen(&screen) {
+        return Err("The popup window only supports its fixed dashboard layout.".to_owned());
+    }
     let window = app
         .get_webview_window(MAIN_WINDOW)
         .ok_or("Quota01 window is unavailable.")?;
     set_panel_layout(&window, &screen)
+}
+
+fn popup_supports_screen(screen: &str) -> bool {
+    screen == "dashboard"
+}
+
+#[tauri::command]
+pub fn open_settings_window(app: AppHandle, target: String) -> Result<(), String> {
+    crate::window::open_settings_window(&app, &target)
+}
+
+#[tauri::command]
+pub fn dismiss_settings_window(app: AppHandle) -> Result<(), String> {
+    crate::window::dismiss_settings_window(&app)
 }
 
 #[tauri::command]
@@ -77,4 +94,16 @@ pub fn quit_app(app: AppHandle) {
         finish_native_panel_resize(&window);
     }
     app.exit(0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::popup_supports_screen;
+
+    #[test]
+    fn popup_layout_only_accepts_the_fixed_dashboard_screen() {
+        assert!(popup_supports_screen("dashboard"));
+        assert!(!popup_supports_screen("settings"));
+        assert!(!popup_supports_screen("provider:codex"));
+    }
 }

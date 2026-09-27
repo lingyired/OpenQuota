@@ -10,7 +10,7 @@
 //! 文本组装逻辑为纯函数（可在任意平台单测），所有调用插件的代码
 //! 均以 `#[cfg(target_os = "windows")]` 隔离，非 Windows 零影响。
 
-#[cfg(test)]
+#[cfg(all(test, not(target_os = "windows")))]
 use crate::models::AppSettings;
 #[cfg(target_os = "windows")]
 use crate::models::{
@@ -32,7 +32,7 @@ use crate::tray_presentation::{
 #[cfg(target_os = "windows")]
 use crate::{
     desktop_integration::DesktopIntegration,
-    window::{open_screen, show_main_window, TaskbandAnchor, MAIN_WINDOW},
+    window::{open_screen, TaskbandAnchor, MAIN_WINDOW},
 };
 #[cfg(target_os = "windows")]
 use std::collections::{HashMap, HashSet};
@@ -651,12 +651,6 @@ fn ensure_taskband_runtime_entry(app: &AppHandle, has_instances: bool) {
         }
     } else if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
         if had_instances || !window.is_visible().unwrap_or(false) {
-            let _ = crate::window::apply_window_mode(
-                &window,
-                crate::models::WindowMode::Floating,
-                true,
-            );
-            show_main_window(&window);
             open_screen(app, "settings");
         }
     }

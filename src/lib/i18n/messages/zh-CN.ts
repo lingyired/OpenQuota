@@ -137,6 +137,9 @@ export const zhCn = {
   },
   settings: {
     title: '设置',
+    providers: '服务商',
+    usagePreview: '用量预览',
+    preferences: '应用设置',
     language: '语言',
     languageAuto: '自动',
     english: 'English',

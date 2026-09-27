@@ -143,6 +143,9 @@ export const pl = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Dostawcy',
+    usagePreview: 'Podgląd użycia',
+    preferences: 'Preferencje aplikacji',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

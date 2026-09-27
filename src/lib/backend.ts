@@ -169,6 +169,14 @@ export function dismissMainWindow() {
   return invoke<void>('dismiss_main_window');
 }
 
+export function openSettingsWindow(target: string) {
+  return invoke<void>('open_settings_window', { target });
+}
+
+export function dismissSettingsWindow() {
+  return invoke<void>('dismiss_settings_window');
+}
+
 export function getPanelResizeEdge() {
   return invoke<PanelResizeEdge>('get_panel_resize_edge');
 }
@@ -232,6 +240,10 @@ export function onSettingsState(handler: PayloadHandler<SettingsViewState>) {
 
 export function onOpenScreen(handler: PayloadHandler<string>) {
   return onEvent('open-screen', handler);
+}
+
+export function onSettingsWorkspaceSelection(handler: PayloadHandler<string>) {
+  return onEvent('settings-workspace-selection', handler);
 }
 
 export function onTaskbandOpen(handler: PayloadHandler<string>) {

@@ -143,6 +143,9 @@ export const ru = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Провайдеры',
+    usagePreview: 'Предпросмотр использования',
+    preferences: 'Настройки приложения',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

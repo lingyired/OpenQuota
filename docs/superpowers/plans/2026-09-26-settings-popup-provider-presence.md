@@ -4,7 +4,7 @@
 
 **目标：**实现三列设置、两列 popup、独立提供商实例控制，以及分档自动刷新。
 
-**架构：**`App.svelte` 管理选择和导航；抽取单提供商数据组件供 popup 与设置预览共用。Rust 负责创建并统计实际原生实例；自动刷新按提供商调度，手动刷新保留现有命令。
+**架构：**popup 与 Settings 使用独立的 Tauri 窗口；`App.svelte` 按 WebView 身份渲染数据 popup 或设置工作区，并抽取单提供商数据组件供 popup 与设置预览共用。Rust 负责窗口切换、创建并统计实际原生实例；自动刷新按提供商调度，手动刷新保留现有命令。
 
 **技术栈：**Svelte 5、TypeScript、Tauri 2、Rust、Vitest、Cargo tests。
 
@@ -67,12 +67,13 @@
 
 **文件：**`src-tauri/src/window.rs`、`src-tauri/tauri.conf.json`、`src/lib/windowController.ts`、`src/lib/panelSizing.ts`、`src/App.svelte`、`src/lib/panelSizing.test.ts`、Rust 窗口测试。
 
-**接口：**增加按 `dashboard` 或 `settings` 调整窗口尺寸的原生操作，返回实际逻辑尺寸。Popup 保持 440px；设置目标约 1000px，受显示器工作区约束；过窄时启动两列后备布局。
+**接口：**主窗口只承载 popup 数据并固定为 440px；设置使用独立的普通原生窗口，目标约 1000px，受显示器工作区约束；过窄时启动两列后备布局。打开设置时收起 popup，关闭设置时按提供商实例状态恢复 popup 或保留退出确认窗口。
 
 - [x] 先写几何失败测试：标准桌面、窄工作区、多显示器位置及缩放、从设置返回 popup、高度变化时反复切换。
 - [x] 修改固定 `PANEL_WIDTH` 的相关尺寸及定位路径。设置窗口限制在当前工作区，返回时恢复 popup 的 440px 和锚点；高度适配不能套用旧界面尺寸。
-- [x] 检查 popup/浮窗模式、标题栏拖动、手动高度、刷新中切换及系统缩放。运行定向 Rust 窗口测试和 `corepack pnpm test -- src/lib/panelSizing.test.ts`。
-- [x] 检查通过后提交此任务。
+- [x] 对照窗口代码与几何单测检查 popup/浮窗模式、手动高度、刷新中切换及系统缩放；运行定向 Rust 窗口测试和 `corepack pnpm test -- src/lib/panelSizing.test.ts`。
+- [ ] 在原生 UI 手测标题栏拖动、设置独立窗口、popup 固定宽度，以及关闭 Settings 后 popup 恢复。Settings 不提供页面返回按钮。隔离 app 已启动，但 CUA 只能读到原生菜单，截图为空白面板，当前无法确认 WebView 结果。
+- [ ] 原生 UI 核验后提交此任务。
 
 ### 任务 4：实例默认值、有效入口及退出确认
 
@@ -84,7 +85,7 @@
 - [x] 在 macOS/Windows 提供商设置中展示实例开关。移除 `showAppMenubar` UI 及 `show_app_menubar`/`app_menubar_forced` 契约，旧设置文件仍能读取。启用与显示实例分离，保留明确关闭；无固定指标时说明原因。
 - [x] 移除 macOS 应用菜单栏实例、强制兜底及监听器，并移除 Windows 应用托盘图标及安装路径；Linux 托盘不变。按期望实例对账，读数缺失时显示 `--`。零实例启动直接打开设置，且原生提供商菜单的“设置”选中对应提供商。
 - [x] 零实际实例时保持设置窗口可见。返回、Escape、标题栏关闭、系统关闭、点击窗口外和跳转 popup 统一弹出退出确认；取消保留窗口及焦点，确认等待保存队列完成后退出；明确“退出应用”直接执行。
-- [x] 运行定向 Rust 与前端测试并检查代码路径；尝试启动隔离配置的 macOS 开发版，但当前 CUA 无法识别 `cargo run` 窗口，未完成原生菜单栏与窗口手测。Windows 原生 UI 也需在 Windows 设备验证。
+- [x] 运行定向 Rust 与前端测试并检查代码路径；尝试用隔离 HOME 启动 macOS debug app bundle。CUA 能识别原生窗口，但窗口截图与 AX 树未显示 WebView 内容，未完成原生菜单栏与独立窗口视觉手测。Windows 原生 UI 也需在 Windows 设备验证。
 
 ### 任务 5：分档刷新、本地化与最终验证
 
@@ -95,17 +96,21 @@
 - [x] 以可控 `Instant` 输入覆盖快/慢/停用档、启用项首次立即刷新、启停和间隔变化、失败退避；策略测试覆盖后台提供商 5 分钟阈值及 10/30 分钟过期阈值。配置与实例状态每 5 秒重读，因此不用等到最长刷新周期才应用变化。
 - [x] 将每 5 分钟整批刷新改为按提供商到期调度。相关间隔、尝试或失败状态变化时重算，复用 service 单飞及现有 `usage-state` 事件。选中后台提供商超过 5 分钟后通过新命令补刷；手动刷新仍强制执行。
 - [x] 过期阈值与通知所用 service 快/慢策略统一。沿用前几项新增的多语言列标题、实例说明、更新时间、空状态和退出确认文案；清理旧应用图标文案并更新 README。
-- [x] 运行前端、Rust、契约验证，以及 macOS 和 Windows GNU Rust 目标编译。macOS 开发版已尝试启动，但当前 CUA 无法识别 `cargo run` 子进程窗口；Windows 原生 UI 无可用设备。普通/紧凑、主题、RTL、键盘和减少动画的原生端到端手测仍需相应系统设备完成。
-- [x] 全套自动验证通过后提交此任务。
+- [x] 运行前端、Rust、契约验证，以及 macOS 和 Windows GNU Rust 目标编译。隔离 HOME 下的 macOS debug app bundle 已启动；CUA 只读到原生菜单，窗口截图呈空白面板，无法确认 WebView 的最终视觉结果。Windows 原生 UI 无可用设备。普通/紧凑、主题、RTL、键盘和减少动画的原生端到端手测仍需相应系统设备完成。
+- [x] 全套自动验证通过。
+- [ ] 完成任务 3 的原生窗口手测后，提交最终补丁。
 
 ## 实施交接
 
-实施前阅读本计划与设计说明。用户已确认只计算提供商实例，也不再需要 Quota01 应用图标。当前请求只要求计划，此阶段不修改产品代码。
+初始实现已完成。用户确认 popup 与设置必须使用独立原生窗口；本轮继续审核并补齐窗口隔离和 popup 固定宽度。
 
 ## 实施记录
 
 - Task 4 将 `SettingsViewState` 扩展为返回实际成功实例数和逐实例失败原因，供设置工作区显示；该字段是计划中“向 SettingsViewState 报告实际创建成功的数量和失败原因”的具体实现。
 - Task 4 修复 `src-tauri/src/providers/workbuddy/auth.rs` 中 Windows 专用 `auth_file_path()` 末尾多余分号。Windows GNU 目标检查显示该分号令路径表达式返回 `()`，阻止 Windows 编译；这是验证发现的必要编译修复，不是格式化改动。
-- 受当前 CUA app inventory 无法识别 `cargo run` 子进程限制，macOS 开发版启动后未能完成原生窗口截图检查；Windows 原生 UI 也没有可用主机。前端、Rust 和 macOS/Windows 目标编译验证替代了可自动化部分，系统 UI 手测仍需在相应设备完成。
+- 原生 UI 手测限制：隔离 HOME 下可启动并由 CUA 绑定 macOS debug app bundle，但 WebView AX 内容不可见、截图为空白面板，因此本轮不能确认最终窗口外观；Windows 原生 UI 也没有可用主机。自动化前端、Rust 和 macOS/Windows 目标编译均单独验证通过，系统 UI 手测仍需在相应设备完成。
 - Task 5 将刷新时间状态从单个固定 5 分钟计时改为每个启用提供商独立调度；快档用于实际提供商原生实例或启用通知的提供商，慢档用于无实例且无通知者。macOS/Windows 实例 ID 来自原生创建/更新成功结果，Linux ID 来自既有托盘实际解析出的提供商组。自动分批不更新 `lastFullRefreshAt`，真实界面使用 `nextRefreshAt`；旧字段只保留前端兼容回退。
 - Task 5 按可注入的单调时间参数测试调度到期，不另建可变假时钟；失败后 60 秒重试，实例/通知/设置变化由 5 秒轮询收敛，新启用提供商立即刷新。选中后台提供商的检查由 `refresh_selected_provider_if_due` 明确触发，沿用手动按钮强制刷新的独立路径。
+- 窗口隔离审核确认：主 popup 原先会在同一个 WebView 内切入 `SettingsWorkspace`，随后把窗口宽度扩到约 1000px；修复以单独的 `settings` Tauri 窗口承载设置，并将 popup 最大宽度锁定为 440px。
+- 窗口路由再次审核：主窗口固定渲染 popup 数据页，`settings` 窗口固定渲染三列工作区；提供商设置请求通过 `settings-workspace-selection` 在工作区内选中，不再更换页面；移除了 Settings 页面的返回按钮。前端回归覆盖 popup 仍只呈现数据，以及 Settings 选中提供商时仍留在单页。
+- 最终复核重新运行 `corepack pnpm verify:frontend`（47 个文件、367 项测试通过；格式、Svelte 检查和构建通过，构建提示现有 JS chunk 超过 500 kB）、`corepack pnpm verify:rust`（格式、Clippy 与 767 项测试通过）、`corepack pnpm verify:contracts`、`corepack pnpm verify:versions`、macOS 与 Windows GNU all-targets `cargo check`，均通过；`git diff --check` 通过。隔离 HOME 原生启动探测到已安装的 Trae CN 提供商但无登录态，随后停止测试进程；未能通过空白 CUA 面板完成原生 WebView 视觉确认。

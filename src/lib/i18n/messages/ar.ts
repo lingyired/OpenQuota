@@ -143,6 +143,9 @@ export const ar = {
   },
   settings: {
     title: 'Settings',
+    providers: 'المزوّدون',
+    usagePreview: 'معاينة الاستخدام',
+    preferences: 'تفضيلات التطبيق',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

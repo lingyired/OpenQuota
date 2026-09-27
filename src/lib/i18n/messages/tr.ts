@@ -143,6 +143,9 @@ export const tr = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Sağlayıcılar',
+    usagePreview: 'Kullanım önizlemesi',
+    preferences: 'Uygulama tercihleri',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

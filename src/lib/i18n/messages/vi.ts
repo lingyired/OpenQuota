@@ -143,6 +143,9 @@ export const vi = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Nhà cung cấp',
+    usagePreview: 'Xem trước mức sử dụng',
+    preferences: 'Tùy chọn ứng dụng',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

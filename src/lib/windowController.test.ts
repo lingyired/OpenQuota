@@ -95,6 +95,26 @@ describe('hybrid window controller', () => {
     controller.dispose();
   });
 
+  it('never resizes or changes native layout in the independent Settings window', () => {
+    const controller = createWindowController({
+      screen: () => 'settings',
+      independentSettingsWindow: () => true,
+      refreshing: () => false,
+      reordering: () => false,
+      automatic: () => true,
+      reducedMotion: () => false,
+      onError: vi.fn(),
+    });
+
+    controller.beginContentMorph();
+    controller.scheduleFit();
+
+    expect(mocks.fitPanelToContent).not.toHaveBeenCalled();
+    expect(mocks.setPanelLayoutForScreen).not.toHaveBeenCalled();
+    expect(document.querySelector<HTMLElement>('.screen-stage')!.style.height).toBe('');
+    controller.dispose();
+  });
+
   it('includes stage padding when the dashboard scrolls inside the stage', async () => {
     const stage = document.querySelector<HTMLElement>('.screen-stage')!;
     stage.style.padding = '14px 14px 12px';

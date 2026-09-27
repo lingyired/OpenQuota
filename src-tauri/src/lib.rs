@@ -66,6 +66,7 @@ use crate::{
     storage::Storage,
     window::{
         handle_window_event, show_main_window, toggle_main_window, PanelResizeSession, MAIN_WINDOW,
+        SETTINGS_WINDOW,
     },
 };
 
@@ -468,6 +469,14 @@ pub fn run() {
                     webview_memory::set_inactive(&window, true);
                 }
             }
+            if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
+                if window::apply_panel_surface(&window, settings.get().theme).is_err() {
+                    app_warn!(
+                        "window",
+                        "initial settings surface theme could not be applied"
+                    );
+                }
+            }
 
             if let Some(shortcut) = settings.get().global_shortcut {
                 let _ = register_shortcut(app.handle(), &shortcut);
@@ -494,7 +503,9 @@ pub fn run() {
                 false
             };
 
-            if desktop_integration.is_floating() {
+            if desktop_integration.is_floating()
+                && !cfg!(any(target_os = "macos", target_os = "windows"))
+            {
                 if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
                     if let Err(error) =
                         window::apply_window_mode(&window, settings.get().window_mode, true)
@@ -572,6 +583,8 @@ pub fn run() {
             commands::settings::get_log_path,
             commands::settings::open_log_folder,
             commands::window::dismiss_main_window,
+            commands::window::open_settings_window,
+            commands::window::dismiss_settings_window,
             commands::window::get_panel_resize_edge,
             commands::window::get_panel_height_mode,
             commands::window::set_panel_layout_for_screen,

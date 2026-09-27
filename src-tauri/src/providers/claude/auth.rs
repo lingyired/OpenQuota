@@ -637,11 +637,12 @@ mod tests {
     use chrono::Utc;
     use tempfile::tempdir;
 
+    #[cfg(target_os = "macos")]
+    use super::load_candidates_from_path_checked;
     use super::{
-        has_desktop_app_material_at, load_candidates_from_path, load_candidates_from_path_checked,
-        load_candidates_with_environment, parse_credentials, write_private_file_atomic,
-        ClaudeCredential, ClaudeCredentialGeneration, ClaudeCredentialScope, ClaudeCredentialsFile,
-        ClaudeOAuth, CredentialSource,
+        has_desktop_app_material_at, load_candidates_from_path, load_candidates_with_environment,
+        parse_credentials, write_private_file_atomic, ClaudeCredential, ClaudeCredentialGeneration,
+        ClaudeCredentialScope, ClaudeCredentialsFile, ClaudeOAuth, CredentialSource,
     };
     use crate::providers::claude::ClaudeError;
 

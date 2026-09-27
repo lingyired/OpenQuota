@@ -18,10 +18,10 @@ describe('SettingsScreen', () => {
       updateError: null,
       checkingUpdate: false,
       onCheckForUpdates: () => {},
-      onCustomize: () => {},
       onCopyLogPath: async () => {},
       onOpenLogFolder: async () => {},
       onResetAllSettings: () => {},
+      onResetAllCustomization: () => {},
     });
 
     expect(screen.queryByText(/Quota01 Menu Bar Icon/)).not.toBeInTheDocument();

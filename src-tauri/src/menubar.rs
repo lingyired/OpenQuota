@@ -33,14 +33,16 @@ use crate::{
     service::{ProviderService, UsageViewState},
     settings::SettingsService,
     tray_presentation,
-    window::{open_screen, show_main_window, MAIN_WINDOW},
+    window::{open_screen, MAIN_WINDOW},
 };
+#[cfg(any(target_os = "macos", test))]
+use std::{collections::HashMap, sync::Mutex};
 #[cfg(target_os = "macos")]
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{
         atomic::{AtomicU64, Ordering},
-        Arc, Mutex,
+        Arc,
     },
 };
 #[cfg(target_os = "macos")]
@@ -132,7 +134,6 @@ struct MenubarConfigInput {
     tooltip: String,
 }
 
-#[cfg(target_os = "macos")]
 #[cfg(any(target_os = "macos", test))]
 #[derive(Debug, Clone, PartialEq)]
 struct DesiredProviderMenubar {
@@ -734,15 +735,7 @@ fn apply_runtime_entry(app: &AppHandle, has_menu_entry: bool) -> RuntimeEntryOut
         if let Some(service) = app.try_state::<Arc<ProviderService>>() {
             service.set_native_instance_ids(Vec::new());
         }
-        if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-            let _ = crate::window::apply_window_mode(
-                &window,
-                crate::models::WindowMode::Floating,
-                true,
-            );
-            show_main_window(&window);
-            open_screen(app, "settings");
-        }
+        open_screen(app, "settings");
         if let Some(settings) = app.try_state::<Arc<SettingsService>>() {
             let _ = app.emit(
                 "settings-state",

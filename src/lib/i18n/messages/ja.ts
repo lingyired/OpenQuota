@@ -143,6 +143,9 @@ export const ja = {
   },
   settings: {
     title: 'Settings',
+    providers: 'プロバイダー',
+    usagePreview: '使用量プレビュー',
+    preferences: 'アプリの設定',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

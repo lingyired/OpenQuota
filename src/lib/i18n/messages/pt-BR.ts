@@ -143,6 +143,9 @@ export const ptBr = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Provedores',
+    usagePreview: 'Prévia de uso',
+    preferences: 'Preferências do app',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

@@ -142,6 +142,9 @@ export const zhTw = {
   },
   settings: {
     title: 'Settings',
+    providers: '供應商',
+    usagePreview: '用量預覽',
+    preferences: '應用程式設定',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

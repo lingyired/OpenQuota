@@ -143,6 +143,9 @@ export const hi = {
   },
   settings: {
     title: 'Settings',
+    providers: 'प्रदाता',
+    usagePreview: 'उपयोग पूर्वावलोकन',
+    preferences: 'ऐप प्राथमिकताएँ',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

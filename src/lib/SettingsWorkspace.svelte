@@ -2,6 +2,7 @@
   import type { DashboardProps } from './Dashboard.svelte';
   import CustomizeProviderDetail from './CustomizeProviderDetail.svelte';
   import CustomizeProviderList from './CustomizeProviderList.svelte';
+  import Icon from './Icon.svelte';
   import ProviderDataView from './ProviderDataView.svelte';
   import SettingsScreen from './SettingsScreen.svelte';
   import { tStore } from './i18n';
@@ -24,6 +25,7 @@
     onCopyLogPath: () => Promise<void>;
     onOpenLogFolder: () => Promise<void>;
     onResetAllSettings: () => void;
+    onResetAllCustomization: () => void;
     onResetProviderCustomization: (providerId: string) => void;
     resettingProviderId: string | null;
   }
@@ -43,13 +45,13 @@
     onCopyLogPath,
     onOpenLogFolder,
     onResetAllSettings,
+    onResetAllCustomization,
     onResetProviderCustomization,
     resettingProviderId,
   }: Props = $props();
   let selectedProviderId = $state<string | null>(null);
   let generalSelected = $state(false);
   let initializedSelection = false;
-  let narrowPanel = $state<'settings' | 'preview'>('settings');
   const availableProviders = $derived(
     settingsView.settings.providers.filter((provider) =>
       dashboardProps.catalog.provider(provider.id),
@@ -61,11 +63,33 @@
   const selectedProvider = $derived(
     availableProviders.find((provider) => provider.id === selectedProviderId) ?? null,
   );
+  const previewProviderId = $derived(generalSelected ? null : selectedProviderId);
+  const previewProviderName = $derived(
+    previewProviderId
+      ? dashboardProps.catalog.displayName(previewProviderId, settingsView.settings.providerNames)
+      : '',
+  );
   const selectedProviderName = $derived(
     selectedProvider
       ? dashboardProps.catalog.displayName(selectedProvider.id, settingsView.settings.providerNames)
       : '',
   );
+  const settingsScreenProps = $derived({
+    settingsView,
+    platform,
+    panelHeightMode,
+    onChange: dashboardProps.onSettingsChange,
+    onPanelHeightModeChange,
+    onRequestNotifications,
+    onOpenNotificationSettings,
+    updateError: dashboardProps.updateError,
+    checkingUpdate,
+    onCheckForUpdates,
+    onCopyLogPath,
+    onOpenLogFolder,
+    onResetAllSettings,
+    onResetAllCustomization,
+  });
 
   $effect(() => {
     if (!initializedSelection) {
@@ -86,53 +110,31 @@
   function selectProvider(providerId: string) {
     generalSelected = false;
     selectedProviderId = providerId;
-    narrowPanel = 'settings';
   }
 
   function selectGeneralSettings() {
     generalSelected = true;
     selectedProviderId = null;
-    narrowPanel = 'settings';
-  }
-
-  function openFirstProvider() {
-    const firstProviderId = enabledProviderIds[0] ?? availableProviders[0]?.id;
-    if (firstProviderId) selectProvider(firstProviderId);
   }
 </script>
 
 <section class="settings-workspace" aria-label={$tStore('settings.title')} data-settings-workspace>
-  <div class="settings-workspace__narrow-tabs" role="group" aria-label={$tStore('settings.title')}>
-    <button
-      type="button"
-      aria-pressed={narrowPanel === 'settings'}
-      onclick={() => (narrowPanel = 'settings')}
-    >
-      {$tStore('settings.title')}
-    </button>
-    <button
-      type="button"
-      aria-pressed={narrowPanel === 'preview'}
-      onclick={() => (narrowPanel = 'preview')}
-    >
-      {$tStore('app.usageDashboard')}
-    </button>
-  </div>
-
   <nav
     class="settings-workspace__column settings-workspace__providers"
-    data-workspace-column="providers"
-    aria-label={$tStore('customize.title')}
+    data-workspace-panel="providers"
+    aria-label={$tStore('settings.title')}
   >
-    <h2 class="settings-workspace__column-title">
-      {$tStore('customize.title')}
-    </h2>
+    <header class="settings-workspace__column-header">
+      <h1 class="settings-workspace__column-title">{$tStore('settings.title')}</h1>
+    </header>
     <CustomizeProviderList
       settings={settingsView.settings}
       catalog={dashboardProps.catalog}
       workspace={true}
       {selectedProviderId}
       {generalSelected}
+      providerInstanceCount={settingsView.providerInstanceCount}
+      providerInstanceFailures={settingsView.providerInstanceFailures}
       onSelect={selectProvider}
       onGeneralSettings={selectGeneralSettings}
       onOpen={() => {}}
@@ -146,49 +148,27 @@
 
   <section
     class="settings-workspace__column settings-workspace__settings"
-    class:settings-workspace__column--narrow-active={narrowPanel === 'settings'}
-    data-workspace-column="settings"
-    aria-label={generalSelected ? $tStore('settings.title') : $tStore('customize.title')}
+    data-workspace-panel="settings"
+    aria-label={generalSelected ? $tStore('settings.preferences') : selectedProviderName}
   >
-    <h2 class="settings-workspace__column-title">
-      {generalSelected
-        ? $tStore('settings.title')
-        : $tStore('customize.customizeProvider', { id: selectedProviderName })}
-    </h2>
-    <p class="settings-workspace__instance-status" aria-live="polite">
-      {$tStore('customize.nativeInstanceCount', { count: settingsView.providerInstanceCount })}
-      {#each settingsView.providerInstanceFailures as failure (failure)}
-        <span class="settings-workspace__instance-failure">{failure}</span>
-      {/each}
-    </p>
-    {#if !generalSelected && selectedProvider}
-      <button
-        class="settings-workspace__reset-provider"
-        type="button"
-        disabled={resettingProviderId !== null}
-        aria-label={$tStore('app.resetProvider', { name: selectedProviderName })}
-        onclick={() => onResetProviderCustomization(selectedProvider.id)}
-      >
-        {$tStore('app.resetProvider', { name: selectedProviderName })}
-      </button>
-    {/if}
+    <header class="settings-workspace__column-header">
+      <h2 class="settings-workspace__column-title">
+        {generalSelected ? $tStore('settings.preferences') : selectedProviderName}
+      </h2>
+      {#if !generalSelected && selectedProvider}
+        <button
+          class="settings-workspace__header-action"
+          type="button"
+          disabled={resettingProviderId !== null}
+          aria-label={$tStore('app.resetProvider', { name: selectedProviderName })}
+          title={$tStore('app.resetProvider', { name: selectedProviderName })}
+          onclick={() => onResetProviderCustomization(selectedProvider.id)}
+          ><Icon name="reset" size={16} strokeWidth={2} /></button
+        >
+      {/if}
+    </header>
     {#if generalSelected}
-      <SettingsScreen
-        {settingsView}
-        {platform}
-        {panelHeightMode}
-        onChange={dashboardProps.onSettingsChange}
-        {onPanelHeightModeChange}
-        {onRequestNotifications}
-        {onOpenNotificationSettings}
-        updateError={dashboardProps.updateError}
-        {checkingUpdate}
-        {onCheckForUpdates}
-        onCustomize={openFirstProvider}
-        {onCopyLogPath}
-        {onOpenLogFolder}
-        {onResetAllSettings}
-      />
+      <SettingsScreen {...settingsScreenProps} region="primary" />
     {:else if selectedProvider}
       <div class="settings-workspace__settings-detail">
         {#key selectedProvider.id}
@@ -210,25 +190,42 @@
 
   <section
     class="settings-workspace__column settings-workspace__preview"
-    class:settings-workspace__column--narrow-active={narrowPanel === 'preview'}
-    data-workspace-column="preview"
-    aria-label={$tStore('app.usageDashboard')}
+    data-workspace-panel="preview"
+    aria-label={generalSelected
+      ? `${$tStore('settings.advanced')} · ${$tStore('settings.updates')}`
+      : $tStore('settings.usagePreview')}
   >
-    <h2 class="settings-workspace__column-title">
-      {$tStore('app.usageDashboard')}
-    </h2>
+    <header class="settings-workspace__column-header">
+      <h2 class="settings-workspace__column-title">
+        {generalSelected
+          ? `${$tStore('settings.advanced')} · ${$tStore('settings.updates')}`
+          : $tStore('settings.usagePreview')}
+      </h2>
+      {#if !generalSelected && previewProviderId}
+        <button
+          class="settings-workspace__header-action"
+          type="button"
+          aria-label={$tStore('dashboard.refreshProvider', { provider: previewProviderName })}
+          title={$tStore('dashboard.refreshProvider', { provider: previewProviderName })}
+          onclick={() => dashboardProps.onRefresh(previewProviderId)}
+          ><Icon name="refresh" size={16} strokeWidth={2} /></button
+        >
+      {/if}
+    </header>
     {#if generalSelected}
-      <div class="settings-workspace__general-preview">
-        <p>{$tStore('settings.general')}</p>
-      </div>
-    {:else if selectedProviderId}
+      <SettingsScreen {...settingsScreenProps} region="advanced" />
+    {:else if previewProviderId}
       <div class="settings-workspace__preview-body" data-provider-preview>
         <ProviderDataView
           {...dashboardProps}
           settings={settingsView.settings}
-          providerId={selectedProviderId}
+          providerId={previewProviderId}
           readOnlyPreview={true}
         />
+      </div>
+    {:else}
+      <div class="settings-workspace__general-preview">
+        <p>{$tStore('settings.general')}</p>
       </div>
     {/if}
   </section>
@@ -241,7 +238,10 @@
     min-width: 0;
     min-height: 0;
     height: 100%;
-    grid-template-columns: minmax(168px, 0.72fr) minmax(270px, 1.05fr) minmax(360px, 1.5fr);
+    grid-template-columns:
+      minmax(210px, min(280px, 24vw))
+      minmax(320px, 1.12fr)
+      minmax(360px, 1.2fr);
     grid-template-rows: minmax(0, 1fr);
     gap: 1px;
     overflow: hidden;
@@ -258,48 +258,78 @@
     background: var(--tray);
   }
 
-  .settings-workspace__column-title {
-    flex: 0 0 auto;
-    margin: 0;
-    padding: 12px 14px 9px;
-    border-bottom: 1px solid var(--separator);
-    color: var(--secondary);
-    font-size: 11px;
-    font-weight: 650;
-    line-height: 1.3;
-    text-wrap: balance;
+  .settings-workspace__providers {
+    grid-column: 1;
+    grid-row: 1;
   }
 
-  .settings-workspace__reset-provider {
+  .settings-workspace__settings {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .settings-workspace__preview {
+    grid-column: 3;
+    grid-row: 1;
+  }
+
+  .settings-workspace__column-header {
+    display: flex;
+    min-height: 54px;
+    flex: 0 0 54px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    padding-inline: 16px;
+    border-bottom: 1px solid var(--separator);
+  }
+
+  .settings-workspace__column-title {
+    flex: 1 1 auto;
+    margin: 0;
+    min-width: 0;
+    color: var(--text);
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .settings-workspace__header-action {
+    display: grid;
+    width: 32px;
+    height: 32px;
     flex: 0 0 auto;
-    align-self: flex-end;
-    margin: 6px 10px 0;
-    padding: 4px 7px;
-    border: 1px solid var(--separator);
-    border-radius: 6px;
+    padding: 0;
+    border: 0;
+    border-radius: 8px;
     color: var(--secondary);
     background: transparent;
-    font: inherit;
-    font-size: 10px;
     cursor: pointer;
+    place-items: center;
   }
 
-  .settings-workspace__instance-status {
-    margin: 0;
-    padding: 0 10px 8px;
-    color: var(--secondary);
-    font-size: 10px;
-    line-height: 1.4;
+  .settings-workspace__header-action:hover:not(:disabled) {
+    color: var(--text);
+    background: var(--button-hover);
   }
 
-  .settings-workspace__instance-failure {
-    display: block;
-    color: var(--danger, var(--secondary));
+  .settings-workspace__header-action:focus-visible {
+    outline: 2px solid var(--meter-fill);
+    outline-offset: 2px;
+  }
+
+  .settings-workspace__header-action:disabled {
+    opacity: 0.5;
+    cursor: default;
   }
 
   .settings-workspace__providers :global(.customize-screen),
   .settings-workspace__settings-detail,
   .settings-workspace__settings :global(.settings-screen),
+  .settings-workspace__preview :global(.settings-screen),
   .settings-workspace__preview-body {
     min-width: 0;
     min-height: 0;
@@ -310,15 +340,18 @@
     scrollbar-width: thin;
   }
 
+  .settings-workspace__preview-body {
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
   .settings-workspace__providers :global(.customize-screen),
   .settings-workspace__settings :global(.settings-screen),
+  .settings-workspace__preview :global(.settings-screen),
+  .settings-workspace__preview-body,
   .settings-workspace__settings-detail,
   .settings-workspace__general-preview {
     padding: 10px;
-  }
-
-  .settings-workspace__narrow-tabs {
-    display: none;
   }
 
   .settings-workspace__general-preview {
@@ -330,51 +363,26 @@
 
   @media (max-width: 900px) {
     .settings-workspace {
-      grid-template-columns: minmax(118px, 30%) minmax(0, 1fr);
-      grid-template-rows: auto minmax(0, 1fr);
+      grid-template-columns: minmax(168px, 24vw) minmax(250px, 1fr) minmax(260px, 1.05fr);
     }
 
-    .settings-workspace__narrow-tabs {
-      display: flex;
-      grid-column: 2;
-      grid-row: 1;
-      gap: 5px;
-      padding: 6px 8px;
-      background: var(--tray);
+    .settings-workspace__column-header {
+      padding-inline: 12px;
+    }
+  }
+
+  @media (max-width: 720px) {
+    .settings-workspace {
+      grid-template-columns: minmax(152px, 23vw) minmax(220px, 1fr) minmax(230px, 1.05fr);
     }
 
-    .settings-workspace__narrow-tabs button {
-      min-height: 32px;
-      padding: 5px 9px;
-      border: 1px solid var(--separator);
-      border-radius: 7px;
-      color: var(--secondary);
-      background: transparent;
-      font: inherit;
-      font-size: 10px;
-      cursor: pointer;
-    }
-
-    .settings-workspace__narrow-tabs button[aria-pressed='true'] {
-      color: var(--text);
-      background: var(--button-hover);
-    }
-
-    .settings-workspace__providers {
-      grid-column: 1;
-      grid-row: 1 / 3;
-    }
-
-    .settings-workspace__settings,
-    .settings-workspace__preview {
-      display: none;
-      grid-column: 2;
-      grid-row: 2;
-    }
-
-    .settings-workspace__settings.settings-workspace__column--narrow-active,
-    .settings-workspace__preview.settings-workspace__column--narrow-active {
-      display: flex;
+    .settings-workspace__providers :global(.customize-screen),
+    .settings-workspace__settings :global(.settings-screen),
+    .settings-workspace__preview :global(.settings-screen),
+    .settings-workspace__preview-body,
+    .settings-workspace__settings-detail,
+    .settings-workspace__general-preview {
+      padding: 8px;
     }
   }
 </style>

@@ -22,14 +22,17 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
   currentMonitor: vi.fn(),
+  windowLabel: 'main',
   startDragging: vi.fn(),
   startResizeDragging: vi.fn(),
 }));
+const appEventHandlers = new Map<string, (payload: unknown) => void>();
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 vi.mock('@tauri-apps/api/window', () => ({
   currentMonitor: mocks.currentMonitor,
   getCurrentWindow: () => ({
+    label: mocks.windowLabel,
     scaleFactor: () => Promise.resolve(1),
     innerSize: () => Promise.resolve({ width: 320, height: 600 }),
     startDragging: mocks.startDragging,
@@ -58,6 +61,36 @@ function mockInvoke(
     }
     return implementation(command, args);
   });
+}
+
+async function mountSettingsWindow(targetScreen: string) {
+  cleanup();
+  mocks.windowLabel = 'settings';
+  appEventHandlers.clear();
+  render(App);
+  await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+  if (targetScreen !== 'settings') {
+    await waitFor(() => expect(appEventHandlers.get('settings-workspace-selection')).toBeDefined());
+    appEventHandlers.get('settings-workspace-selection')?.({ payload: targetScreen });
+    await waitFor(() =>
+      expect(document.querySelector('.screen-page[data-screen="settings"]')).toBeTruthy(),
+    );
+  }
+}
+
+async function openSettingsWorkspace(targetScreen = 'settings') {
+  if (mocks.windowLabel !== 'settings') {
+    if (targetScreen === 'settings') {
+      await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+    } else {
+      await fireEvent.keyDown(document, { key: 'Enter' });
+    }
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: targetScreen }),
+    );
+    await mountSettingsWindow(targetScreen);
+  }
+  await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
 }
 
 function webviewAuthFixture() {
@@ -189,11 +222,18 @@ function deviceCodeSignInFixture(errorKind: ProviderViewState['errorKind'] = 'au
 describe('Quota01 dashboard', () => {
   beforeEach(() => {
     localStorage.clear();
+    mocks.windowLabel = 'main';
+    appEventHandlers.clear();
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
       workArea: { size: { width: 1280, height: 700 } },
     });
-    mocks.listen.mockReset().mockResolvedValue(vi.fn());
+    mocks.listen
+      .mockReset()
+      .mockImplementation((event: string, handler: (payload: unknown) => void) => {
+        appEventHandlers.set(event, handler);
+        return Promise.resolve(vi.fn());
+      });
     mocks.startDragging.mockReset().mockResolvedValue(undefined);
     mocks.startResizeDragging.mockReset().mockResolvedValue(undefined);
     mocks.invoke.mockReset();
@@ -263,6 +303,21 @@ describe('Quota01 dashboard', () => {
     expect(container.querySelector('.floating-chrome')).not.toBeInTheDocument();
   });
 
+  it('exposes Settings and screenshot sharing as direct footer buttons without dropdowns', async () => {
+    const { container } = render(App);
+    await screen.findByText('Plus');
+
+    expect(container.querySelector('.options-menu')).not.toBeInTheDocument();
+    expect(container.querySelector('.share-menu')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Share Screenshot' })).toBeInTheDocument();
+    expect(container.querySelectorAll('.footer-actions > button')).toHaveLength(2);
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+    expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' });
+    expect(screen.getByRole('main', { name: 'Quota01 usage dashboard' })).toBeInTheDocument();
+  });
+
   it('offers a customization action when no provider is enabled', async () => {
     const emptySettings: SettingsViewState = {
       ...settingsState,
@@ -284,57 +339,28 @@ describe('Quota01 dashboard', () => {
     });
 
     render(App);
-
-    expect(await screen.findByRole('button', { name: 'Customize' })).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: 'Open Customize' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Share Screenshot' })).toBeDisabled();
     expect(screen.queryByRole('tab')).not.toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
-    expect(await screen.findByRole('heading', { name: 'Customize' })).toBeInTheDocument();
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Customize' }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'customize' }),
+    );
+    expect(screen.getByRole('main', { name: 'Quota01 usage dashboard' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Customize' })).not.toBeInTheDocument();
   });
 
-  it('toggles floating window mode from the footer pin when a tray is available', async () => {
+  it('opens Settings through the keyboard shortcut without changing the popup page', async () => {
     render(App);
     await screen.findByText('Plus');
-
-    const pin = screen.getByRole('button', { name: 'Keep Window Open' });
-    expect(pin).toHaveAttribute('aria-pressed', 'false');
-    await fireEvent.click(pin);
-
-    await waitFor(() =>
-      expect(mocks.invoke).toHaveBeenCalledWith(
-        'save_app_settings',
-        expect.objectContaining({
-          settings: expect.objectContaining({ windowMode: 'floating' }),
-        }),
-      ),
-    );
-    expect(screen.getByRole('button', { name: 'Return to Tray Popup' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-
-    await fireEvent.click(screen.getByRole('button', { name: 'Return to Tray Popup' }));
-    await waitFor(() =>
-      expect(mocks.invoke).toHaveBeenCalledWith(
-        'save_app_settings',
-        expect.objectContaining({
-          settings: expect.objectContaining({ windowMode: 'popup' }),
-        }),
-      ),
-    );
-  });
-
-  it('closes persistent overlays before changing screens', async () => {
-    render(App);
-    await screen.findByText('Plus');
-
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    const optionsMenu = document.querySelector<HTMLDetailsElement>('.options-menu');
-    expect(optionsMenu?.open).toBe(true);
 
     await fireEvent.keyDown(document, { key: ',', metaKey: true });
 
-    expect(await screen.findByRole('heading', { name: 'Settings' })).toBeInTheDocument();
-    expect(optionsMenu?.open).toBe(false);
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' }),
+    );
+    expect(screen.getByRole('main', { name: 'Quota01 usage dashboard' })).toBeInTheDocument();
+    expect(document.querySelector('[data-settings-workspace]')).toBeNull();
   });
 
   it('provides a native drag surface and hide control in floating window mode', async () => {
@@ -412,16 +438,13 @@ describe('Quota01 dashboard', () => {
       expect(screen.getByRole('separator', { name: 'Resize panel height' })).toHaveClass(
         'panel-resize-dragger--bottom',
       );
-      await fireEvent.click(screen.getByLabelText('Open options'));
-      await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      await openSettingsWorkspace();
       await fireEvent.click(screen.getByRole('combobox', { name: 'Window Mode' }));
       await fireEvent.click(screen.getByRole('option', { name: 'Tray Popup' }));
 
-      await waitFor(() =>
-        expect(screen.getByRole('separator', { name: 'Resize panel height' })).toHaveClass(
-          'panel-resize-dragger--top',
-        ),
-      );
+      expect(
+        screen.queryByRole('separator', { name: 'Resize panel height' }),
+      ).not.toBeInTheDocument();
     } finally {
       delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
       Object.defineProperty(navigator, 'userAgent', { configurable: true, value: userAgent });
@@ -970,10 +993,8 @@ describe('Quota01 dashboard', () => {
   it('opens Customize and exposes the two-section metric layout', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
-    expect(screen.getByRole('heading', { name: 'Customize' })).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize codex' }));
+    await openSettingsWorkspace('customize');
+    expect(screen.getByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Always Visible metrics' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'On Demand metrics' })).toBeInTheDocument();
   });
@@ -981,9 +1002,7 @@ describe('Quota01 dashboard', () => {
   it('resets one provider through the backend metric catalog', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize codex' }));
+    await openSettingsWorkspace('customize');
     await fireEvent.click(screen.getByRole('button', { name: 'Reset Codex' }));
 
     expect(mocks.invoke).toHaveBeenCalledWith('reset_provider_customization', {
@@ -996,9 +1015,7 @@ describe('Quota01 dashboard', () => {
   it('enforces the two-pinned-metrics limit in Customize', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize codex' }));
+    await openSettingsWorkspace('customize');
     await fireEvent.click(screen.getByRole('button', { name: 'Pin Today' }));
     expect(screen.getByText('Up to 2 stars per provider')).toBeInTheDocument();
   });
@@ -1018,8 +1035,7 @@ describe('Quota01 dashboard', () => {
   it('persists compact density from Settings', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWorkspace();
     await fireEvent.click(screen.getByRole('combobox', { name: 'Density' }));
     await fireEvent.click(screen.getByRole('option', { name: 'Compact' }));
     await fireEvent.click(screen.getByRole('combobox', { name: 'Time Format' }));
@@ -1048,8 +1064,7 @@ describe('Quota01 dashboard', () => {
     });
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWorkspace();
     await fireEvent.click(screen.getByRole('combobox', { name: 'Log Level' }));
     await fireEvent.click(screen.getByRole('option', { name: 'Debug' }));
     await waitFor(() =>
@@ -1086,8 +1101,7 @@ describe('Quota01 dashboard', () => {
     });
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWorkspace();
 
     mocks.invoke.mockRejectedValueOnce(new Error('log path unavailable'));
     await fireEvent.click(screen.getByRole('button', { name: 'Copy Log Path' }));
@@ -1098,6 +1112,7 @@ describe('Quota01 dashboard', () => {
   });
 
   it('shows the detected Linux fallback mode in Settings', async () => {
+    mocks.windowLabel = 'settings';
     mockInvoke((command: string) => {
       if (command === 'get_usage_state') return Promise.resolve(liveState);
       if (command === 'get_app_settings')
@@ -1118,12 +1133,8 @@ describe('Quota01 dashboard', () => {
       return Promise.resolve();
     });
     render(App);
-    await screen.findByText('Plus');
-    expect(screen.getByRole('button', { name: 'Close Quota01' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Keep Window Open' })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Return to Tray Popup' })).not.toBeInTheDocument();
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Close Quota01' })).not.toBeInTheDocument();
     expect(screen.getByText('GNOME · Wayland · standalone window')).toBeInTheDocument();
     expect(screen.queryByRole('combobox', { name: 'Window Mode' })).not.toBeInTheDocument();
   });
@@ -1131,8 +1142,7 @@ describe('Quota01 dashboard', () => {
   it('records a global shortcut and requests notification permission', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWorkspace();
     const recorder = screen.getByRole('button', { name: 'Record Shortcut' });
     await fireEvent.click(recorder);
     expect(recorder).toHaveAttribute('aria-pressed', 'true');
@@ -1159,8 +1169,7 @@ describe('Quota01 dashboard', () => {
   it('confirms a full settings reset without deleting credentials or usage data', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWorkspace();
     const trigger = screen.getByRole('button', { name: 'Reset All Settings…' });
     trigger.focus();
     await fireEvent.click(trigger);
@@ -1212,8 +1221,7 @@ describe('Quota01 dashboard', () => {
     try {
       render(App);
       await screen.findByText('Plus');
-      await fireEvent.click(screen.getByLabelText('Open options'));
-      await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      await openSettingsWorkspace();
       await fireEvent.click(screen.getByRole('button', { name: 'Reset All Settings…' }));
       await fireEvent.click(screen.getByRole('button', { name: 'Reset All' }));
       await waitFor(() =>
@@ -1229,7 +1237,7 @@ describe('Quota01 dashboard', () => {
       await waitFor(() =>
         expect(
           mocks.invoke.mock.calls.filter(([command]) => command === 'get_panel_resize_edge').length,
-        ).toBeGreaterThanOrEqual(2),
+        ).toBe(1),
       );
     } finally {
       delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -1260,8 +1268,7 @@ describe('Quota01 dashboard', () => {
 
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWorkspace();
     expect(screen.getByText('Notifications are blocked')).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
     expect(mocks.invoke).toHaveBeenCalledWith('open_notification_settings');
@@ -1677,11 +1684,18 @@ describe('Quota01 dashboard', () => {
     render(App);
     const provider = await screen.findByRole('group', { name: 'OpenRouter provider' });
     await fireEvent.click(within(provider).getByRole('button', { name: 'Configure OpenRouter' }));
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', {
+        target: 'provider:openrouter',
+      }),
+    );
+    expect(screen.getByRole('group', { name: 'OpenRouter provider' })).toBeInTheDocument();
+    await mountSettingsWindow('provider:openrouter');
     expect(await screen.findByRole('region', { name: 'OpenRouter API Key' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toHaveFocus());
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 
-  it('opens provider settings directly from the card header', async () => {
+  it('opens provider settings in a separate window without routing the popup', async () => {
     render(App);
     const provider = await screen.findByRole('group', { name: 'Codex provider' });
     const settingsButton = within(provider).getByRole('button', { name: 'Settings for Codex' });
@@ -1689,12 +1703,95 @@ describe('Quota01 dashboard', () => {
     await fireEvent.pointerDown(settingsButton);
     await fireEvent.click(settingsButton);
 
-    expect(await screen.findByRole('region', { name: 'Customize Codex' })).toBeInTheDocument();
-    expect(document.querySelectorAll('.screen-page')).toHaveLength(1);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toHaveFocus());
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', {
+        target: 'provider:codex',
+      }),
+    );
+    expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Customize Codex' })).not.toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith('set_panel_layout_for_screen', {
+      screen: 'settings',
+    });
+  });
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    expect(await screen.findByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+  it('opens Settings in a separate window and leaves the popup data view unchanged', async () => {
+    const multiUsage: UsageViewState = {
+      providers: { claude: claudeState, codex: codexState },
+    };
+    const multiSettings: SettingsViewState = {
+      ...settingsState,
+      settings: {
+        ...settingsState.settings,
+        providers: [
+          {
+            id: 'claude',
+            enabled: true,
+            detected: true,
+            expanded: false,
+            metrics: [
+              { id: 'claude.session', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          },
+          ...settingsState.settings.providers,
+        ],
+      },
+    };
+    mockInvoke((command) => {
+      if (
+        command === 'get_usage_state' ||
+        command === 'refresh_usage' ||
+        command === 'refresh_provider_usage'
+      )
+        return Promise.resolve(multiUsage);
+      if (command === 'get_app_settings') return Promise.resolve(multiSettings);
+      if (command === 'check_for_updates')
+        return Promise.resolve({
+          available: false,
+          currentVersion: '0.1.0',
+          version: null,
+          body: null,
+          installable: true,
+          releaseUrl: 'https://github.com/deviffyy/OpenQuota/releases/latest',
+        });
+      if (command === 'fit_panel_to_content') return Promise.resolve(true);
+      return Promise.resolve();
+    });
+
+    render(App);
+    await screen.findByRole('group', { name: 'Claude provider' });
+    await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' }),
+    );
+    expect(screen.getByRole('group', { name: 'Claude provider' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith('set_panel_layout_for_screen', {
+      screen: 'settings',
+    });
+
+    const taskbandOpen = appEventHandlers.get('taskband-open');
+    expect(taskbandOpen).toBeDefined();
+    taskbandOpen?.({ payload: 'codex' });
+    await waitFor(() => {
+      expect(screen.getByRole('tab', { name: /Codex/ })).toHaveAttribute('aria-selected', 'true');
+      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+      expect(document.querySelector('.screen-page[data-screen="dashboard"]')).toBeInTheDocument();
+      expect(document.querySelector('[data-settings-workspace]')).toBeNull();
+    });
+  });
+
+  it('renders the Settings workspace only in the dedicated settings window', async () => {
+    mocks.windowLabel = 'settings';
+    render(App);
+
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+    expect(screen.queryByRole('group', { name: 'Codex provider' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
+    expect(mocks.invoke).not.toHaveBeenCalledWith('set_panel_layout_for_screen', {
+      screen: 'settings',
+    });
   });
 
   it('restores stable provider chrome when a refresh request fails to start', async () => {
@@ -1725,67 +1822,13 @@ describe('Quota01 dashboard', () => {
   it('shows platform-correct Ctrl shortcuts and handles Ctrl+Q', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByText('Options').closest('summary')!);
-    expect(screen.getByText('Ctrl+,')).toBeInTheDocument();
-    expect(screen.getByText('Ctrl+Q')).toBeInTheDocument();
+    await fireEvent.keyDown(document, { key: ',', ctrlKey: true });
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' }),
+    );
 
     await fireEvent.keyDown(document, { key: 'q', ctrlKey: true });
     expect(mocks.invoke).toHaveBeenCalledWith('quit_app');
-  });
-
-  it('closes the custom Options surface after a command like a native menu', async () => {
-    render(App);
-    await screen.findByText('Plus');
-    const summary = screen.getByText('Options').closest('summary')!;
-    const menu = summary.closest('details')!;
-    await fireEvent.click(summary);
-    expect(menu).toHaveAttribute('open');
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
-    expect(menu).not.toHaveAttribute('open');
-  });
-
-  it('resets native Options and Share details when the popup is hidden', async () => {
-    let emitMainWindowHidden: (() => void) | undefined;
-    mocks.listen.mockImplementation(
-      (eventName: string, handler: (event: { payload: unknown }) => void) => {
-        if (eventName === 'main-window-hidden') {
-          emitMainWindowHidden = () => handler({ payload: undefined });
-        }
-        return Promise.resolve(vi.fn());
-      },
-    );
-
-    render(App);
-    await screen.findByText('Plus');
-    const optionsSummary = screen.getByLabelText('Open options');
-    const optionsMenu = optionsSummary.closest('details')!;
-    await fireEvent.click(optionsSummary);
-    const shareSummary = screen.getByText('Share Screenshot').closest('summary')!;
-    const shareMenu = shareSummary.closest('details')!;
-    await fireEvent.click(shareSummary);
-    expect(optionsMenu).toHaveAttribute('open');
-    expect(shareMenu).toHaveAttribute('open');
-    await waitFor(() =>
-      expect(within(shareMenu).getByRole('button', { name: 'Codex' })).toBeInTheDocument(),
-    );
-
-    await waitFor(() => expect(emitMainWindowHidden).toBeTypeOf('function'));
-    emitMainWindowHidden!();
-
-    await waitFor(() => {
-      expect(optionsMenu).not.toHaveAttribute('open');
-      expect(shareMenu).not.toHaveAttribute('open');
-      expect(within(shareMenu).queryByRole('button')).not.toBeInTheDocument();
-    });
-
-    await fireEvent.click(optionsSummary);
-    expect(optionsMenu).toHaveAttribute('open');
-    expect(shareMenu).not.toHaveAttribute('open');
-    await fireEvent.click(shareSummary);
-    expect(shareMenu).toHaveAttribute('open');
-    await waitFor(() =>
-      expect(within(shareMenu).getByRole('button', { name: 'Codex' })).toBeInTheDocument(),
-    );
   });
 
   it('honors Reduce Motion without overriding a manually sized native panel', async () => {
@@ -1813,15 +1856,15 @@ describe('Quota01 dashboard', () => {
       render(App);
       await waitFor(() => expect(document.documentElement).toHaveAttribute('data-reduced-motion'));
       await screen.findByText('Plus');
-      await fireEvent.click(screen.getByLabelText('Open options'));
-      await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      await openSettingsWorkspace();
       await waitFor(() =>
         expect(screen.getByRole('combobox', { name: 'Panel Height' })).toHaveTextContent('Manual'),
       );
-      await fireEvent.click(screen.getByLabelText('Back'));
-      mocks.invoke.mockClear();
-      await fireEvent.click(screen.getByRole('button', { name: 'Show more' }));
-      await new Promise((resolve) => setTimeout(resolve, 20));
+      await fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('dismiss_settings_window'));
+      expect(
+        screen.queryByRole('separator', { name: 'Resize panel height' }),
+      ).not.toBeInTheDocument();
       expect(mocks.invoke).not.toHaveBeenCalledWith('fit_panel_to_content', expect.anything());
     } finally {
       delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
@@ -1863,8 +1906,7 @@ describe('Quota01 dashboard', () => {
       render(App);
       await waitFor(() => expect(document.documentElement).toHaveAttribute('data-reduced-motion'));
       await screen.findByText('Plus');
-      await fireEvent.click(screen.getByLabelText('Open options'));
-      await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      await openSettingsWorkspace();
       const toggle = screen.getByRole('checkbox', { name: 'Reduce Animations' });
       expect(toggle).toBeChecked();
       await fireEvent.click(toggle);
@@ -1941,7 +1983,7 @@ describe('Quota01 dashboard', () => {
     }
   });
 
-  it('changes panel height mode from Settings Appearance and keeps grip double-click available', async () => {
+  it('changes panel height mode from the separate Settings window', async () => {
     Object.defineProperty(window, '__TAURI_INTERNALS__', {
       configurable: true,
       value: {},
@@ -1963,8 +2005,7 @@ describe('Quota01 dashboard', () => {
     try {
       render(App);
       await screen.findByText('Plus');
-      await fireEvent.click(screen.getByLabelText('Open options'));
-      await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+      await openSettingsWorkspace();
       const windowMode = screen.getByRole('combobox', { name: 'Window Mode' });
       await fireEvent.click(windowMode);
       await fireEvent.click(screen.getByRole('option', { name: 'Floating Window' }));
@@ -1990,39 +2031,22 @@ describe('Quota01 dashboard', () => {
       expect(mocks.invoke).toHaveBeenCalledWith('set_panel_height_manual');
       await waitFor(() => expect(heightMode).toHaveTextContent('Manual'));
 
-      await fireEvent.click(screen.getByLabelText('Back'));
-      const grip = screen.getByRole('separator', { name: 'Resize panel height' });
-      await fireEvent.pointerDown(grip, { button: 0, detail: 1 });
-      await fireEvent.pointerDown(grip, { button: 0, detail: 2 });
-      await waitFor(() =>
-        expect(
-          mocks.invoke.mock.calls.filter(([command]) => command === 'set_panel_height_automatic'),
-        ).toHaveLength(2),
-      );
+      await fireEvent.keyDown(document, { key: 'Escape' });
+      await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('dismiss_settings_window'));
+      expect(
+        screen.queryByRole('separator', { name: 'Resize panel height' }),
+      ).not.toBeInTheDocument();
     } finally {
       delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
     }
   });
 
-  it('opens and dismisses the About panel from Options', async () => {
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    const trigger = screen.getByRole('button', { name: 'About Quota01' });
-    await fireEvent.click(trigger);
-    expect(screen.getByRole('dialog', { name: 'About Quota01' })).toBeInTheDocument();
-    const close = screen.getByRole('button', { name: 'Close About' });
-    await waitFor(() => expect(close).toHaveFocus());
-    expect(close.querySelector('svg')).not.toBeNull();
-    expect(close).not.toHaveTextContent('×');
-    await fireEvent.keyDown(close, { key: 'Tab' });
-    expect(close).toHaveFocus();
-    await fireEvent.keyDown(close, { key: 'Escape' });
-    expect(screen.queryByRole('dialog', { name: 'About Quota01' })).not.toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText('Open options')).toHaveFocus());
-  });
-
-  it('matches provider context-menu and Customize to Settings navigation behavior', async () => {
+  it('opens provider customization separately and keeps Settings navigation inside its window', async () => {
+    appEventHandlers.clear();
+    mocks.listen.mockImplementation((event, callback) => {
+      appEventHandlers.set(event, callback);
+      return Promise.resolve(vi.fn());
+    });
     render(App);
     await screen.findByText('Plus');
     await fireEvent.contextMenu(screen.getByRole('group', { name: 'Codex provider' }), {
@@ -2031,12 +2055,27 @@ describe('Quota01 dashboard', () => {
     });
     expect(screen.getByRole('menuitem', { name: 'Share Screenshot' })).toBeInTheDocument();
     await fireEvent.click(screen.getByRole('menuitem', { name: 'Customize…' }));
-    expect(screen.getByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
-    await fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
-    expect(screen.getByRole('heading', { name: 'Customize' })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', {
+        target: 'provider:codex',
+      }),
+    );
+    expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
+
+    cleanup();
+    mocks.windowLabel = 'settings';
+    appEventHandlers.clear();
+    render(App);
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+    await waitFor(() => expect(appEventHandlers.get('settings-workspace-selection')).toBeDefined());
+    appEventHandlers.get('settings-workspace-selection')?.({ payload: 'provider:codex' });
+    expect(await screen.findByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
+    appEventHandlers.get('settings-workspace-selection')?.({ payload: 'settings' });
+    expect(await screen.findByRole('combobox', { name: 'Theme' })).toBeInTheDocument();
+    appEventHandlers.get('settings-workspace-selection')?.({ payload: 'customize' });
+    expect(await screen.findByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
+    expect(document.querySelector('.screen-page[data-screen="settings"]')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 
   it('supports native-like keyboard navigation in dashboard context menus', async () => {
@@ -2096,8 +2135,7 @@ describe('Quota01 dashboard', () => {
   it('lets a dropdown consume Escape without navigating away from Settings', async () => {
     render(App);
     await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWorkspace();
     const theme = screen.getByRole('combobox', { name: 'Theme' });
 
     await fireEvent.keyDown(theme, { key: 'ArrowDown' });
@@ -2106,7 +2144,7 @@ describe('Quota01 dashboard', () => {
 
     expect(screen.queryByRole('listbox', { name: 'Theme' })).not.toBeInTheDocument();
     expect(theme).toHaveFocus();
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
   });
 });
 
@@ -2114,6 +2152,7 @@ describe('Quota01 Windows taskband focus', () => {
   const eventHandlers = new Map<string, (payload: unknown) => void>();
 
   beforeEach(() => {
+    mocks.windowLabel = 'main';
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
       workArea: { size: { width: 1280, height: 700 } },
@@ -2228,7 +2267,8 @@ describe('Quota01 Windows taskband focus', () => {
     }
   });
 
-  it('opens the provider settings screen when an open-screen event targets a provider', async () => {
+  it('keeps provider settings inside the single Settings page without a Back button', async () => {
+    mocks.windowLabel = 'settings';
     mockInvoke((command: string) => {
       if (
         command === 'get_usage_state' ||
@@ -2252,22 +2292,17 @@ describe('Quota01 Windows taskband focus', () => {
     });
 
     render(App);
-    await screen.findByRole('group', { name: 'Codex provider' });
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
 
-    const openScreen = eventHandlers.get('open-screen');
-    expect(openScreen).toBeDefined();
-    openScreen?.({ payload: 'provider:codex' });
+    const selectWorkspace = eventHandlers.get('settings-workspace-selection');
+    expect(selectWorkspace).toBeDefined();
+    selectWorkspace?.({ payload: 'provider:codex' });
 
     await waitFor(() => {
       expect(screen.getByRole('group', { name: 'Always Visible metrics' })).toBeInTheDocument();
     });
-
-    openScreen?.({ payload: 'dashboard' });
-    await waitFor(() => {
-      expect(screen.getByRole('group', { name: 'Codex provider' })).toBeInTheDocument();
-      expect(
-        screen.queryByRole('group', { name: 'Always Visible metrics' }),
-      ).not.toBeInTheDocument();
-    });
+    expect(document.querySelector('.screen-page[data-screen="settings"]')).toBeInTheDocument();
+    expect(document.querySelector('.screen-page[data-screen="provider:codex"]')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
 });

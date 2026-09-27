@@ -8,15 +8,22 @@ const mocks = vi.hoisted(() => ({
   invoke: vi.fn(),
   listen: vi.fn(),
   currentMonitor: vi.fn(),
+  windowLabel: 'main',
+  automaticUpdateDelay: vi.fn(() => 10_000),
 }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 vi.mock('@tauri-apps/api/window', () => ({
   currentMonitor: mocks.currentMonitor,
   getCurrentWindow: () => ({
+    label: mocks.windowLabel,
     scaleFactor: () => Promise.resolve(1),
     innerSize: () => Promise.resolve({ width: 320, height: 600 }),
   }),
+}));
+vi.mock('./lib/updateSchedule', () => ({
+  automaticUpdateDelay: mocks.automaticUpdateDelay,
+  UPDATE_CHECK_INTERVAL_MS: 6 * 60 * 60 * 1000,
 }));
 
 type InvokeArgs = { settings?: SettingsViewState['settings'] };
@@ -30,13 +37,37 @@ function mockInvoke(implementation: InvokeImplementation) {
         implementation('get_app_settings', args),
       ]).then(([usage, settings]) => ({ usage, settings, catalog: providerCatalog }));
     }
+    if (command === 'open_settings_window') return Promise.resolve();
     return implementation(command, args);
   });
+}
+
+async function renderWithAutomaticUpdateCheck() {
+  mocks.automaticUpdateDelay.mockReturnValue(0);
+  render(App);
+  await screen.findByText('Plus');
+  await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('check_for_updates'));
+}
+
+async function openSettingsWindow() {
+  render(App);
+  await screen.findByText('Plus');
+  await fireEvent.click(screen.getByRole('button', { name: 'Open Settings' }));
+  await waitFor(() =>
+    expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' }),
+  );
+  cleanup();
+  mocks.windowLabel = 'settings';
+  render(App);
+  await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+  await screen.findByRole('heading', { name: 'Settings', level: 1 });
 }
 
 describe('Quota01 update lifecycle', () => {
   beforeEach(() => {
     localStorage.clear();
+    mocks.windowLabel = 'main';
+    mocks.automaticUpdateDelay.mockReturnValue(10_000);
     mocks.currentMonitor.mockResolvedValue({
       scaleFactor: 1,
       workArea: { size: { width: 1280, height: 700 } },
@@ -151,8 +182,9 @@ describe('Quota01 update lifecycle', () => {
     );
 
     openScreen?.({ payload: 'settings' });
-    window.dispatchEvent(new Event('focus'));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Back' })).toBeInTheDocument());
+    await waitFor(() =>
+      expect(mocks.invoke).toHaveBeenCalledWith('open_settings_window', { target: 'settings' }),
+    );
     expect(
       mocks.invoke.mock.calls.filter(([command]) => command === 'refresh_selected_provider_if_due'),
     ).toHaveLength(3);
@@ -223,10 +255,7 @@ describe('Quota01 update lifecycle', () => {
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue(
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0)',
     );
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    await openSettingsWindow();
     await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
     await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('check_for_updates'));
     expect(await screen.findByText('Quota01 0.1.0 is up to date.')).toBeInTheDocument();
@@ -259,10 +288,7 @@ describe('Quota01 update lifecycle', () => {
         });
       return Promise.resolve();
     });
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     expect(await screen.findByRole('region', { name: 'Update Available' })).toHaveTextContent(
       'Quota01 0.2.0 is ready to download.',
     );
@@ -294,10 +320,7 @@ describe('Quota01 update lifecycle', () => {
       if (command === 'open_update_page') return Promise.resolve();
       return Promise.resolve();
     });
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     await fireEvent.click(await screen.findByRole('button', { name: 'Download from GitHub' }));
     expect(mocks.invoke).toHaveBeenCalledWith('open_update_page');
   });
@@ -327,10 +350,7 @@ describe('Quota01 update lifecycle', () => {
       return Promise.resolve();
     });
 
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     await fireEvent.click(await screen.findByRole('button', { name: 'Install Update' }));
     expect(mocks.invoke).toHaveBeenCalledWith('install_update');
 
@@ -379,10 +399,7 @@ describe('Quota01 update lifecycle', () => {
       return Promise.resolve();
     });
 
-    render(App);
-    await screen.findByText('Plus');
-    await fireEvent.click(screen.getByLabelText('Open options'));
-    await fireEvent.click(screen.getByRole('button', { name: 'Check for Updates…' }));
+    await renderWithAutomaticUpdateCheck();
     await fireEvent.click(await screen.findByRole('button', { name: 'Install Update' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent(
@@ -397,13 +414,12 @@ describe('Quota01 update lifecycle', () => {
   });
 
   it('keeps the no-instance Settings workspace open when leaving is cancelled', async () => {
-    let openScreen: ((event: { payload: string }) => void) | undefined;
     let requestLeave: ((event: { payload: void }) => void) | undefined;
     mocks.listen.mockImplementation((event, callback) => {
-      if (event === 'open-screen') openScreen = callback;
       if (event === 'request-leave-settings') requestLeave = callback;
       return Promise.resolve(vi.fn());
     });
+    mocks.windowLabel = 'settings';
     vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh)');
     const noInstances: SettingsViewState = { ...settingsState, trayAvailable: false };
     mockInvoke((command) => {
@@ -414,27 +430,25 @@ describe('Quota01 update lifecycle', () => {
     });
 
     render(App);
-    await screen.findByText('Plus');
-    await waitFor(() => expect(openScreen).toBeDefined());
-    openScreen?.({ payload: 'settings' });
-    await screen.findByRole('heading', { name: 'Settings' });
+    await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
+    await screen.findByRole('heading', { name: 'Settings', level: 1 });
     requestLeave?.({ payload: undefined });
 
     const dialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
     await fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
 
     expect(dialog).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Settings', level: 1 })).toBeInTheDocument();
 
     await fireEvent.keyDown(document, { key: 'Escape' });
     const escapeDialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
     await fireEvent.click(within(escapeDialog).getByRole('button', { name: 'Cancel' }));
 
-    openScreen?.({ payload: 'dashboard' });
-    const routeDialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
-    await fireEvent.click(within(routeDialog).getByRole('button', { name: 'Cancel' }));
+    requestLeave?.({ payload: undefined });
+    const focusDialog = await screen.findByRole('alertdialog', { name: 'Quit Quota01?' });
+    await fireEvent.click(within(focusDialog).getByRole('button', { name: 'Cancel' }));
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    requestLeave?.({ payload: undefined });
     expect(await screen.findByRole('alertdialog', { name: 'Quit Quota01?' })).toBeInTheDocument();
   });
 });

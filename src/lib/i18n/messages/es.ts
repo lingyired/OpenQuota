@@ -143,6 +143,9 @@ export const es = {
   },
   settings: {
     title: 'Settings',
+    providers: 'Proveedores',
+    usagePreview: 'Vista previa del uso',
+    preferences: 'Preferencias de la app',
     language: 'Language',
     languageAuto: 'Auto',
     english: 'English',

@@ -469,6 +469,8 @@ fn provider_error(error: AntigravityError) -> crate::providers::ProviderError {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_os = "macos"))]
+    use chrono::TimeZone;
     use serde_json::{json, Value};
     use std::cell::Cell;
 

@@ -9,6 +9,7 @@ const DEFERRED_FIT_RETRY_MS = 80;
 
 interface WindowControllerOptions {
   screen: () => AppScreen;
+  independentSettingsWindow?: () => boolean;
   refreshing: () => boolean;
   reordering: () => boolean;
   fixedHeight?: () => boolean;
@@ -38,6 +39,7 @@ export function createWindowController(options: WindowControllerOptions) {
   let layoutAvailable = true;
 
   async function ensureLayout(target: 'dashboard' | 'settings') {
+    if (options.independentSettingsWindow?.()) return true;
     while (layoutAvailable && appliedLayout !== target) {
       if (layoutSync) {
         await layoutSync;
@@ -115,7 +117,7 @@ export function createWindowController(options: WindowControllerOptions) {
   }
 
   function scheduleFit() {
-    if (typeof window === 'undefined') return;
+    if (typeof window === 'undefined' || options.independentSettingsWindow?.()) return;
     if (shouldDefer()) {
       window.cancelAnimationFrame(measureFrame);
       cancelPendingResize();

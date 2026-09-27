@@ -60,6 +60,7 @@ function props() {
     onCopyLogPath: vi.fn(),
     onOpenLogFolder: vi.fn(),
     onResetAllSettings: vi.fn(),
+    onResetAllCustomization: vi.fn(),
     onResetProviderCustomization: vi.fn(),
     resettingProviderId: null,
   };
@@ -97,7 +98,7 @@ describe('SettingsWorkspace', () => {
     render(SettingsWorkspace, input);
 
     const workspace = document.querySelector<HTMLElement>('[data-settings-workspace]')!;
-    expect(workspace.querySelectorAll('[data-workspace-column]')).toHaveLength(3);
+    expect(workspace.querySelectorAll('[data-workspace-panel]')).toHaveLength(3);
     expect(screen.getByRole('progressbar', { name: 'Session used' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Refresh Codex' })).toBeInTheDocument();
     expect(
@@ -125,13 +126,14 @@ describe('SettingsWorkspace', () => {
     const workspace = document.querySelector<HTMLElement>('[data-settings-workspace]')!;
     await fireEvent.click(within(workspace).getByRole('button', { name: 'Claude' }));
     expect(document.querySelector('[data-settings-workspace]')).toBe(workspace);
-    expect(workspace.querySelector('[data-workspace-column="settings"]')).toHaveAttribute(
+    expect(workspace.querySelector('[data-workspace-panel="settings"]')).toHaveAttribute(
       'aria-label',
       'Customize',
     );
 
-    await fireEvent.click(within(workspace).getByRole('button', { name: 'Settings' }));
-    expect(workspace.querySelector('[data-workspace-column="settings"]')).toHaveAttribute(
+    const providerNavigation = within(workspace).getByRole('navigation', { name: 'Customize' });
+    await fireEvent.click(within(providerNavigation).getByRole('button', { name: 'Settings' }));
+    expect(workspace.querySelector('[data-workspace-panel="settings"]')).toHaveAttribute(
       'aria-label',
       'Settings',
     );
@@ -192,7 +194,6 @@ describe('SettingsWorkspace', () => {
     input.settingsView = disabledClaude(input.settingsView);
     const { rerender } = render(SettingsWorkspace, input);
     await fireEvent.click(screen.getByRole('button', { name: 'Claude' }));
-
     const nextState = structuredClone(settingsState);
     await rerender({ ...input, settingsView: nextState });
     expect(screen.getByRole('button', { name: 'Codex' })).toHaveAttribute('aria-current', 'true');
@@ -220,21 +221,21 @@ describe('SettingsWorkspace', () => {
     );
   });
 
-  it('places the left navigation before middle and preview controls for keyboard users', () => {
+  it('keeps navigation before the editor and preview controls for keyboard users', () => {
     const input = props();
     render(SettingsWorkspace, input);
     const workspace = document.querySelector<HTMLElement>('[data-settings-workspace]')!;
-    const columns = [...workspace.querySelectorAll<HTMLElement>('[data-workspace-column]')];
-    expect(columns.map((column) => column.dataset.workspaceColumn)).toEqual([
+    const panels = [...workspace.querySelectorAll<HTMLElement>('[data-workspace-panel]')];
+    expect(panels.map((panel) => panel.dataset.workspacePanel)).toEqual([
       'providers',
       'settings',
       'preview',
     ]);
     expect(
-      columns[0].compareDocumentPosition(columns[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      panels[0].compareDocumentPosition(panels[1]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      columns[1].compareDocumentPosition(columns[2]) & Node.DOCUMENT_POSITION_FOLLOWING,
+      panels[1].compareDocumentPosition(panels[2]) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 });
