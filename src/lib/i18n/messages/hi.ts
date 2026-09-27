@@ -156,6 +156,8 @@ export const hi = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    proxyUrl: 'प्रॉक्सी URL',
+    proxyUrlHelp: 'प्रॉक्सी विकल्प चालू होने पर प्रदाता इस URL का उपयोग करते हैं।',
     showAppMenubar: 'Quota01 मेनू बार आइकन दिखाएँ',
     appMenubarForced:
       'कोई Provider मेनू बार आइकन दिखाई नहीं दे रहा, इसलिए Quota01 दिखाई देता रहेगा।',
@@ -282,6 +284,8 @@ export const hi = {
     removedFromMenuBar: 'Removed from menu bar',
     name: 'Name',
     nameFor: 'Name for {name}',
+    useProxy: 'इस प्रदाता के लिए प्रॉक्सी का उपयोग करें',
+    useProxyHelp: 'सामान्य सेटिंग्स में कॉन्फ़िगर किया गया साझा प्रॉक्सी URL उपयोग करता है।',
     taskbar: 'Taskbar',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',

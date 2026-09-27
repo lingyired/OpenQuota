@@ -156,6 +156,8 @@ export const ja = {
     turkish: 'Türkçe',
     vietnamese: 'Tiếng Việt',
     general: 'General',
+    proxyUrl: 'プロキシ URL',
+    proxyUrlHelp: 'プロキシを有効にしたプロバイダーはこの URL を使用します。',
     showAppMenubar: 'Quota01 のメニューバーアイコンを表示',
     appMenubarForced:
       'Provider のメニューバーアイコンがないため、Quota01 は表示されたままになります。',
@@ -282,6 +284,8 @@ export const ja = {
     removedFromMenuBar: 'Removed from menu bar',
     name: 'Name',
     nameFor: 'Name for {name}',
+    useProxy: 'このプロバイダーでプロキシを使用',
+    useProxyHelp: '「一般設定」で設定した共有プロキシ URL を使用します。',
     taskbar: 'Taskbar',
     showOnTaskbar: 'Show on Taskbar',
     showOnTaskbarDesc: 'Display this monitor as a label on the Windows taskbar.',
