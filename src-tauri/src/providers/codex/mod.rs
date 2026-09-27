@@ -23,7 +23,7 @@ use crate::{
 use self::{
     auth::CodexAuthState, client::CodexClient, local_usage::scan_local_usage, mapper::map_usage,
 };
-use crate::providers::log_usage::scan_or_cached_usage;
+use crate::providers::{log_usage::scan_or_cached_usage, ProviderRequestContext};
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -405,6 +405,13 @@ impl crate::providers::UsageProvider for CodexProvider {
 
     fn refresh_for_service(
         &self,
+    ) -> Result<crate::providers::ProviderRefresh, crate::providers::ProviderError> {
+        self.refresh_for_service_with_context(&ProviderRequestContext::direct())
+    }
+
+    fn refresh_for_service_with_context(
+        &self,
+        _context: &ProviderRequestContext,
     ) -> Result<crate::providers::ProviderRefresh, crate::providers::ProviderError> {
         let (snapshot, identity) = self.refresh_with_identity().map_err(provider_error)?;
         Ok(crate::providers::ProviderRefresh {

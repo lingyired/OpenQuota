@@ -31,7 +31,9 @@ use self::{
     session::{WorkBuddySession, WorkBuddySessionError, WorkBuddySessionStore},
     usage::{build_history, collect_pages, parse_page, ParsedUsagePage, MAX_PAGES},
 };
-use super::{DeviceCodeAuth, ProviderError, ProviderRefresh, UsageProvider};
+use super::{
+    DeviceCodeAuth, ProviderError, ProviderRefresh, ProviderRequestContext, UsageProvider,
+};
 
 const PROVIDER_ID: &str = "workbuddy-cn";
 const SOURCE_NOTE: &str = "WorkBuddy official usage";
@@ -756,6 +758,13 @@ impl UsageProvider for WorkBuddyProvider {
     }
 
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
+        self.refresh_for_service_with_context(&ProviderRequestContext::direct())
+    }
+
+    fn refresh_for_service_with_context(
+        &self,
+        _context: &ProviderRequestContext,
+    ) -> Result<ProviderRefresh, ProviderError> {
         let (snapshot, identity) = self.refresh_with_identity().map_err(ProviderError::from)?;
         Ok(ProviderRefresh {
             snapshot,

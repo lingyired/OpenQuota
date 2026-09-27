@@ -134,6 +134,17 @@ pub struct ProviderRefresh {
     pub account: Option<AccountRefresh>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderRequestContext {
+    pub proxy_url: Option<reqwest::Url>,
+}
+
+impl ProviderRequestContext {
+    pub fn direct() -> Self {
+        Self { proxy_url: None }
+    }
+}
+
 impl<'a> CacheIdentity<'a> {
     pub fn resolved_value(self) -> Option<&'a str> {
         match self {
@@ -185,8 +196,29 @@ pub trait UsageProvider: Send + Sync {
     }
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError>;
 
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let _ = context;
+        self.refresh()
+    }
+
+    #[allow(dead_code)] // Retained for direct provider refresh call sites.
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
         let snapshot = self.refresh()?;
+        Ok(ProviderRefresh {
+            snapshot,
+            cache_identity: self.cache_identity().resolved_value().map(str::to_owned),
+            account: None,
+        })
+    }
+
+    fn refresh_for_service_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderRefresh, ProviderError> {
+        let snapshot = self.refresh_with_context(context)?;
         Ok(ProviderRefresh {
             snapshot,
             cache_identity: self.cache_identity().resolved_value().map(str::to_owned),
