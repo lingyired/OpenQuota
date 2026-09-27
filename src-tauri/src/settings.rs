@@ -693,6 +693,17 @@ impl SettingsService {
                 }
             }
         }
+        let mut enabled_instances_per_family = HashMap::<&str, usize>::new();
+        for provider in settings.providers.iter().filter(|provider| provider.enabled) {
+            *enabled_instances_per_family
+                .entry(crate::providers::provider_family(&provider.id))
+                .or_default() += 1;
+        }
+        renamable_provider_ids.retain(|provider_id| {
+            enabled_instances_per_family
+                .get(crate::providers::provider_family(provider_id))
+                .is_some_and(|count| *count > 1)
+        });
         SettingsViewState {
             settings,
             settings_revision,
