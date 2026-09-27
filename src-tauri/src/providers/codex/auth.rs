@@ -208,6 +208,11 @@ fn load_from_path(path: &Path) -> Result<CodexAuthState, CodexError> {
     })
 }
 
+#[cfg(test)]
+pub(super) fn load_from_path_for_test(path: &Path) -> Result<CodexAuthState, CodexError> {
+    load_from_path(path)
+}
+
 fn save_file_document(path: &Path, document: &Value) -> Result<(), CodexError> {
     let parent = path.parent().ok_or(CodexError::InvalidAuth)?;
     let mut temporary = NamedTempFile::new_in(parent).map_err(|_| CodexError::AuthWrite)?;

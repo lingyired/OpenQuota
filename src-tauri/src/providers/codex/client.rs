@@ -72,6 +72,23 @@ impl CodexClient {
         })
     }
 
+    #[cfg(test)]
+    pub(super) fn with_test_endpoints(
+        usage_url: &str,
+        reset_credits_url: &str,
+        consume_reset_credit_url: &str,
+        refresh_url: &str,
+        timeout: Duration,
+    ) -> Result<Self, CodexError> {
+        Self::with_endpoints(
+            usage_url,
+            reset_credits_url,
+            consume_reset_credit_url,
+            refresh_url,
+            timeout,
+        )
+    }
+
     fn client_for_context(
         &self,
         context: &ProviderRequestContext,

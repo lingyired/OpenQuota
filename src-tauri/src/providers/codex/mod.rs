@@ -446,14 +446,20 @@ impl crate::providers::UsageProvider for CodexProvider {
 
 #[cfg(test)]
 mod account_tests {
-    use std::sync::Arc;
+    use std::{fs, sync::Arc, time::Duration};
 
+    use chrono::Utc;
     use tempfile::tempdir;
 
-    use super::{validate_account_identity, CodexClient, CodexError, CodexProvider};
+    use super::{
+        account_identity_key, validate_account_identity, CodexClient, CodexError, CodexProvider,
+    };
     use crate::{
         pricing::PricingStore,
-        providers::{CacheIdentity, UsageProvider},
+        providers::{
+            codex::auth::load_from_path_for_test, test_http, CacheIdentity, ProviderRequestContext,
+            UsageProvider,
+        },
         storage::Storage,
     };
 
@@ -501,5 +507,65 @@ mod account_tests {
             UsageProvider::cache_identity(&unresolved),
             CacheIdentity::Unresolved
         );
+    }
+
+    #[test]
+    fn context_aware_refresh_routes_codex_requests_through_selected_proxy() {
+        let directory = tempdir().unwrap();
+        let auth_path = directory.path().join("auth.json");
+        fs::write(
+            &auth_path,
+            r#"{"tokens":{"access_token":"secret-token","account_id":"account-a"}}"#,
+        )
+        .unwrap();
+        let mut auth = load_from_path_for_test(&auth_path).unwrap();
+
+        let (proxy_url, proxy_server) =
+            test_http::serve_sequence_capturing_requests(&[(200, r#"{}"#), (200, r#"{}"#)]);
+        let client = CodexClient::with_test_endpoints(
+            &format!("{proxy_url}/usage"),
+            &format!("{proxy_url}/reset-credits"),
+            &format!("{proxy_url}/reset-credits/consume"),
+            &format!("{proxy_url}/token"),
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let pricing = Arc::new(PricingStore::new(directory.path().join("pricing")).unwrap());
+        let account_identity = account_identity_key("account-a");
+        let provider = CodexProvider {
+            account_identity: Some(account_identity.clone()),
+            storage,
+            pricing,
+            client,
+        };
+        let context = ProviderRequestContext {
+            proxy_url: Some(reqwest::Url::parse(&proxy_url).unwrap()),
+            http_clients: Arc::default(),
+        };
+
+        let snapshot = provider
+            .refresh_candidate(&context, &mut auth, Utc::now(), Some(&account_identity))
+            .unwrap();
+
+        assert_eq!(snapshot.provider_id, "codex");
+        let requests = proxy_server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(
+            requests[0].starts_with(&format!("GET {proxy_url}/usage HTTP/1.1")),
+            "{}",
+            requests[0]
+        );
+        assert!(
+            requests[1].starts_with(&format!("GET {proxy_url}/reset-credits HTTP/1.1")),
+            "{}",
+            requests[1]
+        );
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("authorization: bearer secret-token"));
+        assert!(requests[0]
+            .to_ascii_lowercase()
+            .contains("chatgpt-account-id: account-a"));
     }
 }
