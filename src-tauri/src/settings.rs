@@ -1651,7 +1651,10 @@ mod tests {
         storage
             .save_provider_account_record("claude", "identity-a", "claude", "{}")
             .unwrap();
-        let registry = catalog();
+        // Rename is only offered to provider families with more than one
+        // enabled instance, so the restart check needs a second Claude
+        // instance to observe rename availability across the restart.
+        let registry = catalog_with_claude_account();
         let (first, _) = SettingsService::new_deferred(storage.clone(), registry.clone()).unwrap();
         let mut settings = first.get();
         settings
@@ -1667,6 +1670,17 @@ mod tests {
         drop(first);
 
         let (second, _) = SettingsService::new_deferred(storage, registry).unwrap();
+        second
+            .mutate_latest(|settings| {
+                if let Some(account) = settings
+                    .providers
+                    .iter_mut()
+                    .find(|provider| provider.id == "claude@1234abcd")
+                {
+                    account.enabled = true;
+                }
+            })
+            .unwrap();
         let state = second.view_state("prompt", None, false, None, 0, Vec::new());
 
         assert_eq!(
@@ -1678,6 +1692,19 @@ mod tests {
             Some("Personal")
         );
         assert!(state.renamable_provider_ids.contains(&"claude".to_owned()));
+    }
+
+    #[test]
+    fn a_single_instance_family_is_not_renamable() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        storage
+            .save_provider_account_record("claude", "identity-a", "claude", "{}")
+            .unwrap();
+        let (service, _) = SettingsService::new_deferred(storage, catalog()).unwrap();
+        let state = service.view_state("prompt", None, false, None, 0, Vec::new());
+
+        assert!(state.renamable_provider_ids.is_empty());
     }
 
     #[test]

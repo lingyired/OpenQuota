@@ -38,7 +38,7 @@ describe('popover geometry contract', () => {
     });
     expect(tauriConfig.app.windows[1]).toMatchObject({
       label: 'settings',
-      width: 1000,
+      width: 1200,
       minWidth: 720,
       maxWidth: 1400,
       resizable: true,
@@ -52,7 +52,7 @@ describe('popover geometry contract', () => {
 
   it('lets the webview shrink below its nominal width without creating horizontal focus scroll', () => {
     expect(componentCss).toMatch(
-      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;[^}]*max-width: 1000px;/s,
+      /html,\s*body,\s*#app,\s*\.popover\s*{[^}]*width: 100%;[^}]*min-width: 0;/s,
     );
     expect(css).not.toMatch(/\.popover\s*{[^}]*\n\s*width: 440px;/s);
   });
@@ -95,7 +95,7 @@ describe('popover geometry contract', () => {
     expect(css).toContain('max-width: min(190px, calc(100vw - 24px))');
     expect(css).toMatch(/\.metric\s*{[^}]*padding: 10px 14px;/s);
     expect(css).toMatch(/\.meter\s*{[^}]*height: 5px;/s);
-    expect(css).toMatch(/\.app-top-bar\s*{[^}]*min-height: 44px;/s);
+    expect(css).toMatch(/\.screen-header\s*{[^}]*min-height: 44px;/s);
     expect(css).toMatch(/\.footer\s*{[^}]*min-height: 52px;/s);
   });
 
@@ -135,8 +135,10 @@ describe('popover geometry contract', () => {
     expect(css).toMatch(
       /:root\[data-density='compact'\] \.select-menu__trigger\s*{[^}]*min-height: 26px;/s,
     );
+    // The cross-link and workspace rows keep their compact padding without a
+    // separate 42px cap; the workspace list row owns the dense height now.
     expect(css).toMatch(
-      /:root\[data-density='compact'\] \.screen-cross-link\s*{[^}]*min-height: 42px;/s,
+      /:root\[data-density='compact'\] \.provider-list-row,\s*\n\s*:root\[data-density='compact'\] \.screen-cross-link\s*{[^}]*padding-top: 6px;[^}]*padding-bottom: 6px;/s,
     );
     expect(css).toMatch(
       /:root\[data-density='compact'\] \.spend-ring\s*{[^}]*width: 88px;[^}]*height: 88px;/s,

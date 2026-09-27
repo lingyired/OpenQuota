@@ -114,7 +114,11 @@ describe('Quota01 customization persistence and reorder', () => {
     render(App);
     await screen.findByText('Plus');
     await openSettingsWorkspace('customize');
-    await fireEvent.click(screen.getByRole('button', { name: 'Reset all customization' }));
+    // The reset action lives on the workspace's general settings panel.
+    await fireEvent.click(
+      screen.getByRole('button', { name: 'General Notifications, appearance and more' }),
+    );
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset all customization…' }));
 
     const dialog = screen.getByRole('alertdialog', { name: 'Reset All Customization?' });
     expect(dialog).toHaveTextContent('restores every provider');
@@ -124,7 +128,7 @@ describe('Quota01 customization persistence and reorder', () => {
     await fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     await waitFor(() => expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument());
 
-    await fireEvent.click(screen.getByRole('button', { name: 'Reset all customization' }));
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset all customization…' }));
     await fireEvent.click(screen.getByRole('button', { name: 'Reset All' }));
     await waitFor(() =>
       expect(mocks.invoke).toHaveBeenCalledWith('reset_customization', {

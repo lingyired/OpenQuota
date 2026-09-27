@@ -127,16 +127,17 @@ describe('SettingsWorkspace', () => {
     const workspace = document.querySelector<HTMLElement>('[data-settings-workspace]')!;
     await fireEvent.click(within(workspace).getByRole('button', { name: 'Claude' }));
     expect(document.querySelector('[data-settings-workspace]')).toBe(workspace);
+    // The settings panel is named after the selected provider.
     expect(workspace.querySelector('[data-workspace-panel="settings"]')).toHaveAttribute(
       'aria-label',
-      'Customize',
+      'Claude',
     );
 
-    const providerNavigation = within(workspace).getByRole('navigation', { name: 'Customize' });
-    await fireEvent.click(within(providerNavigation).getByRole('button', { name: 'Settings' }));
+    const providerNavigation = within(workspace).getByRole('navigation', { name: 'Settings' });
+    await fireEvent.click(within(providerNavigation).getByRole('button', { name: /General/ }));
     expect(workspace.querySelector('[data-workspace-panel="settings"]')).toHaveAttribute(
       'aria-label',
-      'Settings',
+      'App preferences',
     );
     expect(screen.getByRole('combobox', { name: 'Language' })).toBeInTheDocument();
   });

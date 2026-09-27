@@ -1001,7 +1001,10 @@ describe('Quota01 dashboard', () => {
     render(App);
     await screen.findByText('Plus');
     await openSettingsWorkspace('customize');
-    expect(screen.getByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
+    // The detail pane names itself "Customize {provider}" and the workspace
+    // column carries the provider name.
+    expect(screen.getByRole('region', { name: 'Customize Codex' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Codex' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'Always Visible metrics' })).toBeInTheDocument();
     expect(screen.getByRole('group', { name: 'On Demand metrics' })).toBeInTheDocument();
   });
@@ -2081,11 +2084,11 @@ describe('Quota01 dashboard', () => {
     await waitFor(() => expect(document.querySelector('[data-settings-workspace]')).toBeTruthy());
     await waitFor(() => expect(appEventHandlers.get('settings-workspace-selection')).toBeDefined());
     appEventHandlers.get('settings-workspace-selection')?.({ payload: 'provider:codex' });
-    expect(await screen.findByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Customize Codex' })).toBeInTheDocument();
     appEventHandlers.get('settings-workspace-selection')?.({ payload: 'settings' });
     expect(await screen.findByRole('combobox', { name: 'Theme' })).toBeInTheDocument();
     appEventHandlers.get('settings-workspace-selection')?.({ payload: 'customize' });
-    expect(await screen.findByRole('heading', { name: 'Customize Codex' })).toBeInTheDocument();
+    expect(await screen.findByRole('region', { name: 'Customize Codex' })).toBeInTheDocument();
     expect(document.querySelector('.screen-page[data-screen="settings"]')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Back' })).not.toBeInTheDocument();
   });
