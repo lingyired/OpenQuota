@@ -162,6 +162,7 @@ impl CodexClient {
         self.fetch_usage_using(client.as_ref(), access_token, account_id)
     }
 
+    #[allow(dead_code)]
     pub fn fetch_reset_credits(
         &self,
         access_token: &str,
@@ -220,6 +221,7 @@ impl CodexClient {
         self.fetch_reset_credits_using(client.as_ref(), access_token, account_id)
     }
 
+    #[allow(dead_code)]
     pub fn consume_reset_credit(
         &self,
         access_token: &str,
@@ -227,9 +229,43 @@ impl CodexClient {
         credit_id: &str,
         redeem_request_id: &str,
     ) -> Result<UsageResponse, CodexError> {
+        self.consume_reset_credit_using(
+            &self.client,
+            access_token,
+            account_id,
+            credit_id,
+            redeem_request_id,
+        )
+    }
+
+    pub(super) fn consume_reset_credit_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+        account_id: Option<&str>,
+        credit_id: &str,
+        redeem_request_id: &str,
+    ) -> Result<UsageResponse, CodexError> {
+        let client = self.client_for_context(context, "usage")?;
+        self.consume_reset_credit_using(
+            client.as_ref(),
+            access_token,
+            account_id,
+            credit_id,
+            redeem_request_id,
+        )
+    }
+
+    fn consume_reset_credit_using(
+        &self,
+        client: &Client,
+        access_token: &str,
+        account_id: Option<&str>,
+        credit_id: &str,
+        redeem_request_id: &str,
+    ) -> Result<UsageResponse, CodexError> {
         let started = std::time::Instant::now();
-        let mut request = self
-            .client
+        let mut request = client
             .post(&self.consume_reset_credit_url)
             .bearer_auth(access_token)
             .header("Accept", "application/json")

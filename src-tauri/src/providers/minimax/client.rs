@@ -84,6 +84,13 @@ impl MiniMaxClient {
 }
 
 #[cfg(test)]
+impl MiniMaxClient {
+    pub fn for_test(url: &str, timeout: Duration) -> Self {
+        Self::with_endpoint(url, timeout, "minimax").unwrap()
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
 
@@ -110,12 +117,5 @@ mod tests {
         let request = request.join().unwrap().to_ascii_lowercase();
         assert!(request.contains("proxy-authorization: basic "));
         assert!(request.contains("authorization: bearer provider-api-key"));
-    }
-}
-
-#[cfg(test)]
-impl MiniMaxClient {
-    pub fn for_test(url: &str, timeout: Duration) -> Self {
-        Self::with_endpoint(url, timeout, "minimax").unwrap()
     }
 }

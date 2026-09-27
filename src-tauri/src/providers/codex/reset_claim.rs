@@ -29,11 +29,12 @@ impl CodexResetClaimService {
         })
     }
 
-    pub fn claim(&self, expiry: DateTime<Utc>, redeem_request_id: &str) -> ResetClaimOutcome {
-        let redeem_request_id = redeem_request_id.trim();
-        if redeem_request_id.is_empty() || redeem_request_id.len() > 128 {
-            return ResetClaimOutcome::Failed;
-        }
+    pub fn claim(
+        &self,
+        context: &crate::providers::ProviderRequestContext,
+        expiry: DateTime<Utc>,
+        redeem_request_id: &str,
+    ) -> ResetClaimOutcome {
         let candidates = match CodexAuthState::load_candidates() {
             Ok(candidates) => candidates,
             Err(_) => {
@@ -41,6 +42,20 @@ impl CodexResetClaimService {
                 return ResetClaimOutcome::Failed;
             }
         };
+        self.claim_with_candidates(context, expiry, redeem_request_id, &candidates)
+    }
+
+    fn claim_with_candidates(
+        &self,
+        context: &crate::providers::ProviderRequestContext,
+        expiry: DateTime<Utc>,
+        redeem_request_id: &str,
+        candidates: &[CodexAuthState],
+    ) -> ResetClaimOutcome {
+        let redeem_request_id = redeem_request_id.trim();
+        if redeem_request_id.is_empty() || redeem_request_id.len() > 128 {
+            return ResetClaimOutcome::Failed;
+        }
 
         let cached_credit_id = self
             .matched_credit_ids
@@ -52,10 +67,11 @@ impl CodexResetClaimService {
         } else {
             let mut matched = None;
             for (index, candidate) in candidates.iter().enumerate() {
-                let response = match self
-                    .client
-                    .fetch_reset_credits(&candidate.access_token, candidate.account_id.as_deref())
-                {
+                let response = match self.client.fetch_reset_credits_with_context(
+                    context,
+                    &candidate.access_token,
+                    candidate.account_id.as_deref(),
+                ) {
                     Ok(response) => response,
                     Err(_) => {
                         crate::app_error!("provider:codex", "reset claim list request failed");
@@ -99,7 +115,8 @@ impl CodexResetClaimService {
             .chain((0..candidates.len()).filter(|index| Some(*index) != preferred_index));
         for index in indexes {
             let candidate = &candidates[index];
-            let response = match self.client.consume_reset_credit(
+            let response = match self.client.consume_reset_credit_with_context(
+                context,
                 &candidate.access_token,
                 candidate.account_id.as_deref(),
                 &credit_id,
@@ -174,11 +191,124 @@ fn outcome_from_consume(status: StatusCode, body: &Value) -> ResetClaimOutcome {
 
 #[cfg(test)]
 mod tests {
+    use std::{fs, sync::Arc, time::Duration};
+
     use chrono::{TimeZone, Utc};
     use reqwest::StatusCode;
     use serde_json::json;
+    use tempfile::tempdir;
 
-    use super::{credit_id_for_expiry, outcome_from_consume, ResetClaimOutcome};
+    use super::{
+        credit_id_for_expiry, outcome_from_consume, CodexResetClaimService, ResetClaimOutcome,
+    };
+    use crate::providers::{
+        codex::{
+            auth::{load_from_path_for_test, CodexAuthState},
+            client::CodexClient,
+        },
+        http::ProviderHttpClientFactory,
+        test_http, ProviderRequestContext,
+    };
+
+    fn test_candidate() -> (tempfile::TempDir, CodexAuthState) {
+        let directory = tempdir().unwrap();
+        let path = directory.path().join("auth.json");
+        fs::write(
+            &path,
+            r#"{"tokens":{"access_token":"secret-token","account_id":"account-a"}}"#,
+        )
+        .unwrap();
+        let candidate = load_from_path_for_test(&path).unwrap();
+        (directory, candidate)
+    }
+
+    fn test_service(reset_url: &str, consume_url: &str) -> CodexResetClaimService {
+        CodexResetClaimService {
+            client: CodexClient::with_test_endpoints(
+                "http://codex.invalid/usage",
+                reset_url,
+                consume_url,
+                "http://codex.invalid/token",
+                Duration::from_secs(1),
+            )
+            .unwrap(),
+            matched_credit_ids: Default::default(),
+        }
+    }
+
+    fn list_response(expiry: chrono::DateTime<Utc>) -> String {
+        format!(
+            r#"{{"credits":[{{"id":"credit-1","status":"available","expires_at":{}}}]}}"#,
+            expiry.timestamp()
+        )
+    }
+
+    #[test]
+    fn reset_claim_list_and_consume_requests_use_the_selected_proxy() {
+        let expiry = Utc.with_ymd_and_hms(2026, 9, 27, 0, 0, 0).unwrap();
+        let list_body = list_response(expiry);
+        let (proxy_url, proxy_server) = test_http::serve_sequence_capturing_requests(&[
+            (200, list_body.as_str()),
+            (200, r#"{"code":"reset"}"#),
+        ]);
+        let service = test_service(
+            "http://codex.invalid/reset-credits",
+            "http://codex.invalid/reset-credits/consume",
+        );
+        let (_directory, candidate) = test_candidate();
+        let context = ProviderRequestContext {
+            proxy_url: Some(reqwest::Url::parse(&proxy_url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        };
+
+        let outcome = service.claim_with_candidates(
+            &context,
+            expiry,
+            "redeem-1",
+            std::slice::from_ref(&candidate),
+        );
+
+        assert_eq!(outcome, ResetClaimOutcome::Success);
+        let requests = proxy_server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].starts_with("GET http://codex.invalid/reset-credits HTTP/1.1"));
+        assert!(requests[1].starts_with("POST http://codex.invalid/reset-credits/consume HTTP/1.1"));
+        for request in &requests {
+            let request = request.to_ascii_lowercase();
+            assert!(request.contains("authorization: bearer secret-token"));
+            assert!(request.contains("chatgpt-account-id: account-a"));
+        }
+    }
+
+    #[test]
+    fn reset_claim_direct_context_keeps_list_and_consume_requests_direct() {
+        let expiry = Utc.with_ymd_and_hms(2026, 9, 27, 0, 0, 0).unwrap();
+        let list_body = list_response(expiry);
+        let (base_url, server) = test_http::serve_sequence_capturing_requests(&[
+            (200, list_body.as_str()),
+            (200, r#"{"code":"reset"}"#),
+        ]);
+        let service = test_service(
+            &format!("{base_url}/reset-credits"),
+            &format!("{base_url}/reset-credits/consume"),
+        );
+        let (_directory, candidate) = test_candidate();
+        let context =
+            ProviderRequestContext::direct(Arc::new(ProviderHttpClientFactory::default()));
+
+        let outcome = service.claim_with_candidates(
+            &context,
+            expiry,
+            "redeem-1",
+            std::slice::from_ref(&candidate),
+        );
+
+        assert_eq!(outcome, ResetClaimOutcome::Success);
+        let requests = server.join().unwrap();
+        assert_eq!(requests.len(), 2);
+        assert!(requests[0].starts_with("GET /reset-credits HTTP/1.1"));
+        assert!(requests[1].starts_with("POST /reset-credits/consume HTTP/1.1"));
+    }
 
     #[test]
     fn matches_only_an_available_credit_at_the_selected_expiry() {

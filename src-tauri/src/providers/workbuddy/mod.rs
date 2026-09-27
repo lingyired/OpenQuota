@@ -448,8 +448,7 @@ impl WorkBuddyProvider {
         let (usage, usage_succeeded) = self.finish_usage(
             context,
             &mut credential,
-            start,
-            now,
+            UsageWindow { start, end: now },
             usage_attempt,
             &mut refresh_attempted,
             &mut warnings,
@@ -648,8 +647,7 @@ impl WorkBuddyProvider {
         &self,
         context: &ProviderRequestContext,
         credential: &mut WorkBuddyCredential,
-        start: DateTime<Local>,
-        end: DateTime<Local>,
+        window: UsageWindow,
         attempt: UsageFetchOutcome,
         refresh_attempted: &mut bool,
         warnings: &mut Vec<String>,
@@ -664,8 +662,8 @@ impl WorkBuddyProvider {
                     Ok(()) => self.fetch_usage_pages(
                         context,
                         &credential.view(),
-                        start,
-                        end,
+                        window.start,
+                        window.end,
                         pages,
                         page_number,
                     ),
@@ -703,7 +701,7 @@ impl WorkBuddyProvider {
                 total,
             } => {
                 let collection = collect_pages(&pages, complete, total);
-                let history = build_history(&collection, end, SOURCE_NOTE);
+                let history = build_history(&collection, window.end, SOURCE_NOTE);
                 append_usage_warning(history.completeness, warnings);
                 (history, true)
             }
@@ -717,7 +715,7 @@ impl WorkBuddyProvider {
                     append_usage_warning(UsageCompleteness::Unavailable, warnings);
                     (UsageHistory::default(), false)
                 } else {
-                    let history = build_history(&collection, end, SOURCE_NOTE);
+                    let history = build_history(&collection, window.end, SOURCE_NOTE);
                     append_usage_warning(history.completeness, warnings);
                     (history, true)
                 }
@@ -1019,6 +1017,11 @@ enum UsageFetchOutcome {
         total: usize,
         error: WorkBuddyError,
     },
+}
+
+struct UsageWindow {
+    start: DateTime<Local>,
+    end: DateTime<Local>,
 }
 
 fn latest_total(pages: &[ParsedUsagePage]) -> usize {

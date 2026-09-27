@@ -21,7 +21,10 @@ use crate::{
 };
 
 use self::{
-    auth::CodexAuthState, client::CodexClient, local_usage::scan_local_usage, mapper::map_usage,
+    auth::CodexAuthState,
+    client::{CodexClient, UsageResponse},
+    local_usage::scan_local_usage,
+    mapper::map_usage,
 };
 use crate::providers::{log_usage::scan_or_cached_usage, ProviderRequestContext};
 
@@ -238,6 +241,30 @@ impl CodexProvider {
         Self::ensure_candidate_identity(&current, expected)
     }
 
+    fn fetch_remote_usage_data(
+        &self,
+        context: &ProviderRequestContext,
+        auth: &CodexAuthState,
+    ) -> Result<(UsageResponse, Option<UsageResponse>), CodexError> {
+        let response = self.client.fetch_usage_with_context(
+            context,
+            &auth.access_token,
+            auth.account_id.as_deref(),
+        )?;
+        let reset_credits = if response.status.is_success() {
+            self.client
+                .fetch_reset_credits_with_context(
+                    context,
+                    &auth.access_token,
+                    auth.account_id.as_deref(),
+                )
+                .ok()
+        } else {
+            None
+        };
+        Ok((response, reset_credits))
+    }
+
     fn refresh_candidate(
         &self,
         context: &ProviderRequestContext,
@@ -260,34 +287,15 @@ impl CodexProvider {
             Self::ensure_candidate_identity(auth, account_identity)?;
         }
 
-        let mut response = self.client.fetch_usage_with_context(
-            context,
-            &auth.access_token,
-            auth.account_id.as_deref(),
-        )?;
+        let (mut response, mut reset_credits) = self.fetch_remote_usage_data(context, auth)?;
         if matches!(
             response.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
         ) {
             self.refresh_access_token(context, auth, now, &mut warnings)?;
             Self::ensure_candidate_identity(auth, account_identity)?;
-            response = self.client.fetch_usage_with_context(
-                context,
-                &auth.access_token,
-                auth.account_id.as_deref(),
-            )?;
+            (response, reset_credits) = self.fetch_remote_usage_data(context, auth)?;
         }
-        let reset_credits = if response.status.is_success() {
-            self.client
-                .fetch_reset_credits_with_context(
-                    context,
-                    &auth.access_token,
-                    auth.account_id.as_deref(),
-                )
-                .ok()
-        } else {
-            None
-        };
         let mapped = map_usage(&response, reset_credits.as_ref(), now)?;
         let pricing = self.pricing.current();
         let usage = scan_or_cached_usage(
@@ -448,7 +456,6 @@ impl crate::providers::UsageProvider for CodexProvider {
 mod account_tests {
     use std::{fs, sync::Arc, time::Duration};
 
-    use chrono::Utc;
     use tempfile::tempdir;
 
     use super::{
@@ -518,7 +525,7 @@ mod account_tests {
             r#"{"tokens":{"access_token":"secret-token","account_id":"account-a"}}"#,
         )
         .unwrap();
-        let mut auth = load_from_path_for_test(&auth_path).unwrap();
+        let auth = load_from_path_for_test(&auth_path).unwrap();
 
         let (proxy_url, proxy_server) =
             test_http::serve_sequence_capturing_requests(&[(200, r#"{}"#), (200, r#"{}"#)]);
@@ -544,11 +551,10 @@ mod account_tests {
             http_clients: Arc::default(),
         };
 
-        let snapshot = provider
-            .refresh_candidate(&context, &mut auth, Utc::now(), Some(&account_identity))
-            .unwrap();
+        let (response, reset_credits) = provider.fetch_remote_usage_data(&context, &auth).unwrap();
 
-        assert_eq!(snapshot.provider_id, "codex");
+        assert!(response.status.is_success());
+        assert!(reset_credits.is_some());
         let requests = proxy_server.join().unwrap();
         assert_eq!(requests.len(), 2);
         assert!(

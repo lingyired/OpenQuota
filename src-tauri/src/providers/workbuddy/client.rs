@@ -41,6 +41,13 @@ pub struct EndpointResponse {
     pub body: Value,
 }
 
+struct PostRetryRequest<'a> {
+    usage: bool,
+    path: &'a str,
+    payload: Value,
+    label: &'a str,
+}
+
 impl EndpointResponse {
     pub fn code(&self) -> Option<i64> {
         self.body
@@ -196,16 +203,17 @@ impl WorkBuddyClient {
     pub fn fetch_resource_summary(
         &self,
         auth: &WorkBuddyAuth,
-        now: DateTime<Local>,
+        _now: DateTime<Local>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
         self.post_with_retry(
             &self.client,
             auth,
-            false,
-            "/billing/meter/get-user-resource-summary",
-            json!({}),
-            "summary",
-            now,
+            PostRetryRequest {
+                usage: false,
+                path: "/billing/meter/get-user-resource-summary",
+                payload: json!({}),
+                label: "summary",
+            },
         )
     }
 
@@ -213,17 +221,18 @@ impl WorkBuddyClient {
         &self,
         context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
-        now: DateTime<Local>,
+        _now: DateTime<Local>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
         let client = self.http_client(context)?;
         self.post_with_retry(
             client.as_ref(),
             auth,
-            false,
-            "/billing/meter/get-user-resource-summary",
-            json!({}),
-            "summary",
-            now,
+            PostRetryRequest {
+                usage: false,
+                path: "/billing/meter/get-user-resource-summary",
+                payload: json!({}),
+                label: "summary",
+            },
         )
     }
 
@@ -231,17 +240,18 @@ impl WorkBuddyClient {
         &self,
         context: &ProviderRequestContext,
         auth: &WorkBuddyAuth,
-        now: DateTime<Local>,
+        _now: DateTime<Local>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
         let client = self.http_client(context)?;
         self.post_with_retry(
             client.as_ref(),
             auth,
-            false,
-            "/billing/meter/get-user-resource-paid-packages",
-            paid_packages_payload(),
-            "paid-packages",
-            now,
+            PostRetryRequest {
+                usage: false,
+                path: "/billing/meter/get-user-resource-paid-packages",
+                payload: paid_packages_payload(),
+                label: "paid-packages",
+            },
         )
     }
 
@@ -256,11 +266,12 @@ impl WorkBuddyClient {
         self.post_with_retry(
             client.as_ref(),
             auth,
-            false,
-            "/billing/meter/get-user-resource-free-packages",
-            free_packages_payload(&date),
-            "free-packages",
-            now,
+            PostRetryRequest {
+                usage: false,
+                path: "/billing/meter/get-user-resource-free-packages",
+                payload: free_packages_payload(&date),
+                label: "free-packages",
+            },
         )
     }
 
@@ -276,16 +287,17 @@ impl WorkBuddyClient {
         self.post_with_retry(
             client.as_ref(),
             auth,
-            true,
-            "/billing/meter/get-user-request-usage",
-            json!({
-                "startTime": start.format("%Y-%m-%d %H:%M:%S").to_string(),
-                "endTime": end.format("%Y-%m-%d %H:%M:%S").to_string(),
-                "pageNum": page,
-                "pageSize": 3000,
-            }),
-            "usage",
-            end,
+            PostRetryRequest {
+                usage: true,
+                path: "/billing/meter/get-user-request-usage",
+                payload: json!({
+                    "startTime": start.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    "endTime": end.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    "pageNum": page,
+                    "pageSize": 3000,
+                }),
+                label: "usage",
+            },
         )
     }
 
@@ -340,15 +352,25 @@ impl WorkBuddyClient {
         &self,
         client: &Client,
         auth: &WorkBuddyAuth,
-        usage: bool,
-        path: &str,
-        payload: Value,
-        label: &str,
-        _now: impl Into<DateTime<Local>>,
+        request: PostRetryRequest<'_>,
     ) -> Result<EndpointResponse, WorkBuddyClientError> {
-        let response = self.post_once(client, auth, usage, path, &payload, label)?;
+        let response = self.post_once(
+            client,
+            auth,
+            request.usage,
+            request.path,
+            &request.payload,
+            request.label,
+        )?;
         if response.is_retryable_transport() {
-            return self.post_once(client, auth, usage, path, &payload, label);
+            return self.post_once(
+                client,
+                auth,
+                request.usage,
+                request.path,
+                &request.payload,
+                request.label,
+            );
         }
         Ok(response)
     }

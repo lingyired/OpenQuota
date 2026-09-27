@@ -118,6 +118,24 @@ impl DeepSeekClient {
     }
 }
 
+fn decode(
+    response: reqwest::blocking::Response,
+    status: StatusCode,
+) -> Result<EndpointResponse, DeepSeekError> {
+    let text = response
+        .text()
+        .map_err(|_| DeepSeekError::InvalidResponse)?;
+    let body = serde_json::from_str(&text).unwrap_or(Value::Null);
+    Ok(EndpointResponse { status, body })
+}
+
+#[cfg(test)]
+impl DeepSeekClient {
+    pub fn for_test(summary_url: &str, cost_url: &str, timeout: Duration) -> Self {
+        Self::with_endpoints(summary_url, cost_url, timeout).unwrap()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::{sync::Arc, time::Duration};
@@ -148,23 +166,5 @@ mod tests {
         let request = request.join().unwrap().to_ascii_lowercase();
         assert!(request.contains("proxy-authorization: basic "));
         assert!(request.contains("authorization: bearer provider-api-key"));
-    }
-}
-
-fn decode(
-    response: reqwest::blocking::Response,
-    status: StatusCode,
-) -> Result<EndpointResponse, DeepSeekError> {
-    let text = response
-        .text()
-        .map_err(|_| DeepSeekError::InvalidResponse)?;
-    let body = serde_json::from_str(&text).unwrap_or(Value::Null);
-    Ok(EndpointResponse { status, body })
-}
-
-#[cfg(test)]
-impl DeepSeekClient {
-    pub fn for_test(summary_url: &str, cost_url: &str, timeout: Duration) -> Self {
-        Self::with_endpoints(summary_url, cost_url, timeout).unwrap()
     }
 }

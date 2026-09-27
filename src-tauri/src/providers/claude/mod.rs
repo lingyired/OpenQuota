@@ -448,10 +448,12 @@ impl ClaudeProvider {
             let previous_fingerprint = credential.fingerprint();
             refresh_credential(
                 &self.client,
-                context,
+                &CredentialRefreshRequest {
+                    context,
+                    config,
+                    now: &now,
+                },
                 credential,
-                config,
-                now,
                 &mut warnings,
                 credential_generation,
                 &self.credential_scope,
@@ -502,10 +504,12 @@ impl ClaudeProvider {
             let previous_fingerprint = credential.fingerprint();
             refresh_credential(
                 &self.client,
-                context,
+                &CredentialRefreshRequest {
+                    context,
+                    config,
+                    now: &now,
+                },
                 credential,
-                config,
-                now,
                 &mut warnings,
                 credential_generation,
                 &self.credential_scope,
@@ -644,12 +648,16 @@ fn retry_minutes(retry_seconds: u64) -> String {
     )
 }
 
+struct CredentialRefreshRequest<'a> {
+    context: &'a ProviderRequestContext,
+    config: &'a auth::ClaudeOAuthConfig,
+    now: &'a chrono::DateTime<Utc>,
+}
+
 fn refresh_credential(
     client: &ClaudeClient,
-    context: &ProviderRequestContext,
+    request: &CredentialRefreshRequest<'_>,
     credential: &mut ClaudeCredential,
-    config: &auth::ClaudeOAuthConfig,
-    now: chrono::DateTime<Utc>,
     warnings: &mut Vec<String>,
     credential_generation: &mut ClaudeCredentialGeneration,
     credential_scope: &ClaudeCredentialScope,
@@ -660,12 +668,13 @@ fn refresh_credential(
         .as_deref()
         .filter(|value| !value.is_empty())
         .ok_or(ClaudeError::TokenExpired)?;
-    let refreshed = client.refresh_token_with_context(context, refresh_token, config)?;
+    let refreshed =
+        client.refresh_token_with_context(request.context, refresh_token, request.config)?;
     match credential.update_and_save(
         refreshed.access_token,
         refreshed.refresh_token,
         refreshed.expires_in,
-        now.timestamp_millis(),
+        request.now.timestamp_millis(),
         credential_generation,
         credential_scope,
     ) {

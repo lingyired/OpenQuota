@@ -29,10 +29,12 @@ pub async fn claim_codex_reset_credit(
         return Err("Codex is not enabled.".to_owned());
     }
     let claims = claims.inner().clone();
-    let outcome =
-        tauri::async_runtime::spawn_blocking(move || claims.claim(expires_at, &redeem_request_id))
-            .await
-            .map_err(|_| "The reset claim could not be completed.".to_owned())?;
+    let context = service.request_context_for("codex");
+    let outcome = tauri::async_runtime::spawn_blocking(move || {
+        claims.claim(&context, expires_at, &redeem_request_id)
+    })
+    .await
+    .map_err(|_| "The reset claim could not be completed.".to_owned())?;
 
     if outcome != ResetClaimOutcome::Failed {
         let observed_account_revision = AtomicU64::new(settings.account_revision());
