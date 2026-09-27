@@ -25,7 +25,8 @@ function settingsView(
     providerInstanceCount: 0,
     providerInstanceFailures: [],
     settings: {
-      schemaVersion: 9,
+      schemaVersion: 10,
+      proxyUrl: null,
       providerNames: {},
       language: 'en',
       providers: [],

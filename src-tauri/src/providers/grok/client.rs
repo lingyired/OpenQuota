@@ -1,8 +1,10 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use reqwest::{blocking::Client, StatusCode};
 use serde::Deserialize;
 use serde_json::Value;
+
+use crate::providers::ProviderRequestContext;
 
 use super::GrokError;
 
@@ -26,7 +28,7 @@ pub struct TokenRefresh {
 }
 
 pub struct GrokClient {
-    client: Client,
+    timeout: Duration,
     credits_url: String,
     settings_url: String,
     refresh_url: String,
@@ -48,38 +50,54 @@ impl GrokClient {
         refresh_url: &str,
         timeout: Duration,
     ) -> Result<Self, GrokError> {
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(8))
-            .timeout(timeout)
-            .user_agent(concat!("Quota01/", env!("CARGO_PKG_VERSION")))
-            .build()
-            .map_err(|_| GrokError::ConnectionFailed)?;
         Ok(Self {
-            client,
+            timeout,
             credits_url: credits_url.to_owned(),
             settings_url: settings_url.to_owned(),
             refresh_url: refresh_url.to_owned(),
         })
     }
 
-    pub fn fetch_credits(&self, access_token: &str) -> Result<GrokResponse, GrokError> {
-        self.fetch_authenticated(&self.credits_url, access_token, "billing")
+    fn http_client(&self, context: &ProviderRequestContext) -> Result<Arc<Client>, GrokError> {
+        context
+            .http_clients
+            .client("grok", "default", context.proxy_url.as_ref(), |builder| {
+                builder
+                    .connect_timeout(Duration::from_secs(8))
+                    .timeout(self.timeout)
+                    .user_agent(concat!("Quota01/", env!("CARGO_PKG_VERSION")))
+            })
+            .map_err(|_| GrokError::ConnectionFailed)
     }
 
-    pub fn fetch_settings(&self, access_token: &str) -> Result<GrokResponse, GrokError> {
-        self.fetch_authenticated(&self.settings_url, access_token, "settings")
+    pub fn fetch_credits(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<GrokResponse, GrokError> {
+        self.fetch_authenticated(context, &self.credits_url, access_token, "billing")
+    }
+
+    pub fn fetch_settings(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<GrokResponse, GrokError> {
+        self.fetch_authenticated(context, &self.settings_url, access_token, "settings")
     }
 
     fn fetch_authenticated(
         &self,
+        context: &ProviderRequestContext,
         url: &str,
         access_token: &str,
         endpoint: &str,
     ) -> Result<GrokResponse, GrokError> {
+        let client = self.http_client(context)?;
         let started = std::time::Instant::now();
         let response = self
             .send_request(|| {
-                self.client
+                client
                     .get(url)
                     .bearer_auth(access_token.trim())
                     .header("X-XAI-Token-Auth", TOKEN_AUTH_HEADER)
@@ -105,14 +123,16 @@ impl GrokClient {
 
     pub fn refresh_token(
         &self,
+        context: &ProviderRequestContext,
         refresh_token: &str,
         client_id: &str,
     ) -> Result<TokenRefresh, GrokError> {
+        let client = self.http_client(context)?;
         let started = std::time::Instant::now();
         crate::app_info!("auth:grok", "token refresh attempt");
         let response = self
             .send_request(|| {
-                self.client.post(&self.refresh_url).form(&[
+                client.post(&self.refresh_url).form(&[
                     ("grant_type", "refresh_token"),
                     ("client_id", client_id),
                     ("refresh_token", refresh_token),
@@ -198,13 +218,22 @@ mod tests {
     use std::{
         io::{Read, Write},
         net::TcpListener,
-        sync::mpsc,
+        sync::{mpsc, Arc},
         thread,
         time::Duration,
     };
 
     use super::GrokClient;
-    use crate::providers::{grok::GrokError, test_http};
+    use crate::providers::{
+        grok::GrokError, http::ProviderHttpClientFactory, test_http, ProviderRequestContext,
+    };
+
+    fn context(proxy_url: Option<&str>) -> ProviderRequestContext {
+        ProviderRequestContext {
+            proxy_url: proxy_url.map(|url| reqwest::Url::parse(url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        }
+    }
 
     fn capture_once(
         response_body: &str,
@@ -257,7 +286,9 @@ mod tests {
         let (url, request, handle) = capture_once(r#"{"config":{}}"#);
         let client = GrokClient::for_test(&url, &url, &url, Duration::from_secs(1));
 
-        let response = client.fetch_credits(" secret-token ").unwrap();
+        let response = client
+            .fetch_credits(&context(None), " secret-token ")
+            .unwrap();
 
         assert!(response.body.get("config").is_some());
         let request = request.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -274,7 +305,7 @@ mod tests {
         let client = GrokClient::for_test(&url, &url, &url, Duration::from_secs(1));
 
         let refreshed = client
-            .refresh_token("refresh token&=+/?%", "client id&=+/?%")
+            .refresh_token(&context(None), "refresh token&=+/?%", "client id&=+/?%")
             .unwrap();
 
         assert_eq!(refreshed.access_token, "new");
@@ -296,7 +327,7 @@ mod tests {
             Duration::from_secs(1),
         );
         assert!(matches!(
-            client.refresh_token("refresh", "client"),
+            client.refresh_token(&context(None), "refresh", "client"),
             Err(GrokError::Expired)
         ));
 
@@ -313,8 +344,30 @@ mod tests {
             test_http::TIMEOUT_TEST_CLIENT_LIMIT,
         );
         assert!(matches!(
-            client.fetch_credits("secret"),
+            client.fetch_credits(&context(None), "secret"),
             Err(GrokError::ConnectionFailed)
         ));
+    }
+
+    #[test]
+    fn provider_proxy_api_key_route_grok() {
+        let (base_url, request) =
+            test_http::serve_once_capturing_request(200, r#"{"marker":"proxy"}"#);
+        let proxy_url = base_url.replacen("http://", "http://proxy-user:proxy-pass@", 1);
+        let client = GrokClient::for_test(
+            &format!("{base_url}/credits"),
+            &format!("{base_url}/settings"),
+            &format!("{base_url}/refresh"),
+            Duration::from_secs(1),
+        );
+
+        let response = client
+            .fetch_credits(&context(Some(&proxy_url)), "provider-api-key")
+            .unwrap();
+
+        assert_eq!(response.body["marker"], "proxy");
+        let request = request.join().unwrap().to_ascii_lowercase();
+        assert!(request.contains("proxy-authorization: basic "));
+        assert!(request.contains("authorization: bearer provider-api-key"));
     }
 }

@@ -1,8 +1,10 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { addMessages, locale } from 'svelte-i18n';
 import CustomizeProviderDetail from './CustomizeProviderDetail.svelte';
 import { ProviderCatalogIndex } from './metrics';
 import type { AppSettings, ProviderCatalog } from './types';
+import { t } from './i18n';
 
 const mocks = vi.hoisted(() => ({ invoke: vi.fn(), listen: vi.fn() }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
@@ -86,13 +88,15 @@ const catalogData: ProviderCatalog = {
 };
 
 const settings: AppSettings = {
-  schemaVersion: 9,
+  schemaVersion: 10,
+  proxyUrl: null,
   providers: [
     {
       id: 'trae-cn',
       enabled: false,
       detected: false,
       expanded: false,
+      useProxy: false,
       metrics: [
         { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
@@ -103,6 +107,7 @@ const settings: AppSettings = {
       enabled: false,
       detected: false,
       expanded: false,
+      useProxy: false,
       metrics: [
         {
           id: 'deepseek.balance',
@@ -117,6 +122,7 @@ const settings: AppSettings = {
       enabled: false,
       detected: false,
       expanded: false,
+      useProxy: true,
       metrics: [
         { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
       ],
@@ -126,6 +132,7 @@ const settings: AppSettings = {
   providerNames: {},
   language: 'en',
   showTotalSpend: true,
+  showAppMenubar: true,
   theme: 'system',
   density: 'default',
   reduceAnimations: false,
@@ -156,7 +163,8 @@ const settings: AppSettings = {
 };
 
 describe('CustomizeProviderDetail session authentication', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    await locale.set('en');
     mocks.listen.mockReset().mockResolvedValue(vi.fn());
     mocks.invoke
       .mockReset()
@@ -239,6 +247,88 @@ describe('CustomizeProviderDetail session authentication', () => {
     expect(mocks.invoke).not.toHaveBeenCalledWith('get_provider_api_key_state', {
       providerId: 'workbuddy-cn',
     });
+  });
+
+  it('toggles only the selected provider proxy setting', async () => {
+    const onChange = vi.fn();
+    render(CustomizeProviderDetail, {
+      settings,
+      providerId: 'deepseek',
+      catalog: new ProviderCatalogIndex(catalogData),
+      renamableProviderIds: [],
+      onChange,
+      onNameChange: () => {},
+      onReorderStart: () => {},
+      onReorderEnd: () => {},
+      reducedMotion: true,
+    });
+
+    await fireEvent.click(screen.getByRole('checkbox', { name: t('customize.useProxy') }));
+    expect(screen.getByText(t('customize.useProxyHelp'))).toBeInTheDocument();
+
+    expect(onChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        providers: expect.arrayContaining([
+          expect.objectContaining({
+            id: 'trae-cn',
+            enabled: false,
+            detected: false,
+            expanded: false,
+            useProxy: false,
+            metrics: [
+              { id: 'trae-cn.credits', enabled: true, section: 'alwaysVisible', pinned: true },
+              { id: 'trae-cn.status', enabled: true, section: 'onDemand', pinned: false },
+            ],
+          }),
+          expect.objectContaining({
+            id: 'deepseek',
+            enabled: false,
+            detected: false,
+            expanded: false,
+            useProxy: true,
+            metrics: [
+              { id: 'deepseek.balance', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          }),
+          expect.objectContaining({
+            id: 'workbuddy-cn',
+            enabled: false,
+            detected: false,
+            expanded: false,
+            useProxy: true,
+            metrics: [
+              { id: 'workbuddy-cn.quota', enabled: true, section: 'alwaysVisible', pinned: true },
+            ],
+          }),
+        ]),
+      }),
+    );
+  });
+
+  it('uses the active locale for the provider proxy label and helper text', async () => {
+    addMessages('task-7-proxy-customize', {
+      customize: {
+        useProxy: 'Route this provider through the proxy',
+        useProxyHelp: 'This localized control uses the shared URL.',
+      },
+    });
+    await locale.set('task-7-proxy-customize');
+    render(CustomizeProviderDetail, {
+      settings,
+      providerId: 'deepseek',
+      catalog: new ProviderCatalogIndex(catalogData),
+      renamableProviderIds: [],
+      onChange: () => {},
+      onNameChange: () => {},
+      onReorderStart: () => {},
+      onReorderEnd: () => {},
+      reducedMotion: true,
+    });
+
+    expect(
+      screen.getByRole('checkbox', { name: 'Route this provider through the proxy' }),
+    ).toBeInTheDocument();
+    expect(screen.getByText('This localized control uses the shared URL.')).toBeInTheDocument();
   });
 
   it('lets macOS hide the native instance without disabling its provider', async () => {

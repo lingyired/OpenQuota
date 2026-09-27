@@ -1,4 +1,8 @@
-use std::{collections::HashMap, sync::Mutex, time::Duration};
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::Duration,
+};
 
 use chrono::Utc;
 use rand::{rng, RngCore};
@@ -8,6 +12,7 @@ use thiserror::Error;
 
 use super::{client::USER_AGENT, session::WorkBuddySession};
 use crate::models::DeviceCodeChallenge;
+use crate::providers::ProviderRequestContext;
 
 /// 一次待授权尝试的有效期（秒）。用户要去浏览器里完成确认，所以给足时间；
 /// TTL 同时决定一个被遗忘的 state 何时从内存中消失。
@@ -56,38 +61,56 @@ struct PendingLogin {
 }
 
 pub struct DeviceCodeLogin {
-    client: Client,
     base_url: String,
     pending: Mutex<HashMap<String, PendingLogin>>,
 }
 
 impl DeviceCodeLogin {
     pub fn new(base_url: &str) -> Result<Self, WorkBuddyLoginError> {
-        let client = Client::builder()
-            .connect_timeout(Duration::from_secs(8))
-            .timeout(Duration::from_secs(30))
-            // 绝不跟随重定向：取资料的请求带着刚签发的 bearer token，换 token 的请求带着
-            // 服务端 state，而 3xx 的 Location 指向哪台主机由响应决定。跟随它等于把凭据交给
-            // 域名白名单从未批准的目的地；不跟随则 3xx 只是一个普通的不成功响应，
-            // poll 保持 Pending、start 报失败。
-            .redirect(reqwest::redirect::Policy::none())
-            .user_agent(USER_AGENT)
-            .build()
-            .map_err(|_| WorkBuddyLoginError::Connection)?;
         Ok(Self {
-            client,
             base_url: base_url.trim_end_matches('/').to_owned(),
             pending: Mutex::new(HashMap::new()),
         })
     }
 
+    fn http_client(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<Arc<Client>, WorkBuddyLoginError> {
+        context
+            .http_clients
+            .client(
+                "workbuddy",
+                "login",
+                context.proxy_url.as_ref(),
+                |builder| {
+                    builder
+                        .connect_timeout(Duration::from_secs(8))
+                        .timeout(Duration::from_secs(30))
+                        // Login requests carry the temporary state or newly issued token. Keep
+                        // redirects disabled for the login transport just as they were before.
+                        .redirect(reqwest::redirect::Policy::none())
+                        .user_agent(USER_AGENT)
+                },
+            )
+            .map_err(|_| WorkBuddyLoginError::Connection)
+    }
+
     /// 申请一个授权 state，并把它藏进内部表里。
     /// 返回给调用方的只有一个与 state 无关的登录 id。
+    #[cfg(test)]
     pub fn start(&self) -> Result<DeviceCodeChallenge, WorkBuddyLoginError> {
+        self.start_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    pub fn start_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<DeviceCodeChallenge, WorkBuddyLoginError> {
+        let client = self.http_client(context)?;
         let url = format!("{}{STATE_PATH}?platform={PLATFORM}", self.base_url);
         let started = std::time::Instant::now();
-        let response = self
-            .client
+        let response = client
             .post(&url)
             .json(&json!({}))
             .header("Accept", "application/json, text/plain, */*")
@@ -133,15 +156,23 @@ impl DeviceCodeLogin {
     ///
     /// 网络抖动、非 JSON 响应、服务端还没授权都只是「这次没结果」而不是失败：
     /// 它们都由 TTL 兜底，不能因为一次抖动就终结用户正在浏览器里做的授权。
+    #[cfg(test)]
     pub fn poll(&self, login_id: &str) -> LoginPoll {
+        self.poll_with_context(login_id, &ProviderRequestContext::direct(Arc::default()))
+    }
+
+    pub fn poll_with_context(&self, login_id: &str, context: &ProviderRequestContext) -> LoginPoll {
         let state = match self.active_state(login_id) {
             Ok(state) => state,
             Err(message) => return LoginPoll::Failed(message),
         };
+        let client = match self.http_client(context) {
+            Ok(client) => client,
+            Err(_) => return LoginPoll::Pending,
+        };
 
         let started = std::time::Instant::now();
-        let response = self
-            .client
+        let response = client
             .get(format!("{}{TOKEN_PATH}", self.base_url))
             .query(&[("state", state.as_str())])
             .header("Accept", "application/json, text/plain, */*")
@@ -224,7 +255,7 @@ impl DeviceCodeLogin {
         };
         // 资料请求放在取消判定之前：`mark_done` 之后的语义（取消优先）保持与改动前完全一致，
         // 资料只是给这份会话补充展示信息。
-        self.enrich_profile(&state, &mut session);
+        self.enrich_profile(client.as_ref(), &state, &mut session);
         // 请求期间用户可能刚点了取消：取消优先，不能把凭据交给一个已作废的尝试。
         if !self.mark_done(login_id) {
             return LoginPoll::Failed(
@@ -238,9 +269,8 @@ impl DeviceCodeLogin {
     ///
     /// 资料只是展示信息：传输失败、非成功状态、不可解析的响应都保持 token-only 的会话，
     /// 一份已经能用的凭据绝不因为资料拿不到而被丢弃。响应体不打印，避免把用户资料写进日志。
-    fn enrich_profile(&self, state: &str, session: &mut WorkBuddySession) {
-        let response = self
-            .client
+    fn enrich_profile(&self, client: &Client, state: &str, session: &mut WorkBuddySession) {
+        let response = client
             .get(format!("{}{ACCOUNT_PATH}", self.base_url))
             .query(&[("state", state)])
             .header("Authorization", format!("Bearer {}", session.access_token))

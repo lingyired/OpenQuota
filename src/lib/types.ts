@@ -236,6 +236,7 @@ export interface ProviderLayout {
   enabled: boolean;
   detected: boolean;
   expanded: boolean;
+  useProxy: boolean;
   metrics: MetricLayout[];
 }
 
@@ -293,6 +294,7 @@ export interface TaskbandPreferences {
 
 export interface AppSettings {
   schemaVersion: number;
+  proxyUrl: string | null;
   providers: ProviderLayout[];
   knownProviderIds: string[];
   providerNames: Record<string, string>;

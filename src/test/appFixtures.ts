@@ -348,7 +348,8 @@ export const settingsState: SettingsViewState = {
   providerInstanceCount: 0,
   providerInstanceFailures: [],
   settings: {
-    schemaVersion: 9,
+    schemaVersion: 10,
+    proxyUrl: null,
     providerNames: {},
     language: 'en',
     knownProviderIds: ['claude', 'codex', 'antigravity'],
@@ -386,6 +387,7 @@ export const settingsState: SettingsViewState = {
         enabled: true,
         detected: true,
         expanded: false,
+        useProxy: false,
         metrics: [
           { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
           { id: 'codex.weekly', enabled: true, section: 'alwaysVisible', pinned: true },

@@ -1,6 +1,8 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use reqwest::{blocking::Client, StatusCode, Url};
+
+use crate::providers::ProviderRequestContext;
 
 use super::{auth::token_subject, CursorError};
 
@@ -61,6 +63,7 @@ impl Default for Endpoints {
 }
 
 pub struct CursorClient {
+    #[allow(dead_code)]
     client: Client,
     endpoints: Endpoints,
 }
@@ -79,23 +82,95 @@ impl CursorClient {
         Ok(Self { client, endpoints })
     }
 
+    fn client_for_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<Arc<Client>, CursorError> {
+        context
+            .http_clients
+            .client("cursor", "api", context.proxy_url.as_ref(), |builder| {
+                builder
+                    .connect_timeout(Duration::from_secs(8))
+                    .user_agent(concat!("Quota01/", env!("CARGO_PKG_VERSION")))
+            })
+            .map_err(|_| CursorError::ConnectionFailed)
+    }
+
+    #[allow(dead_code)]
     pub fn fetch_usage(&self, access_token: &str) -> Result<CursorResponse, CursorError> {
         self.connect_post("usage", &self.endpoints.usage, access_token)
     }
 
+    pub(super) fn fetch_usage_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<CursorResponse, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.connect_post_using(
+            client.as_ref(),
+            "usage",
+            &self.endpoints.usage,
+            access_token,
+        )
+    }
+
+    #[allow(dead_code)]
     pub fn fetch_plan(&self, access_token: &str) -> Result<CursorResponse, CursorError> {
         self.connect_post("plan", &self.endpoints.plan, access_token)
     }
 
+    pub(super) fn fetch_plan_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<CursorResponse, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.connect_post_using(client.as_ref(), "plan", &self.endpoints.plan, access_token)
+    }
+
+    #[allow(dead_code)]
     pub fn fetch_credits(&self, access_token: &str) -> Result<CursorResponse, CursorError> {
         self.connect_post("credits", &self.endpoints.credits, access_token)
     }
 
+    pub(super) fn fetch_credits_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<CursorResponse, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.connect_post_using(
+            client.as_ref(),
+            "credits",
+            &self.endpoints.credits,
+            access_token,
+        )
+    }
+
+    #[allow(dead_code)]
     pub fn refresh_token(&self, refresh_token: &str) -> Result<CursorResponse, CursorError> {
+        self.refresh_token_using(&self.client, refresh_token)
+    }
+
+    pub(super) fn refresh_token_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        refresh_token: &str,
+    ) -> Result<CursorResponse, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.refresh_token_using(client.as_ref(), refresh_token)
+    }
+
+    fn refresh_token_using(
+        &self,
+        client: &Client,
+        refresh_token: &str,
+    ) -> Result<CursorResponse, CursorError> {
         crate::app_info!("auth:cursor", "token refresh attempt");
         self.send(
             "token-refresh",
-            self.client
+            client
                 .post(&self.endpoints.refresh)
                 .header("Content-Type", "application/json")
                 .json(&serde_json::json!({
@@ -107,8 +182,26 @@ impl CursorClient {
         )
     }
 
+    #[allow(dead_code)]
     pub fn fetch_request_usage(
         &self,
+        access_token: &str,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        self.fetch_request_usage_using(&self.client, access_token)
+    }
+
+    pub(super) fn fetch_request_usage_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.fetch_request_usage_using(client.as_ref(), access_token)
+    }
+
+    fn fetch_request_usage_using(
+        &self,
+        client: &Client,
         access_token: &str,
     ) -> Result<Option<CursorResponse>, CursorError> {
         let Some(session) = session(access_token) else {
@@ -119,7 +212,7 @@ impl CursorClient {
         url.query_pairs_mut().append_pair("user", &session.user_id);
         self.send(
             "request-usage",
-            self.client
+            client
                 .get(url)
                 .header(
                     "Cookie",
@@ -130,8 +223,26 @@ impl CursorClient {
         .map(Some)
     }
 
+    #[allow(dead_code)]
     pub fn fetch_stripe_balance(
         &self,
+        access_token: &str,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        self.fetch_stripe_balance_using(&self.client, access_token)
+    }
+
+    pub(super) fn fetch_stripe_balance_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.fetch_stripe_balance_using(client.as_ref(), access_token)
+    }
+
+    fn fetch_stripe_balance_using(
+        &self,
+        client: &Client,
         access_token: &str,
     ) -> Result<Option<CursorResponse>, CursorError> {
         let Some(session) = session(access_token) else {
@@ -139,7 +250,7 @@ impl CursorClient {
         };
         self.send(
             "stripe",
-            self.client
+            client
                 .get(&self.endpoints.stripe)
                 .header(
                     "Cookie",
@@ -150,8 +261,26 @@ impl CursorClient {
         .map(Some)
     }
 
+    #[allow(dead_code)]
     pub fn fetch_usage_summary(
         &self,
+        access_token: &str,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        self.fetch_usage_summary_using(&self.client, access_token)
+    }
+
+    pub(super) fn fetch_usage_summary_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.fetch_usage_summary_using(client.as_ref(), access_token)
+    }
+
+    fn fetch_usage_summary_using(
+        &self,
+        client: &Client,
         access_token: &str,
     ) -> Result<Option<CursorResponse>, CursorError> {
         let Some(session) = session(access_token) else {
@@ -159,7 +288,7 @@ impl CursorClient {
         };
         self.send(
             "usage-summary",
-            self.client
+            client
                 .get(&self.endpoints.usage_summary)
                 .header(
                     "Cookie",
@@ -170,8 +299,30 @@ impl CursorClient {
         .map(Some)
     }
 
+    #[allow(dead_code)]
     pub fn fetch_usage_csv(
         &self,
+        access_token: &str,
+        start_millis: i64,
+        end_millis: i64,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        self.fetch_usage_csv_using(&self.client, access_token, start_millis, end_millis)
+    }
+
+    pub(super) fn fetch_usage_csv_with_context(
+        &self,
+        context: &ProviderRequestContext,
+        access_token: &str,
+        start_millis: i64,
+        end_millis: i64,
+    ) -> Result<Option<CursorResponse>, CursorError> {
+        let client = self.client_for_context(context)?;
+        self.fetch_usage_csv_using(client.as_ref(), access_token, start_millis, end_millis)
+    }
+
+    fn fetch_usage_csv_using(
+        &self,
+        client: &Client,
         access_token: &str,
         start_millis: i64,
         end_millis: i64,
@@ -186,7 +337,7 @@ impl CursorClient {
             .append_pair("strategy", "tokens");
         self.send(
             "usage-csv",
-            self.client
+            client
                 .get(url)
                 .header(
                     "Cookie",
@@ -198,15 +349,26 @@ impl CursorClient {
         .map(Some)
     }
 
+    #[allow(dead_code)]
     fn connect_post(
         &self,
         label: &str,
         url: &str,
         access_token: &str,
     ) -> Result<CursorResponse, CursorError> {
+        self.connect_post_using(&self.client, label, url, access_token)
+    }
+
+    fn connect_post_using(
+        &self,
+        client: &Client,
+        label: &str,
+        url: &str,
+        access_token: &str,
+    ) -> Result<CursorResponse, CursorError> {
         self.send(
             label,
-            self.client
+            client
                 .post(url)
                 .bearer_auth(access_token)
                 .header("Content-Type", "application/json")
@@ -256,10 +418,20 @@ pub fn session(access_token: &str) -> Option<CursorSession> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
+    use reqwest::Url;
 
     use super::*;
-    use crate::providers::test_http;
+    use crate::providers::{http::ProviderHttpClientFactory, test_http, ProviderRequestContext};
+
+    fn context(proxy_url: Option<&str>) -> ProviderRequestContext {
+        ProviderRequestContext {
+            proxy_url: proxy_url.map(|url| Url::parse(url).unwrap()),
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
+        }
+    }
 
     fn jwt() -> String {
         let payload =
@@ -279,6 +451,26 @@ mod tests {
             csv: format!("{base}/csv"),
         })
         .unwrap()
+    }
+
+    #[test]
+    fn provider_proxy_identity_route_cursor() {
+        let (proxy_base, proxy_server) = test_http::serve_once_capturing_request(200, "{}");
+        client(&proxy_base)
+            .fetch_usage_with_context(&context(Some(&proxy_base)), "secret-token")
+            .unwrap();
+        let request = proxy_server.join().unwrap();
+        assert!(
+            request.starts_with(&format!("POST {proxy_base}/usage HTTP/1.1")),
+            "{request}"
+        );
+
+        let (direct_base, direct_server) = test_http::serve_once_capturing_request(200, "{}");
+        client(&direct_base)
+            .fetch_usage_with_context(&context(None), "secret-token")
+            .unwrap();
+        let request = direct_server.join().unwrap();
+        assert!(request.starts_with("POST /usage HTTP/1.1"), "{request}");
     }
 
     #[test]

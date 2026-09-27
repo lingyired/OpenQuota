@@ -480,6 +480,7 @@ mod tests {
                 enabled: true,
                 detected: true,
                 expanded: false,
+                use_proxy: false,
                 #[cfg(not(target_os = "macos"))]
                 keychain_access_granted: false,
                 metrics: ["codex.session", "codex.weekly"]

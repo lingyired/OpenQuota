@@ -14,7 +14,10 @@ use crate::{
         refresh_interval_for_provider, stale_after, FAILURE_RETRY_BACKOFF, FAST_REFRESH_INTERVAL,
         SELECTED_PROVIDER_REFRESH_AFTER,
     },
-    providers::{ProviderError, ProviderRefresh, ProviderRegistry},
+    providers::{
+        http::ProviderHttpClientFactory, ProviderError, ProviderRefresh, ProviderRegistry,
+        ProviderRequestContext,
+    },
     settings::SettingsService,
     storage::Storage,
 };
@@ -22,6 +25,19 @@ use crate::{
 // Cursor can make several bounded requests in sequence; allow its full healthy network budget
 // before quarantining the synchronous provider worker.
 const PROVIDER_REFRESH_TIMEOUT: Duration = Duration::from_secs(120);
+
+pub(crate) fn resolve_proxy_url(
+    value: Option<String>,
+    use_proxy: bool,
+) -> Result<Option<reqwest::Url>, String> {
+    let value = crate::settings::normalize_proxy_url(value)?;
+    let Some(value) = value.filter(|_| use_proxy) else {
+        return Ok(None);
+    };
+    reqwest::Url::parse(&value)
+        .map(Some)
+        .map_err(|_| "Proxy URL could not be parsed after normalization.".to_owned())
+}
 
 #[derive(Debug, Clone, Default, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -42,6 +58,7 @@ pub struct ProviderService {
     last_full_refresh_at: RwLock<Option<chrono::DateTime<Utc>>>,
     refresh_timeout: Duration,
     settings: Option<Arc<SettingsService>>,
+    http_clients: Arc<ProviderHttpClientFactory>,
 }
 
 impl ProviderService {
@@ -111,6 +128,7 @@ impl ProviderService {
             last_full_refresh_at: RwLock::new(None),
             refresh_timeout,
             settings,
+            http_clients: Arc::new(ProviderHttpClientFactory::default()),
         }
     }
 
@@ -135,6 +153,31 @@ impl ProviderService {
             providers,
             last_full_refresh_at,
             next_refresh_at: self.next_refresh_at(),
+        }
+    }
+
+    pub fn request_context_for(&self, provider_id: &str) -> ProviderRequestContext {
+        let Some(settings_service) = &self.settings else {
+            return ProviderRequestContext::direct(Arc::clone(&self.http_clients));
+        };
+        let settings = settings_service.get();
+        let use_proxy = settings
+            .providers
+            .iter()
+            .find(|provider| provider.id == provider_id)
+            .is_some_and(|provider| provider.use_proxy);
+        match resolve_proxy_url(settings.proxy_url, use_proxy) {
+            Ok(proxy_url) => ProviderRequestContext {
+                proxy_url,
+                http_clients: Arc::clone(&self.http_clients),
+            },
+            Err(error) => {
+                crate::app_warn!(
+                    "config",
+                    "proxy policy for {provider_id} could not be resolved: {error}"
+                );
+                ProviderRequestContext::direct(Arc::clone(&self.http_clients))
+            }
         }
     }
 
@@ -276,8 +319,10 @@ impl ProviderService {
                 state.last_attempt_at = Some(Utc::now());
             });
             let worker_provider = provider.clone();
-            let mut worker =
-                tauri::async_runtime::spawn_blocking(move || worker_provider.refresh_for_service());
+            let context = self.request_context_for(&provider_id);
+            let mut worker = tauri::async_runtime::spawn_blocking(move || {
+                worker_provider.refresh_for_service_with_context(&context)
+            });
             let mut late_worker = None;
             let refresh_result = match tokio::time::timeout(self.refresh_timeout, &mut worker).await
             {
@@ -855,8 +900,8 @@ mod tests {
     use tempfile::tempdir;
 
     use super::{
-        merge_refresh_result, update_staleness_from_snapshot_age, validate_snapshot,
-        ProviderService, PROVIDER_REFRESH_TIMEOUT,
+        merge_refresh_result, resolve_proxy_url, update_staleness_from_snapshot_age,
+        validate_snapshot, ProviderService, PROVIDER_REFRESH_TIMEOUT,
     };
     use crate::{
         models::{
@@ -866,7 +911,8 @@ mod tests {
         },
         policy::{stale_after, FAILURE_RETRY_BACKOFF, FAST_REFRESH_INTERVAL},
         providers::{
-            AccountRefresh, ProviderError, ProviderRefresh, ProviderRegistry, UsageProvider,
+            AccountRefresh, ProviderError, ProviderRefresh, ProviderRegistry,
+            ProviderRequestContext, UsageProvider,
         },
         settings::SettingsService,
         storage::Storage,
@@ -877,6 +923,87 @@ mod tests {
     #[test]
     fn production_refresh_timeout_covers_the_longest_bounded_provider_flow() {
         assert!(PROVIDER_REFRESH_TIMEOUT >= Duration::from_secs(110));
+    }
+
+    #[test]
+    fn provider_proxy_policy_is_resolved_per_provider() {
+        assert_eq!(resolve_proxy_url(None, false).unwrap(), None);
+        assert_eq!(
+            resolve_proxy_url(Some("http://127.0.0.1:8080".into()), false).unwrap(),
+            None
+        );
+        assert_eq!(
+            resolve_proxy_url(Some("http://127.0.0.1:8080".into()), true)
+                .unwrap()
+                .unwrap()
+                .host_str(),
+            Some("127.0.0.1")
+        );
+        assert_eq!(resolve_proxy_url(None, true).unwrap(), None);
+    }
+
+    #[test]
+    fn refresh_passes_only_the_selected_provider_proxy_policy() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let first_observed_proxy = Arc::new(Mutex::new(None));
+        let second_observed_proxy = Arc::new(Mutex::new(None));
+        let first = Arc::new(ProxyContextProvider {
+            id: "proxy-enabled",
+            observed_proxy: first_observed_proxy.clone(),
+        });
+        let second = Arc::new(ProxyContextProvider {
+            id: "proxy-disabled",
+            observed_proxy: second_observed_proxy.clone(),
+        });
+        let registry = Arc::new(
+            ProviderRegistry::new(vec![first, second]).expect("test providers should be valid"),
+        );
+        let (settings, _) = SettingsService::new_deferred(storage.clone(), registry.clone())
+            .expect("test settings should load");
+        let mut configured = settings.get();
+        configured.proxy_url = Some("http://127.0.0.1:8080".into());
+        for provider in &mut configured.providers {
+            provider.use_proxy = provider.id == "proxy-enabled";
+        }
+        settings
+            .update(configured)
+            .expect("test proxy policy should save");
+
+        let service = Arc::new(ProviderService::new_with_settings(
+            registry,
+            storage,
+            Arc::new(settings),
+        ));
+        let enabled_context = service.request_context_for("proxy-enabled");
+        let disabled_context = service.request_context_for("proxy-disabled");
+        assert!(enabled_context.proxy_url.is_some());
+        assert!(disabled_context.proxy_url.is_none());
+        assert!(Arc::ptr_eq(
+            &enabled_context.http_clients,
+            &disabled_context.http_clients
+        ));
+        assert!(refresh_with_test_timeout(&service, "proxy-enabled", true)
+            .error
+            .is_none());
+        assert!(refresh_with_test_timeout(&service, "proxy-disabled", true)
+            .error
+            .is_none());
+
+        assert_eq!(
+            first_observed_proxy
+                .lock()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .and_then(reqwest::Url::host_str),
+            Some("127.0.0.1")
+        );
+        assert_eq!(
+            second_observed_proxy.lock().unwrap().as_ref().unwrap(),
+            &None
+        );
     }
 
     struct SlowProvider {
@@ -917,6 +1044,11 @@ mod tests {
 
     struct AccountSwitchProvider {
         identity: String,
+    }
+
+    struct ProxyContextProvider {
+        id: &'static str,
+        observed_proxy: Arc<Mutex<Option<Option<reqwest::Url>>>>,
     }
 
     impl UsageProvider for SlowProvider {
@@ -1042,6 +1174,15 @@ mod tests {
         }
 
         fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
+            self.refresh_for_service_with_context(&ProviderRequestContext::direct(
+                std::sync::Arc::default(),
+            ))
+        }
+
+        fn refresh_for_service_with_context(
+            &self,
+            _context: &ProviderRequestContext,
+        ) -> Result<ProviderRefresh, ProviderError> {
             Ok(ProviderRefresh {
                 snapshot: test_snapshot("codex"),
                 cache_identity: Some(self.identity.clone()),
@@ -1051,6 +1192,28 @@ mod tests {
                     identity: self.identity.clone(),
                 }),
             })
+        }
+    }
+
+    impl UsageProvider for ProxyContextProvider {
+        fn definition(&self) -> ProviderDefinition {
+            test_definition(self.id)
+        }
+
+        fn has_local_credentials(&self) -> bool {
+            true
+        }
+
+        fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+            Ok(test_snapshot(self.id))
+        }
+
+        fn refresh_with_context(
+            &self,
+            context: &ProviderRequestContext,
+        ) -> Result<ProviderSnapshot, ProviderError> {
+            *self.observed_proxy.lock().unwrap() = Some(context.proxy_url.clone());
+            Ok(test_snapshot(self.id))
         }
     }
 

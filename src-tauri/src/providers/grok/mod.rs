@@ -26,7 +26,7 @@ use self::{
     mapper::{map_credits, plan_name},
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -151,6 +151,13 @@ impl GrokProvider {
     }
 
     fn refresh_inner(&self) -> Result<ProviderSnapshot, GrokError> {
+        self.refresh_inner_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_inner_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, GrokError> {
         let now = (self.now)();
         let candidates = self.auth.load_candidates()?;
         crate::app_debug!(
@@ -160,7 +167,7 @@ impl GrokProvider {
         );
         let mut last_auth_error = None;
         for mut state in candidates {
-            match self.refresh_candidate(&mut state, now) {
+            match self.refresh_candidate(context, &mut state, now) {
                 Ok(snapshot) => return Ok(snapshot),
                 Err(error @ (GrokError::Expired | GrokError::InvalidAuth)) => {
                     last_auth_error = Some(error);
@@ -173,12 +180,13 @@ impl GrokProvider {
 
     fn refresh_candidate(
         &self,
+        context: &ProviderRequestContext,
         state: &mut GrokAuthState,
         now: DateTime<Utc>,
     ) -> Result<ProviderSnapshot, GrokError> {
         let mut warnings = Vec::new();
         if self.auth.needs_refresh(state, now) {
-            if let Err(error) = self.refresh_access_token(state, now, &mut warnings) {
+            if let Err(error) = self.refresh_access_token(context, state, now, &mut warnings) {
                 if self.auth.is_expired(state, now) {
                     return Err(GrokError::Expired);
                 }
@@ -189,18 +197,18 @@ impl GrokProvider {
             }
         }
 
-        let mut credits = self.client.fetch_credits(&state.token)?;
+        let mut credits = self.client.fetch_credits(context, &state.token)?;
         if matches!(
             credits.status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN
         ) {
-            self.refresh_access_token(state, now, &mut warnings)?;
-            credits = self.client.fetch_credits(&state.token)?;
+            self.refresh_access_token(context, state, now, &mut warnings)?;
+            credits = self.client.fetch_credits(context, &state.token)?;
         }
         let mapped = map_credits(&credits)?;
         let plan = self
             .client
-            .fetch_settings(&state.token)
+            .fetch_settings(context, &state.token)
             .ok()
             .as_ref()
             .and_then(plan_name);
@@ -229,6 +237,7 @@ impl GrokProvider {
 
     fn refresh_access_token(
         &self,
+        context: &ProviderRequestContext,
         state: &mut GrokAuthState,
         now: DateTime<Utc>,
         warnings: &mut Vec<String>,
@@ -239,7 +248,9 @@ impl GrokProvider {
             .ok_or(GrokError::Expired)?
             .to_owned();
         let client_id = self.auth.client_id(state);
-        let refreshed = self.client.refresh_token(&refresh_token, &client_id)?;
+        let refreshed = self
+            .client
+            .refresh_token(context, &refresh_token, &client_id)?;
         self.auth.update_from_refresh(
             state,
             refreshed.access_token,
@@ -272,23 +283,31 @@ impl UsageProvider for GrokProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
-        self.refresh_inner().map_err(|error| {
-            let kind = match error {
-                GrokError::NotLoggedIn | GrokError::InvalidAuth | GrokError::Expired => {
-                    ProviderErrorKind::Authentication
-                }
-                GrokError::AuthWrite => ProviderErrorKind::CredentialStorage,
-                GrokError::RequestFailed(429) => ProviderErrorKind::RateLimited,
-                GrokError::RequestFailed(_) | GrokError::ConnectionFailed => {
-                    ProviderErrorKind::Network
-                }
-                GrokError::InvalidResponse => ProviderErrorKind::InvalidResponse,
-                GrokError::LocalUsage => ProviderErrorKind::LocalData,
-                GrokError::Storage => ProviderErrorKind::Storage,
-            };
-            ProviderError::from_display(kind, error)
-        })
+        self.refresh_inner().map_err(grok_provider_error)
     }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_inner_with_context(context)
+            .map_err(grok_provider_error)
+    }
+}
+
+fn grok_provider_error(error: GrokError) -> ProviderError {
+    let kind = match error {
+        GrokError::NotLoggedIn | GrokError::InvalidAuth | GrokError::Expired => {
+            ProviderErrorKind::Authentication
+        }
+        GrokError::AuthWrite => ProviderErrorKind::CredentialStorage,
+        GrokError::RequestFailed(429) => ProviderErrorKind::RateLimited,
+        GrokError::RequestFailed(_) | GrokError::ConnectionFailed => ProviderErrorKind::Network,
+        GrokError::InvalidResponse => ProviderErrorKind::InvalidResponse,
+        GrokError::LocalUsage => ProviderErrorKind::LocalData,
+        GrokError::Storage => ProviderErrorKind::Storage,
+    };
+    ProviderError::from_display(kind, error)
 }
 
 #[cfg(test)]

@@ -2,6 +2,8 @@ mod auth;
 mod client;
 mod mapper;
 
+use std::sync::Arc;
+
 use chrono::Utc;
 use thiserror::Error;
 
@@ -12,7 +14,7 @@ use crate::models::{
 
 use self::{auth::OpenCodeAuthStore, client::OpenCodeClient, mapper::map_go_usage};
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 pub(crate) fn definition() -> ProviderDefinition {
     ProviderDefinition {
@@ -118,8 +120,12 @@ impl OpenCodeProvider {
         Self { auth, client }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, OpenCodeError> {
-        let response = self.client.fetch_go_usage(api_key)?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, OpenCodeError> {
+        let response = self.client.fetch_go_usage(context, api_key)?;
         let quotas = map_go_usage(response)?;
         Ok(ProviderSnapshot {
             credit_packages: Vec::new(),
@@ -146,12 +152,19 @@ impl UsageProvider for OpenCodeProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(OpenCodeError::MissingKey))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
             .map_err(ProviderError::from)
     }
 

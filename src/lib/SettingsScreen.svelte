@@ -50,6 +50,9 @@
   }: Props = $props();
   let recording = $state(false);
   let logActionError = $state<string | null>(null);
+  let proxyUrlDraft = $state('');
+  let lastProxyUrlRevision: number | undefined;
+  let lastSubmittedProxyUrl: string | null | undefined;
   const settings = $derived(settingsView.settings);
   const currentLocale = $derived(locale);
   const revealLogLabel = $derived.by(() => {
@@ -69,8 +72,28 @@
     anyNotificationEnabled && settingsView.notificationPermission !== 'granted',
   );
 
+  $effect(() => {
+    const revision = settingsView.settingsRevision;
+    if (revision === lastProxyUrlRevision) return;
+    lastProxyUrlRevision = revision;
+    proxyUrlDraft = settings.proxyUrl ?? '';
+    lastSubmittedProxyUrl = undefined;
+  });
+
   function patch(value: Partial<AppSettings>) {
     onChange({ ...settings, ...value });
+  }
+  function commitProxyUrl() {
+    const value = proxyUrlDraft.trim();
+    const proxyUrl = value || null;
+    proxyUrlDraft = value;
+    if (proxyUrl === settings.proxyUrl) {
+      lastSubmittedProxyUrl = proxyUrl;
+      return;
+    }
+    if (proxyUrl === lastSubmittedProxyUrl) return;
+    lastSubmittedProxyUrl = proxyUrl;
+    patch({ proxyUrl });
   }
   function patchTaskband(value: Partial<TaskbandPreferences>) {
     patch({ taskband: { ...settings.taskband, ...value } });
@@ -186,6 +209,26 @@
             { value: 'vi', label: $tStore('settings.vietnamese') },
           ]}
           onChange={(value) => patch({ language: value as AppSettings['language'] })}
+        />
+      </div>
+      <div class="setting-row proxy-url-row">
+        <span>
+          <b><label for="settings-proxy-url">{$tStore('settings.proxyUrl')}</label></b>
+          <small>{$tStore('settings.proxyUrlHelp')}</small>
+        </span>
+        <input
+          id="settings-proxy-url"
+          class="proxy-url-input"
+          type="url"
+          bind:value={proxyUrlDraft}
+          oninput={() => (lastSubmittedProxyUrl = undefined)}
+          onblur={commitProxyUrl}
+          onkeydown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              commitProxyUrl();
+            }
+          }}
         />
       </div>
       <label class="setting-row"
@@ -603,6 +646,27 @@
       min-width: 0;
       flex-direction: column;
       gap: 1px;
+    }
+
+    .proxy-url-row > span {
+      flex: 1;
+    }
+
+    .proxy-url-input {
+      width: min(220px, 48%);
+      min-width: 110px;
+      height: 30px;
+      padding: 0 9px;
+      border: 1px solid var(--separator);
+      border-radius: 8px;
+      color: var(--primary);
+      background: var(--tray);
+      font: inherit;
+    }
+
+    .proxy-url-input:focus-visible {
+      outline: 2px solid var(--meter-fill);
+      outline-offset: 2px;
     }
 
     .setting-row b {

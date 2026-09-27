@@ -677,6 +677,8 @@ pub struct ProviderLayout {
     pub enabled: bool,
     pub detected: bool,
     pub expanded: bool,
+    #[serde(default)]
+    pub use_proxy: bool,
     #[cfg(not(target_os = "macos"))]
     #[serde(default)]
     pub keychain_access_granted: bool,
@@ -928,6 +930,8 @@ pub struct AppSettings {
     pub auto_check_updates: bool,
     pub dismissed_update_version: Option<String>,
     pub last_update_check_at: Option<DateTime<Utc>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub proxy_url: Option<String>,
     pub global_shortcut: Option<String>,
     pub log_level: LogLevel,
     pub notifications: NotificationPreferences,
@@ -943,7 +947,7 @@ pub struct AppSettings {
 impl Default for AppSettings {
     fn default() -> Self {
         Self {
-            schema_version: 9,
+            schema_version: 10,
             providers: Vec::new(),
             known_provider_ids: Vec::new(),
             provider_names: BTreeMap::new(),
@@ -962,6 +966,7 @@ impl Default for AppSettings {
             auto_check_updates: true,
             dismissed_update_version: None,
             last_update_check_at: None,
+            proxy_url: None,
             global_shortcut: None,
             log_level: LogLevel::Info,
             notifications: NotificationPreferences::default(),

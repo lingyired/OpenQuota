@@ -403,6 +403,7 @@ impl SettingsService {
                 "Settings changed before they could be saved. Please try again.".to_owned(),
             );
         }
+        settings.proxy_url = normalize_proxy_url(settings.proxy_url.take())?;
         let enabled_before = enabled_provider_set(current);
         let detected = current
             .providers
@@ -840,6 +841,26 @@ pub fn normalize(
     normalize_with_persisted_accounts(registry, settings, detected, &HashSet::new());
 }
 
+pub(crate) fn normalize_proxy_url(value: Option<String>) -> Result<Option<String>, String> {
+    const INVALID_PROXY_URL: &str =
+        "Proxy URL must be an absolute HTTP or HTTPS URL with a host and valid port.";
+
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(None);
+    }
+
+    let url = reqwest::Url::parse(value).map_err(|_| INVALID_PROXY_URL.to_owned())?;
+    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
+        return Err(INVALID_PROXY_URL.to_owned());
+    }
+
+    Ok(Some(value.to_owned()))
+}
+
 fn normalize_with_persisted_accounts(
     registry: &ProviderRegistry,
     settings: &mut AppSettings,
@@ -849,7 +870,7 @@ fn normalize_with_persisted_accounts(
     let catalog = registry.catalog();
     migrate_renamed_provider_ids(settings);
     let migrating_to_multi_provider = settings.schema_version < 3;
-    settings.schema_version = 9;
+    settings.schema_version = 10;
     settings.dismissed_update_version = settings
         .dismissed_update_version
         .take()
@@ -1044,6 +1065,7 @@ fn default_provider(definition: &ProviderDefinition, detected: bool) -> Provider
         enabled: detected,
         detected,
         expanded: false,
+        use_proxy: false,
         #[cfg(not(target_os = "macos"))]
         keychain_access_granted: false,
         metrics: definition
@@ -1126,7 +1148,7 @@ mod tests {
     };
 
     use super::{
-        default_settings, manual_provider_access_grant, normalize,
+        default_settings, manual_provider_access_grant, normalize, normalize_proxy_url,
         normalize_with_persisted_accounts, SettingsService, MAX_PINS_PER_PROVIDER,
     };
 
@@ -1139,11 +1161,84 @@ mod tests {
     }
 
     #[test]
-    fn normalization_marks_schema_nine() {
+    fn normalization_marks_schema_ten() {
         let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
         let mut settings = AppSettings::default();
         normalize(&catalog, &mut settings, &HashSet::new());
-        assert_eq!(settings.schema_version, 9);
+        assert_eq!(settings.schema_version, 10);
+    }
+
+    #[test]
+    fn settings_without_proxy_fields_default_to_direct() {
+        let saved = serde_json::json!({
+            "schemaVersion": 9,
+            "providers": [{
+                "id": "codex",
+                "enabled": true,
+                "detected": true,
+                "expanded": false,
+                "keychainAccessGranted": false,
+                "metrics": []
+            }]
+        });
+        let settings: AppSettings = serde_json::from_value(saved).unwrap();
+
+        assert_eq!(settings.proxy_url, None);
+        assert!(settings
+            .providers
+            .iter()
+            .all(|provider| !provider.use_proxy));
+    }
+
+    #[test]
+    fn normalize_proxy_url_maps_missing_and_blank_values_to_none() {
+        assert_eq!(normalize_proxy_url(None).unwrap(), None);
+        assert_eq!(normalize_proxy_url(Some(String::new())).unwrap(), None);
+        assert_eq!(normalize_proxy_url(Some(" \t\n".into())).unwrap(), None);
+    }
+
+    #[test]
+    fn normalize_proxy_url_accepts_trimmed_http_and_https_urls() {
+        assert_eq!(
+            normalize_proxy_url(Some("  http://127.0.0.1:8080  ".into())).unwrap(),
+            Some("http://127.0.0.1:8080".into())
+        );
+        assert_eq!(
+            normalize_proxy_url(Some("https://proxy.example.com:8443".into())).unwrap(),
+            Some("https://proxy.example.com:8443".into())
+        );
+    }
+
+    #[test]
+    fn normalize_proxy_url_rejects_unsupported_or_invalid_urls() {
+        for value in [
+            "socks5://127.0.0.1:1080",
+            "http://",
+            "://not a URL",
+            "http://proxy.example.com:65536",
+        ] {
+            assert!(
+                normalize_proxy_url(Some(value.into())).is_err(),
+                "expected {value:?} to be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn settings_update_rejects_invalid_proxy_url_without_saving_it() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let service = SettingsService::new_for_test(storage, catalog(), &HashSet::new()).unwrap();
+        let mut settings = service.get();
+        settings.proxy_url = Some("socks5://127.0.0.1:1080".into());
+
+        let error = service.update(settings).unwrap_err();
+
+        assert_eq!(
+            error,
+            "Proxy URL must be an absolute HTTP or HTTPS URL with a host and valid port."
+        );
+        assert_eq!(service.get().proxy_url, None);
     }
 
     struct CatalogProvider(ProviderDefinition);
@@ -2316,7 +2411,7 @@ mod tests {
             &mut settings,
             &HashSet::from(["codex".to_owned(), "antigravity".to_owned()]),
         );
-        assert_eq!(settings.schema_version, 9);
+        assert_eq!(settings.schema_version, 10);
         assert_eq!(
             settings
                 .providers
@@ -2610,6 +2705,7 @@ mod tests {
             enabled: true,
             detected: true,
             expanded: true,
+            use_proxy: false,
             #[cfg(not(target_os = "macos"))]
             keychain_access_granted: false,
             metrics: metrics

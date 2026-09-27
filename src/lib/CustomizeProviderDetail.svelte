@@ -74,6 +74,10 @@
       metrics: provider.metrics.map((item) => (item.id === metric.id ? metric : item)),
     });
   }
+  function updateProviderProxy(useProxy: boolean) {
+    if (!provider) return;
+    updateProvider({ ...provider, useProxy });
+  }
   function togglePin(metric: MetricLayout, button: HTMLButtonElement) {
     if (!provider || !metricDefinition(metric.id)?.pinnable) return;
     if (!metric.pinned && provider.metrics.filter((item) => item.pinned).length >= 2) {
@@ -192,6 +196,22 @@
     {#if canRenameProvider(provider.id, renamableProviderIds)}
       <ProviderNameSection {settings} {provider} {catalog} onChange={onNameChange} />
     {/if}
+    <div class="taskband-section proxy-setting-section">
+      <div class="taskband-row proxy-setting-row">
+        <span class="taskband-row-label">
+          <b>{$tStore('customize.useProxy')}</b>
+          <small>{$tStore('customize.useProxyHelp')}</small>
+        </span>
+        <label class="switch">
+          <input
+            type="checkbox"
+            aria-label={$tStore('customize.useProxy')}
+            checked={provider.useProxy}
+            onchange={(event) => updateProviderProxy(event.currentTarget.checked)}
+          /><span></span>
+        </label>
+      </div>
+    </div>
     {#each ['alwaysVisible', 'onDemand'] as section (section)}
       {@const sectionMetrics = provider.metrics.filter((metric) => metric.section === section)}
       <div
@@ -600,6 +620,16 @@
     .taskband-section {
       margin-top: 0;
       margin-bottom: 14px;
+    }
+
+    .proxy-setting-section {
+      overflow: hidden;
+      border-radius: 12px;
+    }
+
+    .proxy-setting-row {
+      border-top: 0;
+      border-radius: 12px;
     }
 
     .taskband-row {

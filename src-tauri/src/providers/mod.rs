@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 pub mod antigravity;
 pub mod api_key;
 pub mod claude;
@@ -10,6 +12,9 @@ mod daily_usage;
 pub mod deepseek;
 mod detection;
 pub mod grok;
+// Provider migrations in follow-up tasks consume the factory through their request contexts.
+#[allow(dead_code)]
+pub mod http;
 pub mod infini;
 pub(crate) mod keychain_access;
 pub mod kimi;
@@ -134,6 +139,22 @@ pub struct ProviderRefresh {
     pub account: Option<AccountRefresh>,
 }
 
+#[derive(Clone)]
+#[allow(dead_code)]
+pub struct ProviderRequestContext {
+    pub proxy_url: Option<reqwest::Url>,
+    pub http_clients: Arc<http::ProviderHttpClientFactory>,
+}
+
+impl ProviderRequestContext {
+    pub fn direct(http_clients: Arc<http::ProviderHttpClientFactory>) -> Self {
+        Self {
+            proxy_url: None,
+            http_clients,
+        }
+    }
+}
+
 impl<'a> CacheIdentity<'a> {
     pub fn resolved_value(self) -> Option<&'a str> {
         match self {
@@ -175,8 +196,29 @@ pub trait UsageProvider: Send + Sync {
     }
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError>;
 
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let _ = context;
+        self.refresh()
+    }
+
+    #[allow(dead_code)] // Retained for direct provider refresh call sites.
     fn refresh_for_service(&self) -> Result<ProviderRefresh, ProviderError> {
         let snapshot = self.refresh()?;
+        Ok(ProviderRefresh {
+            snapshot,
+            cache_identity: self.cache_identity().resolved_value().map(str::to_owned),
+            account: None,
+        })
+    }
+
+    fn refresh_for_service_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderRefresh, ProviderError> {
+        let snapshot = self.refresh_with_context(context)?;
         Ok(ProviderRefresh {
             snapshot,
             cache_identity: self.cache_identity().resolved_value().map(str::to_owned),
@@ -205,6 +247,14 @@ pub trait UsageProvider: Send + Sync {
         ))
     }
 
+    fn start_device_code_login_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<DeviceCodeChallenge, ProviderError> {
+        let _ = context;
+        self.start_device_code_login()
+    }
+
     /// 轮询只回传「是否完成」和错误文案：会话在 provider 内部落库，
     /// token 绝不经过这条线进入前端。
     fn poll_device_code_login(&self, _login_id: &str) -> DeviceCodePoll {
@@ -212,6 +262,15 @@ pub trait UsageProvider: Send + Sync {
             done: true,
             error: Some("That provider does not use a device-code sign-in.".to_owned()),
         }
+    }
+
+    fn poll_device_code_login_with_context(
+        &self,
+        login_id: &str,
+        context: &ProviderRequestContext,
+    ) -> DeviceCodePoll {
+        let _ = context;
+        self.poll_device_code_login(login_id)
     }
 
     fn cancel_device_code_login(&self, _login_id: &str) -> bool {

@@ -8,7 +8,8 @@ import type { AppSettings } from './types';
 afterEach(cleanup);
 
 const settings: AppSettings = {
-  schemaVersion: 9,
+  schemaVersion: 10,
+  proxyUrl: null,
   providerNames: {},
   language: 'en',
   knownProviderIds: ['codex', 'claude', 'antigravity'],
@@ -46,6 +47,7 @@ const settings: AppSettings = {
       enabled: true,
       detected: true,
       expanded: true,
+      useProxy: false,
       metrics: [
         { id: 'codex.session', enabled: true, section: 'alwaysVisible', pinned: true },
         { id: 'codex.weekly', enabled: true, section: 'alwaysVisible', pinned: true },
@@ -57,6 +59,7 @@ const settings: AppSettings = {
       enabled: false,
       detected: true,
       expanded: false,
+      useProxy: false,
       metrics: [],
     },
     {
@@ -64,6 +67,7 @@ const settings: AppSettings = {
       enabled: true,
       detected: true,
       expanded: false,
+      useProxy: false,
       metrics: [],
     },
   ],

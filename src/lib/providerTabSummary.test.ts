@@ -10,6 +10,7 @@ function provider(id: string, metrics: ProviderLayout['metrics']): ProviderLayou
     enabled: true,
     detected: true,
     expanded: false,
+    useProxy: false,
     metrics,
   };
 }

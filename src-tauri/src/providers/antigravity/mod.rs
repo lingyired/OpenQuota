@@ -5,12 +5,16 @@ mod discovery;
 mod mapper;
 
 use std::path::PathBuf;
+#[cfg(not(target_os = "macos"))]
+use std::sync::Arc;
 
 use chrono::Utc;
 #[cfg(not(target_os = "macos"))]
 use serde_json::json;
 use serde_json::Value;
 use thiserror::Error;
+
+use crate::providers::ProviderRequestContext;
 
 use crate::models::{
     MetricDefinition, MetricSection, ProviderDefinition, ProviderSnapshot, UsageHistory,
@@ -142,7 +146,10 @@ impl AntigravityProvider {
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn refresh_inner(&self) -> Result<ProviderSnapshot, AntigravityError> {
+    fn refresh_inner(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, AntigravityError> {
         if let Ok(snapshot) = refresh_local_with(discover, |server, method| {
             self.client.call_language_server(server, method)
         }) {
@@ -165,7 +172,7 @@ impl AntigravityProvider {
         let mut saw_auth_failure = access_is_expired;
         let mut saw_unavailable = false;
         for access_token in &access_tokens {
-            match self.fetch_remote(access_token) {
+            match self.fetch_remote(context, access_token) {
                 Ok(snapshot) => return Ok(snapshot),
                 Err(AntigravityError::AuthExpired) => saw_auth_failure = true,
                 Err(AntigravityError::Unavailable) => saw_unavailable = true,
@@ -181,7 +188,10 @@ impl AntigravityProvider {
         if let Some(refresh_token) = refresh_token.filter(|_| {
             should_refresh_access_token(saw_auth_failure, !access_tokens.is_empty(), true)
         }) {
-            match self.client.refresh_google_token(refresh_token) {
+            match self
+                .client
+                .refresh_google_token_with_context(context, refresh_token)
+            {
                 RefreshOutcome::Refreshed {
                     access_token,
                     expires_in_seconds,
@@ -193,7 +203,7 @@ impl AntigravityProvider {
                         Some(refresh_token),
                         Utc::now(),
                     );
-                    return match self.fetch_remote(&access_token) {
+                    return match self.fetch_remote(context, &access_token) {
                         Err(AntigravityError::AuthExpired) => {
                             self.access_token_cache.discard();
                             Err(AntigravityError::AuthExpired)
@@ -216,8 +226,13 @@ impl AntigravityProvider {
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn fetch_remote(&self, token: &str) -> Result<ProviderSnapshot, AntigravityError> {
-        match self.client.cloud_code(
+    fn fetch_remote(
+        &self,
+        context: &ProviderRequestContext,
+        token: &str,
+    ) -> Result<ProviderSnapshot, AntigravityError> {
+        match self.client.cloud_code_with_context(
+            context,
             QUOTA_SUMMARY_PATH,
             token,
             json!({}),
@@ -225,14 +240,15 @@ impl AntigravityProvider {
         ) {
             CloudOutcome::Ok(value) => {
                 if let Some(quotas) = parse_quota_summary(&value) {
-                    return Ok(snapshot(self.load_remote_plan(token), quotas));
+                    return Ok(snapshot(self.load_remote_plan(context, token), quotas));
                 }
             }
             CloudOutcome::AuthFailed => return Err(AntigravityError::AuthExpired),
             CloudOutcome::Unavailable => {}
         }
 
-        match self.client.cloud_code(
+        match self.client.cloud_code_with_context(
+            context,
             FETCH_MODELS_PATH,
             token,
             json!({}),
@@ -241,14 +257,15 @@ impl AntigravityProvider {
             CloudOutcome::Ok(value) => {
                 let quotas = build_legacy_quotas(parse_cloud_models(&value));
                 if !quotas.is_empty() {
-                    return Ok(snapshot(self.load_remote_plan(token), quotas));
+                    return Ok(snapshot(self.load_remote_plan(context, token), quotas));
                 }
             }
             CloudOutcome::AuthFailed => return Err(AntigravityError::AuthExpired),
             CloudOutcome::Unavailable => {}
         }
 
-        let (plan, project) = match self.client.cloud_code(
+        let (plan, project) = match self.client.cloud_code_with_context(
+            context,
             LOAD_CODE_ASSIST_PATH,
             token,
             json!({}),
@@ -270,13 +287,21 @@ impl AntigravityProvider {
             .as_ref()
             .map(|project| json!({"project": project}))
             .unwrap_or_else(|| json!({}));
-        let mut quota =
-            self.client
-                .cloud_code(RETRIEVE_QUOTA_PATH, token, body, CloudUserAgent::Agy);
+        let mut quota = self.client.cloud_code_with_context(
+            context,
+            RETRIEVE_QUOTA_PATH,
+            token,
+            body,
+            CloudUserAgent::Agy,
+        );
         if matches!(quota, CloudOutcome::Unavailable) && project.is_some() {
-            quota =
-                self.client
-                    .cloud_code(RETRIEVE_QUOTA_PATH, token, json!({}), CloudUserAgent::Agy);
+            quota = self.client.cloud_code_with_context(
+                context,
+                RETRIEVE_QUOTA_PATH,
+                token,
+                json!({}),
+                CloudUserAgent::Agy,
+            );
         }
         match quota {
             CloudOutcome::Ok(value) => {
@@ -292,11 +317,14 @@ impl AntigravityProvider {
     }
 
     #[cfg(not(target_os = "macos"))]
-    fn load_remote_plan(&self, token: &str) -> Option<String> {
-        match self
-            .client
-            .cloud_code(LOAD_CODE_ASSIST_PATH, token, json!({}), CloudUserAgent::Agy)
-        {
+    fn load_remote_plan(&self, context: &ProviderRequestContext, token: &str) -> Option<String> {
+        match self.client.cloud_code_with_context(
+            context,
+            LOAD_CODE_ASSIST_PATH,
+            token,
+            json!({}),
+            CloudUserAgent::Agy,
+        ) {
             CloudOutcome::Ok(value) => remote_plan(&value),
             _ => None,
         }
@@ -440,7 +468,29 @@ impl crate::providers::UsageProvider for AntigravityProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
-        self.refresh_inner().map_err(provider_error)
+        #[cfg(target_os = "macos")]
+        {
+            self.refresh_inner().map_err(provider_error)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+        }
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, crate::providers::ProviderError> {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = context;
+            self.refresh_inner().map_err(provider_error)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            self.refresh_inner(context).map_err(provider_error)
+        }
     }
 }
 

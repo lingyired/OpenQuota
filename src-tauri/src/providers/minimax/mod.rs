@@ -19,7 +19,7 @@ use self::{
     mapper::map_usage,
 };
 
-use super::{ProviderError, UsageProvider};
+use super::{ProviderError, ProviderRequestContext, UsageProvider};
 
 /// MiniMax runs the same Token Plan backend for the international site
 /// (`minimax.io`) and the mainland-China site (`minimaxi.com`). The endpoints and
@@ -216,8 +216,12 @@ impl MiniMaxProvider {
         }
     }
 
-    fn refresh_snapshot(&self, api_key: &str) -> Result<ProviderSnapshot, ProviderError> {
-        let response = required_response(self.site, self.client.fetch(api_key))?;
+    fn refresh_snapshot(
+        &self,
+        context: &ProviderRequestContext,
+        api_key: &str,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        let response = required_response(self.site, self.client.fetch(context, api_key))?;
         let mapped = map_usage(self.site, &response.body)?;
         Ok(ProviderSnapshot {
             credit_packages: Vec::new(),
@@ -244,12 +248,19 @@ impl UsageProvider for MiniMaxProvider {
     }
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
+        self.refresh_with_context(&ProviderRequestContext::direct(Arc::default()))
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
         let api_key = self
             .auth
             .load()
             .map_err(ProviderError::from)?
             .ok_or_else(|| ProviderError::from(MiniMaxError::MissingKey(self.site)))?;
-        self.refresh_snapshot(api_key.as_str())
+        self.refresh_snapshot(context, api_key.as_str())
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
@@ -291,6 +302,13 @@ impl UsageProvider for MiniMaxCnProvider {
 
     fn refresh(&self) -> Result<ProviderSnapshot, ProviderError> {
         self.0.refresh()
+    }
+
+    fn refresh_with_context(
+        &self,
+        context: &ProviderRequestContext,
+    ) -> Result<ProviderSnapshot, ProviderError> {
+        self.0.refresh_with_context(context)
     }
 
     fn api_key_status(&self) -> Option<Result<ApiKeyStatus, ProviderError>> {
