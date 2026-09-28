@@ -909,7 +909,11 @@ mod tests {
     #[test]
     fn capture_rights_are_released_when_the_guard_is_dropped() {
         let guard = ProviderSessionCloseGuard::default();
-        drop(guard.begin_capture("trae-cn").expect("first capture is admitted"));
+        drop(
+            guard
+                .begin_capture("trae-cn")
+                .expect("first capture is admitted"),
+        );
 
         assert!(guard.begin_capture("trae-cn").is_some());
     }
