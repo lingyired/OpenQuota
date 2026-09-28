@@ -13,3 +13,6 @@ Thumbs.db
 .vscode/
 .local/
 .workbuddy/
+__pycache__/
+*.pyc
+.superpowers/brainstorm/
