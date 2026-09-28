@@ -28,33 +28,67 @@ struct ProviderSessionWindowClosedEvent {
 }
 
 #[derive(Default)]
-pub struct ProviderSessionCloseGuard(Mutex<HashSet<String>>);
+pub struct ProviderSessionCloseGuard {
+    labels: Mutex<HashSet<String>>,
+    /// 正在抓取凭据的 provider。并发登录窗口各自触发一次抓取时，只有第一次会真正
+    /// 执行——日志里两条 `storage diagnostic` 落在同一毫秒（`.207` / `.208`），就是
+    /// 重复建窗与前端自动 capture 叠加出的并发抓取。重复的那次直接让出，避免同时
+    /// 读写同一个会话、也避免后到的失败覆盖掉先到的成功。
+    capturing: Mutex<HashSet<String>>,
+}
 
 impl ProviderSessionCloseGuard {
     fn mark(&self, window_label: &str) {
-        if let Ok(mut labels) = self.0.lock() {
+        if let Ok(mut labels) = self.labels.lock() {
             labels.insert(window_label.to_owned());
         }
     }
 
     fn unmark(&self, window_label: &str) {
-        if let Ok(mut labels) = self.0.lock() {
+        if let Ok(mut labels) = self.labels.lock() {
             labels.remove(window_label);
         }
     }
 
     fn consume(&self, window_label: &str) -> bool {
-        self.0
+        self.labels
             .lock()
             .map(|mut labels| labels.remove(window_label))
             .unwrap_or(false)
     }
 
     fn is_marked(&self, window_label: &str) -> bool {
-        self.0
+        self.labels
             .lock()
             .map(|labels| labels.contains(window_label))
             .unwrap_or(false)
+    }
+
+    /// 尝试取得 `provider_id` 的抓取权；已有一次抓取在跑时返回 `None`。
+    fn begin_capture(&self, provider_id: &str) -> Option<CaptureGuard<'_>> {
+        let mut capturing = self.capturing.lock().ok()?;
+        if !capturing.insert(provider_id.to_owned()) {
+            return None;
+        }
+        Some(CaptureGuard {
+            owner: self,
+            provider_id: provider_id.to_owned(),
+        })
+    }
+}
+
+/// 抓取权的 RAII 句柄：无论正常返回还是提前报错，都会把 provider 从「正在抓取」
+/// 集合里摘掉，不会因为某条错误路径把 provider 永久锁死。
+pub struct CaptureGuard<'a> {
+    owner: &'a ProviderSessionCloseGuard,
+    provider_id: String,
+}
+
+impl Drop for CaptureGuard<'_> {
+    fn drop(&mut self) {
+        if let Ok(mut capturing) = self.owner.capturing.lock() {
+            capturing.remove(&self.provider_id);
+        }
     }
 }
 
@@ -350,7 +384,7 @@ pub async fn get_provider_session_state(
 }
 
 #[tauri::command]
-pub fn open_provider_webview_login(
+pub async fn open_provider_webview_login(
     app: AppHandle,
     registry: State<'_, Arc<ProviderRegistry>>,
     provider_id: String,
@@ -373,14 +407,57 @@ pub fn open_provider_webview_login(
         .parse::<tauri::Url>()
         .map_err(|_| "The provider sign-in URL is invalid.".to_owned())?;
     let provider_name = runtime.definition().display_name;
-    let window =
-        tauri::WebviewWindowBuilder::new(&app, &auth.window_label, WebviewUrl::External(url))
+    let (sender, mut receiver) = tokio::sync::mpsc::unbounded_channel();
+    // 查找与创建必须成对原子执行。同步命令跑在线程池上，两个并发调用会同时通过
+    // 上面的存在性检查：Tauri 的存在性校验是 check-then-act（`prepare_window`），
+    // 而窗口注册表只在 `Destroyed` 时清理，`CloseRequested` 上又装了
+    // `prevent_close()`，中间那段窗口期足以让两次调用各建一个同 label 的窗口。
+    // 投递到主线程后，这一整段被事件循环串行化，重复调用只会命中已存在的窗口。
+    let event_app = app.clone();
+    app.run_on_main_thread(move || {
+        let result = (|| -> Result<(), String> {
+            if let Some(window) = event_app.get_webview_window(&auth.window_label) {
+                let _ = window.show();
+                let _ = window.set_focus();
+                return Ok(());
+            }
+            // 第三方登录（抖音等）用 `window.open` 弹出子窗口后才继续授权。wry 默认
+            // 没有安装新窗口处理器，`createWebViewWithConfiguration` 会返回 `nil`，
+            // 于是页面拿到的 `window.open()` 结果是 `null`：轮询回调永不触发，登录
+            // 按钮就永远停在转圈状态，表现为「点登录没反应」。`Allow` 交给 wry 的
+            // 默认实现弹出子窗口，页面才能拿到句柄把授权流程走完。
+            let window = tauri::WebviewWindowBuilder::new(
+                &event_app,
+                &auth.window_label,
+                WebviewUrl::External(url),
+            )
             .title(format!("Sign in to {provider_name}"))
             .inner_size(1000.0, 720.0)
+            .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Allow)
             .build()
             .map_err(|_| "The provider sign-in window could not be opened.".to_owned())?;
+            register_provider_login_window(&window, &event_app, &provider_id, &auth);
+            Ok(())
+        })();
+        let _ = sender.send(result);
+    })
+    .map_err(|_| "The provider sign-in window could not be opened.".to_owned())?;
+    receiver
+        .recv()
+        .await
+        .ok_or_else(|| "The provider sign-in window could not be opened.".to_owned())?
+}
+
+/// 给登录窗口装上事件钩子：`LocalStorage` 类 provider 在用户关闭窗口时被拦下，
+/// 改为通知前端去抓取凭据。`Cookie` 类 provider（Trae）不走这条路径。
+fn register_provider_login_window(
+    window: &tauri::WebviewWindow,
+    app: &AppHandle,
+    provider_id: &str,
+    auth: &WebviewAuth,
+) {
     let event_app = app.clone();
-    let event_provider_id = provider_id.clone();
+    let event_provider_id = provider_id.to_owned();
     let event_window_label = auth.window_label.clone();
     let event_credential = auth.credential.clone();
     window.on_window_event(move |event| match event {
@@ -420,7 +497,6 @@ pub fn open_provider_webview_login(
         }
         _ => {}
     });
-    Ok(())
 }
 
 #[tauri::command]
@@ -438,6 +514,17 @@ pub async fn capture_provider_session(
     let auth = runtime
         .webview_auth()
         .ok_or_else(|| "That provider does not use a WebView sign-in.".to_owned())?;
+
+    let Some(guard) = app.try_state::<ProviderSessionCloseGuard>() else {
+        return Err("The provider sign-in could not be read.".to_owned());
+    };
+    // 抓取权在这里取得并持有到函数结束。重复的并发抓取直接返回，不再去读同一个
+    // 登录窗口——否则两边会各自读一次 storage/cookie，后到的失败还会把先到的成功
+    // 覆盖成错误提示。
+    let Some(_capture_guard) = guard.begin_capture(&provider_id) else {
+        return Err("The provider sign-in is already being read.".to_owned());
+    };
+
     capture_provider_session_inner(
         app.clone(),
         runtime,
@@ -460,13 +547,14 @@ async fn capture_provider_session_inner(
     provider_id: String,
 ) -> Result<ProviderApiKeyState, String> {
     let login_window = app.get_webview_window(&auth.window_label);
-    let session_window = match &auth.credential {
-        WebviewCredentialSource::Cookie { .. } => login_window
-            .clone()
-            .or_else(|| app.get_webview_window(crate::window::MAIN_WINDOW)),
-        WebviewCredentialSource::LocalStorage { .. } => login_window.clone(),
-    }
-    .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
+    // 登录窗口必须存在才能抓取。历史实现让 Cookie 类 provider 回退到 Main 窗口，
+    // 但 Main 窗口加载的是 Quota01 自己的 `tauri://localhost` 页面：退出登录会先
+    // `close()` 掉登录窗口，随后的抓取就落到 Main 窗口上，日志里记下的
+    // `page: "tauri://localhost"` 正是这条错误路径。读错窗口不仅必然抓不到会话，
+    // 还可能把无关 cookie 当成凭据存进 vault，所以这里只认登录窗口本身。
+    let session_window = login_window
+        .clone()
+        .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
     let session = match read_provider_session(&session_window, &auth).await {
         Ok(session) => session,
         Err(error) => {
@@ -804,8 +892,37 @@ mod tests {
 
     use super::{
         disconnect_webview_auth, mutate_api_key, parse_local_storage_session,
-        resolve_provider_link, ApiKeyMutation,
+        resolve_provider_link, ApiKeyMutation, ProviderSessionCloseGuard,
     };
+
+    #[test]
+    fn a_second_concurrent_capture_of_the_same_provider_is_refused() {
+        // 重复建窗曾让同一个 provider 的抓取并发跑两次，日志里两条诊断落在同一
+        // 毫秒。第一次抓取持有句柄期间，第二次必须被拒绝。
+        let guard = ProviderSessionCloseGuard::default();
+        let first = guard.begin_capture("trae-cn");
+        assert!(first.is_some());
+
+        assert!(guard.begin_capture("trae-cn").is_none());
+    }
+
+    #[test]
+    fn capture_rights_are_released_when_the_guard_is_dropped() {
+        let guard = ProviderSessionCloseGuard::default();
+        drop(guard.begin_capture("trae-cn").expect("first capture is admitted"));
+
+        assert!(guard.begin_capture("trae-cn").is_some());
+    }
+
+    #[test]
+    fn different_providers_capture_independently() {
+        let guard = ProviderSessionCloseGuard::default();
+        let trae = guard.begin_capture("trae-cn");
+        let deepseek = guard.begin_capture("deepseek");
+
+        assert!(trae.is_some());
+        assert!(deepseek.is_some());
+    }
 
     #[test]
     fn parses_and_trims_json_encoded_local_storage_session() {
