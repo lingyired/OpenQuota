@@ -1,0 +1,5 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "identifier": "com.lingyi.quota01.dev",
+  "productName": "Quota01 Dev"
+}
