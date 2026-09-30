@@ -21,14 +21,24 @@ The total meter uses the usage summary returned by Trae's CN billing endpoint:
 
 When Quota01 reports that TraeWork CN needs sign-in, use **Open Sign-In** directly on the TraeWork CN card.
 The same controls remain available in **Customize**. Complete the login in the window that opens;
-Quota01 captures the session automatically when that window closes. **I Have Signed In** remains
-available as a manual fallback.
+closing that window captures the session, saves it, and then closes the window for real. The window is
+hidden as soon as you close it, so the close still feels immediate while the capture reads the cookie.
+**I Have Signed In** remains available as a manual fallback; if it cannot reach the sign-in window it
+reports "Open the provider sign-in window first." and the log keeps a matching warning.
+
+Closing the window is what triggers the capture. If the capture finds no session (the login was not
+completed), the window comes back so the sign-in can be finished, and the card keeps reporting that
+sign-in is required.
 
 Quota01 reads the `X-Cloudide-Session` cookie from its own WebView and stores it in the encrypted
 credential vault protected by the operating system credential store. The session is never sent to
 the frontend, written to logs, or shared with a browser profile. Quota01 exchanges it for a short-lived JWT in Rust before
 requesting credits. Choosing **Disconnect** removes both the stored session and the matching cookie
 from the app's WebView data store.
+
+Being signed in on `www.trae.cn` inside the sign-in window is not by itself enough. Credit requests use
+the session stored in Quota01's vault, so a session that was never captured — or that was removed —
+is reported as "sign in required" even while the WebView still holds a valid cookie.
 
 This provider targets the mainland China service at `www.trae.cn` and `api.trae.cn`, and is enabled
 when either `cn.trae.solo.app` or `cn.trae.app` is installed. Trae international credentials are
@@ -41,3 +51,8 @@ separate and are not accepted by this provider.
 - **No active credits** — the account currently has no active credit plan.
 - **Usage unavailable** — check the connection and refresh again. Trae's private endpoint may be
   rate limited or temporarily unavailable.
+- **Signed in on the website but still told to sign in** — the vault has no session for this provider.
+  Open the sign-in window, close it, and let the capture run. A successful capture logs
+  `WebView session saved for trae-cn`; a capture that could not reach the window logs
+  `capture for trae-cn found no sign-in window`, and a window destroyed without a capture logs
+  `was destroyed without a capture`.

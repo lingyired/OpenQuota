@@ -128,7 +128,12 @@
       <Icon name="check" size={14} strokeWidth={2.2} />{notice}
     </p>
   {/if}
-  <div class:compact class="session-actions" aria-label={`${providerName} sign-in actions`}>
+  <div
+    class:compact
+    class="session-actions"
+    role="group"
+    aria-label={`${providerName} sign-in actions`}
+  >
     <button type="button" disabled={busy !== null} onclick={openLogin}
       >{$tStore('providerSession.openSignIn')}</button
     >
@@ -216,8 +221,17 @@
     padding: 0 12px 12px;
   }
 
+  /* In compact mode the host renders this component *inside* its own action
+     row (see Dashboard's `.provider-error-row__actions`) next to sibling
+     buttons such as Retry. Both wrapper levels must be transparent
+     pass-throughs, otherwise they become single flex items of the host row:
+     the sign-in buttons would be grouped away from their siblings and the
+     inner 8px gap would not match the host's 4px gap, so the buttons wrapped
+     and spaced inconsistently. `display: contents` promotes the real buttons
+     into the host's flex row, which then owns all spacing. */
+  .session-actions-root.compact,
   .session-actions.compact {
-    padding: 0;
+    display: contents;
   }
 
   .session-actions button {

@@ -45,13 +45,6 @@
   const connected = $derived(status !== 'notSet');
   const canDisconnect = $derived(status === 'saved' || status === 'overrideActive');
   const authorizing = $derived(challenge !== null);
-  // `session_status()` reports only Quota01's own vault session, so a user whose
-  // data comes from the legacy local WorkBuddy/CodeBuddy login sees "Not
-  // connected". The idle state is therefore where the fallback needs explaining;
-  // the authorizing state carries its own hint. While the status is still being
-  // read the label reads "Checking…", so the idle explanation has to wait too —
-  // otherwise the two lines contradict each other on a slow credential read.
-  const showFallbackHint = $derived(!authorizing && !connected && !loading);
 
   function errorMessage(cause: unknown, fallback: string) {
     if (typeof cause === 'string') return cause;
@@ -245,13 +238,10 @@
   {/if}
   {#if authorizing && challenge}
     <p class="session-hint">{$tStore('providerSession.deviceCodeHint')}</p>
-    <p class="session-hint">{$tStore('providerSession.fallbackHint')}</p>
     <p class="session-uri">
       <span class="session-uri-label">{$tStore('providerSession.verificationUri')}</span>
       <code>{challenge.verificationUri}</code>
     </p>
-  {:else if showFallbackHint}
-    <p class="session-hint">{$tStore('providerSession.fallbackHint')}</p>
   {/if}
   {#if error}
     <p class="session-message session-error" role="alert">
@@ -266,7 +256,12 @@
       <Icon name="check" size={14} strokeWidth={2.2} />{notice}
     </p>
   {/if}
-  <div class:compact class="session-actions" aria-label={`${providerName} sign-in actions`}>
+  <div
+    class:compact
+    class="session-actions"
+    role="group"
+    aria-label={`${providerName} sign-in actions`}
+  >
     {#if authorizing}
       <button type="button" disabled={busy !== null} onclick={cancel}
         >{$tStore('providerSession.cancel')}</button
@@ -380,8 +375,17 @@
     padding: 0 12px 12px;
   }
 
+  /* In compact mode the host renders this component *inside* its own action
+     row (see Dashboard's `.provider-error-row__actions`) next to sibling
+     buttons such as Retry. Both wrapper levels must be transparent
+     pass-throughs, otherwise they become single flex items of the host row:
+     the sign-in button would then be grouped away from its siblings and the
+     inner 8px gap would not match the host's 4px gap, so the buttons wrapped
+     and spaced inconsistently. `display: contents` promotes the real buttons
+     into the host's flex row, which then owns all spacing. */
+  .session-actions-root.compact,
   .session-actions.compact {
-    padding: 0;
+    display: contents;
   }
 
   .session-actions button {

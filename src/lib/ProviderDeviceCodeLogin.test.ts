@@ -75,72 +75,45 @@ describe('ProviderDeviceCodeLogin', () => {
     vi.useRealTimers();
   });
 
-  // The state a user with only the legacy local WorkBuddy/CodeBuddy login sees:
-  // `session_status()` reports Quota01's own vault session as `notSet`, so the
-  // panel says "Not connected" even though the app still reads their data. The
-  // panel has to explain that, or the copy lives only in the active-attempt
-  // state where the confusion cannot be seen.
-  const idleFallbackHint =
+  // The verbose "Quota01 owns this status / a legacy plaintext login still
+  // works" clarification was removed as redundant: WorkBuddy is encrypted-only
+  // now, so the mechanism no longer helps the user, and the idle panel should
+  // read like every other provider's (Trae CN, etc.). These tests keep the
+  // single-action copy and guard against the wall of text coming back.
+  const removedFallbackHint =
     'This status shows the sign-in Quota01 owns. An existing local WorkBuddy or CodeBuddy login keeps working as a fallback.';
 
-  it('explains the Quota01-owned status and the local fallback while not connected', async () => {
+  it('keeps the idle panel to a single action with no fallback essay', async () => {
     renderPanel();
     await flush();
 
     expect(screen.getByText('Not connected')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
-    // Removing this line from the idle branch of the template fails here.
-    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
+    expect(screen.queryByText(removedFallbackHint)).not.toBeInTheDocument();
 
     await locale.set('zh-CN');
     await flush();
     expect(
-      screen.getByText(
+      screen.queryByText(
         '此处显示的是 Quota01 自己的登录；本机已有的 WorkBuddy 或 CodeBuddy 登录会继续作为后备可用。',
       ),
-    ).toBeInTheDocument();
+    ).not.toBeInTheDocument();
   });
 
-  it('keeps the idle clarification hidden while the session state is still loading', async () => {
-    // 读取状态要等一次（可能很慢的）凭据库往返。这期间状态显示的是“检查中”，
-    // 若同时渲染“尚未连接”的解释，两句话就自相矛盾了。
-    let release: (value: unknown) => void = () => {};
-    mockCommands({
-      get_provider_session_state: () =>
-        new Promise((resolve) => {
-          release = resolve;
-        }),
-    });
-
+  it('shows the attempt instruction while authorizing without the removed essay', async () => {
     renderPanel();
     await flush();
-
-    expect(screen.getByText('Checking…')).toBeInTheDocument();
-    expect(screen.queryByText(idleFallbackHint)).not.toBeInTheDocument();
-
-    release({ providerId: 'workbuddy-cn', status: 'notSet' });
-    await flush();
-
-    expect(screen.getByText('Not connected')).toBeInTheDocument();
-    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
-  });
-
-  it('shows the attempt instruction plus the shared clarification while authorizing', async () => {
-    renderPanel();
-    await flush();
-    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
+    expect(screen.queryByText(removedFallbackHint)).not.toBeInTheDocument();
 
     await startSignIn();
 
-    // The authorizing state adds its own instruction on top of the shared
-    // clarification, which itself lives in exactly one dictionary entry.
     expect(
       screen.getByText('Open the authorization link and confirm the sign-in there.'),
     ).toBeInTheDocument();
-    expect(screen.getByText(idleFallbackHint)).toBeInTheDocument();
+    expect(screen.queryByText(removedFallbackHint)).not.toBeInTheDocument();
   });
 
-  it('hides the fallback clarification once a session is connected', async () => {
+  it('hides the removed clarification once a session is connected', async () => {
     mockCommands({
       get_provider_session_state: () =>
         Promise.resolve({ providerId: 'workbuddy-cn', status: 'saved' }),
@@ -149,7 +122,7 @@ describe('ProviderDeviceCodeLogin', () => {
     await flush();
 
     expect(screen.getByText('Connected')).toBeInTheDocument();
-    expect(screen.queryByText(idleFallbackHint)).not.toBeInTheDocument();
+    expect(screen.queryByText(removedFallbackHint)).not.toBeInTheDocument();
   });
 
   it('shows the authorization link after starting a sign-in without opening it', async () => {
@@ -480,5 +453,21 @@ describe('ProviderDeviceCodeLogin', () => {
     expect(screen.queryByText('Not connected')).not.toBeInTheDocument();
     expect(screen.queryByText('Workbuddy CN')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Start Sign-In' })).toBeInTheDocument();
+  });
+
+  // Regression: in compact mode the host renders this component inside its own
+  // flex action row, next to sibling buttons such as Retry. The component's own
+  // wrappers used to remain in the layout as block/flex boxes, so the sign-in
+  // button became a single flex item grouped away from its siblings, with an
+  // 8px inner gap against the host's 4px — the buttons wrapped and spaced
+  // inconsistently. Both wrapper levels must be transparent pass-throughs, and
+  // the flattening must not cost the group its accessible name.
+  it('exposes the compact action group with both wrappers marked compact', async () => {
+    renderPanel({ compact: true });
+    await flush();
+
+    const group = screen.getByRole('group', { name: 'Workbuddy CN sign-in actions' });
+    expect(group).toHaveClass('session-actions', 'compact');
+    expect(group.parentElement).toHaveClass('session-actions-root', 'compact');
   });
 });

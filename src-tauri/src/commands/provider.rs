@@ -1,7 +1,7 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{Arc, Mutex},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use tauri::{AppHandle, Emitter, Manager, State, WebviewUrl, WindowEvent};
@@ -35,6 +35,14 @@ pub struct ProviderSessionCloseGuard {
     /// 重复建窗与前端自动 capture 叠加出的并发抓取。重复的那次直接让出，避免同时
     /// 读写同一个会话、也避免后到的失败覆盖掉先到的成功。
     capturing: Mutex<HashSet<String>>,
+    /// 被拦下的关闭请求：窗口 label → 拦下的时刻。
+    ///
+    /// 拦截的意义是「先抓取、抓完再关」，但抓取要靠前端监听
+    /// `provider-session-window-closed` 才会发生——而承载监听的
+    /// `ProviderSessionActions` 只在卡片处于错误态时才渲染。若用户从别处打开了登录
+    /// 窗口而没人监听，拦截就再也不会被解开，窗口变成一个关不掉的窗口。这里记住
+    /// 拦下的时刻，超过宽限期仍无人接手就放行，任何情况下都不会把窗口锁死。
+    held_closes: Mutex<HashMap<String, Instant>>,
 }
 
 impl ProviderSessionCloseGuard {
@@ -62,6 +70,31 @@ impl ProviderSessionCloseGuard {
             .lock()
             .map(|labels| labels.contains(window_label))
             .unwrap_or(false)
+    }
+
+    /// 记下这次被拦下的关闭请求，返回它是否为**首次**拦下。
+    ///
+    /// 只有首次拦下需要通知前端去抓取；再次拦下说明用户已经在反复点关闭了。
+    fn hold_close(&self, window_label: &str, now: Instant) -> bool {
+        let Ok(mut held) = self.held_closes.lock() else {
+            return false;
+        };
+        held.insert(window_label.to_owned(), now).is_none()
+    }
+
+    /// 这次关闭请求是否已经等过了宽限期，该放行了。
+    fn close_hold_expired(&self, window_label: &str, now: Instant, grace: Duration) -> bool {
+        let Ok(held) = self.held_closes.lock() else {
+            return false;
+        };
+        held.get(window_label)
+            .is_some_and(|held_since| now.duration_since(*held_since) >= grace)
+    }
+
+    fn release_close(&self, window_label: &str) {
+        if let Ok(mut held) = self.held_closes.lock() {
+            held.remove(window_label);
+        }
     }
 
     /// 尝试取得 `provider_id` 的抓取权；已有一次抓取在跑时返回 `None`。
@@ -448,8 +481,42 @@ pub async fn open_provider_webview_login(
         .ok_or_else(|| "The provider sign-in window could not be opened.".to_owned())?
 }
 
-/// 给登录窗口装上事件钩子：`LocalStorage` 类 provider 在用户关闭窗口时被拦下，
-/// 改为通知前端去抓取凭据。`Cookie` 类 provider（Trae）不走这条路径。
+/// 关窗请求该被拦下（先抓取、抓完再关）还该直接放行。
+///
+/// 两种凭据来源都必须在窗口**还活着**的时候抓取：抓取函数第一步就是
+/// `app.get_webview_window(LOGIN_WINDOW)`，拿不到窗口就直接报
+/// `Open the provider sign-in window first.`。而 `Destroyed` 派发时 Tauri 已经在
+/// `on_event_loop_event` 里调过 `manager.on_window_close`（见 tauri 的
+/// `app.rs` / `manager/mod.rs`），窗口已从注册表摘掉，`Cookie` 类 provider 靠
+/// `window.cookies()` 读凭据也再无窗口可读。所以两类 provider 都得在这里拦下。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CloseRequestDecision {
+    /// 窗口已经由 Quota01 自己标记要关（抓取成功后的收尾），放行。
+    Allow,
+    /// 拦下关闭，交给前端抓取；抓完由抓取路径负责关窗。
+    CaptureFirst,
+}
+
+fn close_request_decision(already_marked: bool) -> CloseRequestDecision {
+    if already_marked {
+        CloseRequestDecision::Allow
+    } else {
+        CloseRequestDecision::CaptureFirst
+    }
+}
+
+/// 关闭被拦下后，最多等多久仍无人接手就放行。
+///
+/// 抓取是一次本地 cookie/storage 读取加一次 vault 写入，正常在毫秒级；给 5 秒足够
+/// 覆盖慢盘与并发刷新，又不至于让用户以为窗口卡死。
+const CLOSE_HOLD_GRACE: Duration = Duration::from_secs(5);
+
+/// 给登录窗口装上事件钩子：用户关窗时先拦下，通知前端抓取凭据，抓完再关。
+///
+/// `Cookie` 类 provider（TraeWork CN）曾经不走这条路径，只依赖 `Destroyed`——那
+/// 时窗口已经销毁，抓取必然失败且无声（`get_webview_window` 返回 `None` 是
+/// `log_web_storage_diagnostic` 之前的提前返回，连日志都不留），表现为「网页里
+/// 明明已登录、用量都能看到，卡片却一直要求登录」。两类凭据都走同一条路径。
 fn register_provider_login_window(
     window: &tauri::WebviewWindow,
     app: &AppHandle,
@@ -459,21 +526,40 @@ fn register_provider_login_window(
     let event_app = app.clone();
     let event_provider_id = provider_id.to_owned();
     let event_window_label = auth.window_label.clone();
-    let event_credential = auth.credential.clone();
     window.on_window_event(move |event| match event {
-        WindowEvent::CloseRequested { api, .. }
-            if matches!(
-                &event_credential,
-                WebviewCredentialSource::LocalStorage { .. }
-            ) =>
-        {
+        WindowEvent::CloseRequested { api, .. } => {
+            crate::app_warn!("auth", "TEMP-DIAG close requested for {event_window_label}");
             let Some(close_guard) = event_app.try_state::<ProviderSessionCloseGuard>() else {
+                crate::app_warn!("auth", "TEMP-DIAG no close guard state");
                 return;
             };
-            if close_guard.is_marked(&event_window_label) {
+            if close_request_decision(close_guard.is_marked(&event_window_label))
+                == CloseRequestDecision::Allow
+            {
+                crate::app_warn!("auth", "TEMP-DIAG close allowed (marked)");
+                close_guard.release_close(&event_window_label);
                 return;
             }
+            let now = Instant::now();
+            // 等待期间用户又点了一次关闭：视为放弃抓取，直接放行，避免窗口关不掉。
+            if close_guard.close_hold_expired(&event_window_label, now, CLOSE_HOLD_GRACE) {
+                close_guard.release_close(&event_window_label);
+                return;
+            }
+            let first_request = close_guard.hold_close(&event_window_label, now);
             api.prevent_close();
+            crate::app_warn!("auth", "TEMP-DIAG close prevented, first={first_request}");
+            if !first_request {
+                return;
+            }
+            // 窗口要留到抓取读完 cookie 为止，但用户点的是「关闭」，不该看到一个
+            // 关不掉的窗口。先隐藏：观感上就是关掉了，而 `window.cookies()` 只读
+            // `WKWebsiteDataStore`，与窗口是否可见无关，抓取照常拿得到凭据。抓取
+            // 结束的收尾会真正 `close()` 掉它。
+            if let Some(window) = event_app.get_webview_window(&event_window_label) {
+                let _ = window.hide();
+            }
+            crate::app_warn!("auth", "TEMP-DIAG emitting window-closed event");
             let _ = event_app.emit(
                 PROVIDER_SESSION_WINDOW_CLOSED_EVENT,
                 ProviderSessionWindowClosedEvent {
@@ -482,17 +568,24 @@ fn register_provider_login_window(
             );
         }
         WindowEvent::Destroyed => {
-            if event_app
+            let consumed = event_app
                 .try_state::<ProviderSessionCloseGuard>()
-                .is_some_and(|guard| guard.consume(&event_window_label))
-            {
+                .is_some_and(|guard| {
+                    let consumed = guard.consume(&event_window_label);
+                    guard.release_close(&event_window_label);
+                    consumed
+                });
+            if consumed {
                 return;
             }
-            let _ = event_app.emit(
-                PROVIDER_SESSION_WINDOW_CLOSED_EVENT,
-                ProviderSessionWindowClosedEvent {
-                    provider_id: event_provider_id.clone(),
-                },
+            // 走到这里说明窗口没经过 `CloseRequested`（Quota01 自己关的窗口会先
+            // `mark`，于是 `consume` 命中并 return）。此时窗口已经销毁，抓取没有
+            // 窗口可读，只能记一条诊断——否则这条路径完全无声。
+            crate::app_warn!(
+                "auth",
+                "provider sign-in window {} was destroyed without a capture; \
+                 credentials were not saved",
+                event_window_label
             );
         }
         _ => {}
@@ -552,9 +645,20 @@ async fn capture_provider_session_inner(
     // `close()` 掉登录窗口，随后的抓取就落到 Main 窗口上，日志里记下的
     // `page: "tauri://localhost"` 正是这条错误路径。读错窗口不仅必然抓不到会话，
     // 还可能把无关 cookie 当成凭据存进 vault，所以这里只认登录窗口本身。
-    let session_window = login_window
-        .clone()
-        .ok_or_else(|| "Open the provider sign-in window first.".to_owned())?;
+    let Some(session_window) = login_window.clone() else {
+        // 这条路径必须留痕：`CaptureFirst` 的拦截保证窗口在抓取期间还活着，走到
+        // 这里只可能是窗口被绕过 `CloseRequested` 关掉了（例如进程内直接
+        // `close()`）。历史上它完全无声——正是它让「已登录却没存进 vault」查不出
+        // 原因，所以诊断在这里同样要记。
+        crate::app_warn!(
+            "auth",
+            "capture for {provider_id} found no sign-in window; credentials were not saved"
+        );
+        if let Some(close_guard) = app.try_state::<ProviderSessionCloseGuard>() {
+            close_guard.release_close(&auth.window_label);
+        }
+        return Err("Open the provider sign-in window first.".to_owned());
+    };
     let session = match read_provider_session(&session_window, &auth).await {
         Ok(session) => session,
         Err(error) => {
@@ -562,7 +666,13 @@ async fn capture_provider_session_inner(
             // 用户就被卡在一个关不掉的窗口里。诊断随后记下，最后才报错。
             if let Some(close_guard) = app.try_state::<ProviderSessionCloseGuard>() {
                 close_guard.mark(&auth.window_label);
+                close_guard.release_close(&auth.window_label);
             }
+            // 关窗时窗口已被隐藏。抓不到凭据意味着登录没完成，用户需要回到窗口里
+            // 继续操作，所以把它重新显示出来；否则窗口看起来已经消失，用户会以
+            // 为登录流程结束了，而卡片其实还在报「请先登录」。
+            let _ = session_window.show();
+            let _ = session_window.set_focus();
             log_web_storage_diagnostic(&session_window).await;
             return Err(error);
         }
@@ -587,6 +697,7 @@ async fn capture_provider_session_inner(
         let close_guard = app.try_state::<ProviderSessionCloseGuard>();
         if let Some(close_guard) = close_guard.as_ref() {
             close_guard.mark(&auth.window_label);
+            close_guard.release_close(&auth.window_label);
         }
         if window.close().is_err() {
             if let Some(close_guard) = close_guard.as_ref() {
@@ -674,6 +785,7 @@ pub async fn delete_provider_session(
             let close_guard = app.try_state::<ProviderSessionCloseGuard>();
             if let Some(close_guard) = close_guard.as_ref() {
                 close_guard.mark(&auth.window_label);
+                close_guard.release_close(&auth.window_label);
             }
             if window.close().is_err() {
                 if let Some(close_guard) = close_guard.as_ref() {
@@ -877,6 +989,7 @@ mod tests {
             atomic::{AtomicBool, Ordering},
             Mutex,
         },
+        time::Instant,
     };
 
     use crate::{
@@ -891,9 +1004,74 @@ mod tests {
     };
 
     use super::{
-        disconnect_webview_auth, mutate_api_key, parse_local_storage_session,
-        resolve_provider_link, ApiKeyMutation, ProviderSessionCloseGuard,
+        close_request_decision, disconnect_webview_auth, mutate_api_key,
+        parse_local_storage_session, resolve_provider_link, ApiKeyMutation, CloseRequestDecision,
+        ProviderSessionCloseGuard, CLOSE_HOLD_GRACE,
     };
+
+    #[test]
+    fn a_close_request_is_held_open_so_the_capture_can_still_read_the_window() {
+        // Cookie 类 provider（TraeWork CN）曾只在 `Destroyed` 上抓取，而那时 Tauri
+        // 已经在 `on_event_loop_event` 里调过 `manager.on_window_close`：窗口已从
+        // 注册表摘掉，`get_webview_window` 返回 `None`，抓取以
+        // `Open the provider sign-in window first.` 提前返回，连诊断日志都不留。
+        // 结果是网页里已登录、用量可见，卡片却一直要求登录。窗口必须在
+        // `CloseRequested` 上被拦下，抓取才有窗口可读。
+        assert_eq!(
+            close_request_decision(false),
+            CloseRequestDecision::CaptureFirst,
+            "an unmarked close request must be prevented so capture can read the window"
+        );
+    }
+
+    #[test]
+    fn a_close_request_quota01_initiated_is_allowed_through() {
+        // 抓取成功后由抓取路径自己 `mark` 再关窗；若这里再拦一次，窗口就永远关不掉。
+        assert_eq!(close_request_decision(true), CloseRequestDecision::Allow);
+    }
+
+    #[test]
+    fn only_the_first_held_close_asks_the_frontend_to_capture() {
+        // 通知前端去抓取只在首次拦下时发一次。用户在等待期间反复点关闭，不该重复
+        // 触发抓取——那正是「后到的失败覆盖先到的成功」的来源。
+        let guard = ProviderSessionCloseGuard::default();
+        let start = Instant::now();
+
+        assert!(guard.hold_close("trae-cn-login", start));
+        assert!(!guard.hold_close("trae-cn-login", start));
+    }
+
+    #[test]
+    fn a_close_request_left_unanswered_is_released_after_the_grace_period() {
+        // 承载监听的组件只在卡片是错误态时才渲染。若没人接手抓取，拦截会永远解不
+        // 开，窗口就变成一个关不掉的窗口。超过宽限期必须放行。
+        let guard = ProviderSessionCloseGuard::default();
+        let start = Instant::now();
+        guard.hold_close("trae-cn-login", start);
+
+        assert!(!guard.close_hold_expired("trae-cn-login", start, CLOSE_HOLD_GRACE));
+        assert!(guard.close_hold_expired(
+            "trae-cn-login",
+            start + CLOSE_HOLD_GRACE,
+            CLOSE_HOLD_GRACE
+        ));
+    }
+
+    #[test]
+    fn releasing_a_held_close_clears_the_grace_period() {
+        // 放行/完成之后必须清掉记录，否则下一次打开登录窗口会带着上一次的时间戳，
+        // 一进来就被判定为「早就过期」。
+        let guard = ProviderSessionCloseGuard::default();
+        let start = Instant::now();
+        guard.hold_close("trae-cn-login", start);
+        guard.release_close("trae-cn-login");
+
+        assert!(!guard.close_hold_expired(
+            "trae-cn-login",
+            start + CLOSE_HOLD_GRACE * 2,
+            CLOSE_HOLD_GRACE
+        ));
+    }
 
     #[test]
     fn a_second_concurrent_capture_of_the_same_provider_is_refused() {
