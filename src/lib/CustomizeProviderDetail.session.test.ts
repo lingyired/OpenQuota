@@ -1,5 +1,5 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, within } from '@testing-library/svelte';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import { addMessages, locale } from 'svelte-i18n';
 import CustomizeProviderDetail from './CustomizeProviderDetail.svelte';
 import { ProviderCatalogIndex } from './metrics';
@@ -361,6 +361,144 @@ describe('CustomizeProviderDetail session authentication', () => {
         ]),
         taskbandProviders: expect.objectContaining({
           deepseek: expect.objectContaining({ enabled: false }),
+        }),
+      }),
+    );
+  });
+});
+
+/** Controls removed from the per-provider native-instance block on BOTH platforms. */
+const removedInstanceStyleLabels = [
+  'customize.position',
+  'customize.firstLine',
+  'customize.secondLine',
+  'customize.padding',
+  'customize.restoreDefaults',
+] as const;
+
+/**
+ * The metric list also renders `role="group"` blocks and checkboxes, the proxy
+ * row reuses the `taskband-section` class, and both `settings.taskbar` and
+ * `customize.taskbar` resolve to the same English string — so identifying the
+ * native-instance block by accessible name is ambiguous either way. Select it
+ * structurally: it is the `taskband-section` that is NOT the proxy section.
+ */
+function instanceBlock(): HTMLElement {
+  const blocks = document.querySelectorAll<HTMLElement>(
+    '.customize-detail .taskband-section:not(.proxy-setting-section)',
+  );
+  if (blocks.length !== 1) {
+    throw new Error(`expected exactly one native-instance block, found ${blocks.length}`);
+  }
+  return blocks[0];
+}
+
+function instanceEnableSwitch() {
+  return within(instanceBlock()).getByRole('checkbox');
+}
+
+function renderProviderDetail({
+  providerId = 'deepseek',
+  onChange = vi.fn(),
+  overrides = {},
+}: {
+  providerId?: string;
+  onChange?: Mock<(settings: AppSettings) => void>;
+  overrides?: Partial<AppSettings>;
+} = {}) {
+  render(CustomizeProviderDetail, {
+    settings: { ...settings, ...overrides },
+    providerId,
+    catalog: new ProviderCatalogIndex(catalogData),
+    renamableProviderIds: [],
+    onChange,
+    onNameChange: () => {},
+    onReorderStart: () => {},
+    onReorderEnd: () => {},
+    reducedMotion: true,
+  });
+  return { onChange };
+}
+
+describe('CustomizeProviderDetail native-instance block is toggle-only', () => {
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  it('renders only the enable switch on macOS and none of the style controls', () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh)');
+    renderProviderDetail();
+
+    const block = instanceBlock();
+    const switches = within(block).getAllByRole('checkbox');
+    expect(switches).toHaveLength(1);
+    expect(switches[0]).toHaveAccessibleName(t('customize.showOnMenuBar'));
+    for (const key of removedInstanceStyleLabels) {
+      expect(within(block).queryByText(t(key))).not.toBeInTheDocument();
+    }
+    expect(within(block).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(block).queryByRole('spinbutton')).not.toBeInTheDocument();
+  });
+
+  it('renders only the enable switch on Windows and none of the style controls', () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Windows NT 10.0)');
+    renderProviderDetail();
+
+    const block = instanceBlock();
+    const switches = within(block).getAllByRole('checkbox');
+    expect(switches).toHaveLength(1);
+    expect(switches[0]).toHaveAccessibleName(t('customize.showOnTaskbar'));
+    for (const key of removedInstanceStyleLabels) {
+      expect(within(block).queryByText(t(key))).not.toBeInTheDocument();
+    }
+    expect(within(block).queryByRole('combobox')).not.toBeInTheDocument();
+    expect(within(block).queryByRole('spinbutton')).not.toBeInTheDocument();
+  });
+
+  it('preserves persisted style values when the toggle is flipped', async () => {
+    vi.spyOn(window.navigator, 'userAgent', 'get').mockReturnValue('Mozilla/5.0 (Macintosh)');
+    const { onChange } = renderProviderDetail({
+      overrides: {
+        taskbandProviders: {
+          deepseek: {
+            enabled: true,
+            side: 'left',
+            topColor: { type: 'solid', value: '#abcdef' },
+            bottomColor: null,
+            topBold: true,
+            bottomBold: false,
+            topSize: 11,
+            bottomSize: 12,
+            topAlign: 2,
+            bottomAlign: 1,
+            paddingLeft: 7,
+            paddingRight: 8,
+          },
+        },
+      },
+    });
+
+    await fireEvent.click(instanceEnableSwitch());
+
+    // Hiding the controls must not drop the persisted styling: only `enabled` changes.
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskbandProviders: expect.objectContaining({
+          deepseek: {
+            enabled: false,
+            side: 'left',
+            topColor: { type: 'solid', value: '#abcdef' },
+            bottomColor: null,
+            topBold: true,
+            bottomBold: false,
+            topSize: 11,
+            bottomSize: 12,
+            topAlign: 2,
+            bottomAlign: 1,
+            paddingLeft: 7,
+            paddingRight: 8,
+          },
         }),
       }),
     );

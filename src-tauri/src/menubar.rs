@@ -22,9 +22,7 @@ use crate::models::{TaskbandColorStyle, TaskbandLayout};
 #[cfg(any(target_os = "macos", test))]
 use crate::tray_presentation::ResolvedTrayMetric;
 #[cfg(target_os = "macos")]
-use crate::tray_presentation::{
-    pinned_provider_metrics, requested_provider_entries, NativeInstancePlatform,
-};
+use crate::tray_presentation::{pinned_provider_metrics, requested_provider_entries};
 #[cfg(target_os = "macos")]
 use crate::{
     desktop_integration::{DesktopIntegration, RuntimeEntryOutcome},
@@ -684,8 +682,7 @@ fn desired_provider_menubars(
     registry: &ProviderRegistry,
 ) -> Vec<DesiredProviderMenubar> {
     let mut desired = Vec::new();
-    for provider_id in requested_provider_entries(settings, registry, NativeInstancePlatform::MacOS)
-    {
+    for provider_id in requested_provider_entries(settings, registry) {
         let Some(provider) = settings
             .providers
             .iter()
@@ -724,6 +721,33 @@ fn desired_provider_menubars(
     desired
 }
 
+/// What to do when reconciliation reports no visible menu-bar instance.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MissingMenuEntryAction {
+    /// The user deliberately turned the native instance surface off. Stay quiet.
+    LeaveWindowAlone,
+    /// The menu bar was lost unexpectedly (creation failed, items dragged out,
+    /// or a panic during reconciliation), so surface Settings as a way back.
+    OpenSettings,
+}
+
+/// Why reconciliation found no visible instance decides whether the app should
+/// hijack the screen with the Settings window.
+///
+/// `settings.taskband.enabled == false` means an instance-less menu bar is the
+/// requested state, not a failure. Forcing Settings open in that case would trap
+/// the user in a Settings-only state with no menu-bar item left to click back to
+/// the popup — the exact situation `apply_runtime_entry` exists to prevent.
+#[cfg(any(target_os = "macos", test))]
+fn missing_menu_entry_action(surface_enabled: bool) -> MissingMenuEntryAction {
+    if surface_enabled {
+        MissingMenuEntryAction::OpenSettings
+    } else {
+        MissingMenuEntryAction::LeaveWindowAlone
+    }
+}
+
 /// Applies the shared runtime-entry policy and the macOS-specific UI side
 /// effects. Startup panic recovery and normal reconciliation both use this so
 /// neither path can leave the process without a usable entry point.
@@ -731,9 +755,23 @@ fn desired_provider_menubars(
 fn apply_runtime_entry(app: &AppHandle, has_menu_entry: bool) -> RuntimeEntryOutcome {
     let integration = app.state::<DesktopIntegration>();
     if !has_menu_entry {
-        integration.set_menu_entry_available(false);
+        // `set_menu_entry_available(false)` also forces floating mode, which makes
+        // closing the popup ask to quit. That is right for a *lost* menu bar (the
+        // floating window becomes the only entry point) but wrong for a surface
+        // the user switched off on purpose: the popup should keep behaving as a
+        // popup, and the tray/Shortcut still provide a route back.
+        let surface_enabled = app
+            .try_state::<Arc<SettingsService>>()
+            .is_none_or(|settings| settings.get().taskband.enabled);
+        let action = missing_menu_entry_action(surface_enabled);
+        if action == MissingMenuEntryAction::OpenSettings {
+            integration.set_menu_entry_available(false);
+        }
         if let Some(service) = app.try_state::<Arc<ProviderService>>() {
             service.set_native_instance_ids(Vec::new());
+        }
+        if action == MissingMenuEntryAction::LeaveWindowAlone {
+            return RuntimeEntryOutcome::FloatingWindow;
         }
         open_screen(app, "settings");
         if let Some(settings) = app.try_state::<Arc<SettingsService>>() {
@@ -1140,7 +1178,8 @@ fn open_provider_settings(app: &AppHandle, provider_id: &str) {
 #[cfg(test)]
 mod tests {
     use super::{
-        disable_provider_layout, plan_menubar, reconcile_then_publish, DesiredProviderMenubar,
+        disable_provider_layout, missing_menu_entry_action, plan_menubar, reconcile_then_publish,
+        DesiredProviderMenubar, MissingMenuEntryAction,
     };
     use crate::models::{AppSettings, ProviderLayout, TaskbandLayout};
 
@@ -1171,6 +1210,27 @@ mod tests {
     fn no_requested_provider_instances_produces_an_empty_menu_plan() {
         let plan = plan_menubar(Vec::<DesiredProviderMenubar>::new());
         assert!(plan.provider_instances.is_empty());
+    }
+
+    /// Turning the native instance surface off empties the menu-bar plan. That is
+    /// a requested state, so the app must not respond by opening Settings — a
+    /// user who did that has no menu-bar item left to click back to the popup.
+    #[test]
+    fn a_disabled_instance_surface_does_not_open_settings() {
+        assert_eq!(
+            missing_menu_entry_action(false),
+            MissingMenuEntryAction::LeaveWindowAlone
+        );
+    }
+
+    /// A genuinely lost menu bar (creation failed, items dragged out, panic
+    /// during reconciliation) must still surface Settings as a way back.
+    #[test]
+    fn a_lost_menu_bar_still_opens_settings() {
+        assert_eq!(
+            missing_menu_entry_action(true),
+            MissingMenuEntryAction::OpenSettings
+        );
     }
 
     #[test]

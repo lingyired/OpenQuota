@@ -26,9 +26,7 @@ use crate::service::{ProviderService, UsageViewState};
 use crate::settings::SettingsService;
 use crate::tray_presentation::ResolvedTrayMetric;
 #[cfg(target_os = "windows")]
-use crate::tray_presentation::{
-    pinned_provider_metrics, requested_provider_entries, NativeInstancePlatform,
-};
+use crate::tray_presentation::{pinned_provider_metrics, requested_provider_entries};
 #[cfg(target_os = "windows")]
 use crate::{
     desktop_integration::DesktopIntegration,
@@ -534,9 +532,7 @@ pub(crate) fn update(
     let mut desired_ids = HashSet::new();
     let mut actual_provider_ids = HashSet::new();
     let mut failures = Vec::new();
-    for provider_id in
-        requested_provider_entries(settings, registry, NativeInstancePlatform::Windows)
-    {
+    for provider_id in requested_provider_entries(settings, registry) {
         let Some(provider) = settings
             .providers
             .iter()

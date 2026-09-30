@@ -35,23 +35,19 @@ pub(crate) struct ResolvedTrayMetric {
     pub value: String,
 }
 
-#[cfg(any(target_os = "macos", target_os = "windows", test))]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum NativeInstancePlatform {
-    MacOS,
-    Windows,
-}
-
 /// Providers that should have a native presentation instance. This derives
 /// solely from enabled settings and pinned metric definitions, so missing
 /// snapshots never remove an entry point.
+///
+/// `settings.taskband.enabled` is the master switch for the platform-native
+/// instance surface on *both* Windows (taskband) and macOS (menu bar), so a
+/// user who turns the surface off does not get instances on either platform.
 #[cfg(any(target_os = "macos", target_os = "windows", test))]
 pub(crate) fn requested_provider_entries(
     settings: &AppSettings,
     registry: &ProviderRegistry,
-    platform: NativeInstancePlatform,
 ) -> Vec<String> {
-    if platform == NativeInstancePlatform::Windows && !settings.taskband.enabled {
+    if !settings.taskband.enabled {
         return Vec::new();
     }
     settings
@@ -571,8 +567,7 @@ mod tests {
 
     use super::{
         format_tokens, mark_icon, pinned_provider_metrics, primary_gauge,
-        requested_provider_entries, resolved_groups, NativeInstancePlatform, TrayGauge, TrayGroup,
-        TrayMetric,
+        requested_provider_entries, resolved_groups, TrayGauge, TrayGroup, TrayMetric,
     };
     use crate::service::UsageViewState;
 
@@ -833,10 +828,7 @@ mod tests {
     fn requested_provider_instances_and_placeholders_do_not_depend_on_snapshots() {
         let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
         let mut settings = default_settings(&catalog, &HashSet::from(["codex".to_owned()]));
-        assert_eq!(
-            requested_provider_entries(&settings, &catalog, NativeInstancePlatform::MacOS),
-            ["codex"]
-        );
+        assert_eq!(requested_provider_entries(&settings, &catalog), ["codex"]);
         let provider = settings
             .providers
             .iter()
@@ -849,10 +841,26 @@ mod tests {
         assert_eq!(metrics[1].value, "--");
 
         settings.providers[0].enabled = false;
+        assert!(requested_provider_entries(&settings, &catalog).is_empty());
+    }
+
+    /// The taskband/menu-bar master switch gates every platform, so turning it
+    /// off removes the native instance surface instead of only hiding the
+    /// Windows taskband.
+    #[test]
+    fn taskband_master_switch_removes_every_requested_instance() {
+        let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
+        let mut settings = default_settings(&catalog, &HashSet::from(["codex".to_owned()]));
+        assert_eq!(requested_provider_entries(&settings, &catalog), ["codex"]);
+
+        settings.taskband.enabled = false;
         assert!(
-            requested_provider_entries(&settings, &catalog, NativeInstancePlatform::MacOS)
-                .is_empty()
+            requested_provider_entries(&settings, &catalog).is_empty(),
+            "the master switch must remove instances on every platform"
         );
+
+        settings.taskband.enabled = true;
+        assert_eq!(requested_provider_entries(&settings, &catalog), ["codex"]);
     }
 
     #[test]

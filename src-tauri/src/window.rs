@@ -59,6 +59,100 @@ fn main_window_dismiss_action(
     }
 }
 
+/// Whether a zero-instance reconciliation means "the menu bar was lost".
+///
+/// Reconciliation reports no instances both when the native surface genuinely
+/// failed (items dragged out, creation failure, panic) *and* when the user
+/// deliberately switched it off. Only the former is a failure worth diverting to
+/// Settings; with the switch off there is no menu-bar item to recover from, so
+/// the app must reveal the popup instead of hijacking the screen with Settings.
+///
+/// A missing settings service keeps the historical recovery behaviour.
+fn instance_loss_needs_recovery(instance_count: usize, surface_enabled: bool) -> bool {
+    instance_count == 0 && surface_enabled
+}
+
+/// The popup and the Settings window are independent surfaces and may be
+/// visible at the same time. Historically every "show the main window" path
+/// hid Settings and `open_settings_window` hid the popup, which made the two
+/// windows mutually exclusive by construction. Both decisions are now fixed
+/// policy, and the pure helpers below make that policy explicit and testable.
+///
+/// Showing the main window never hides Settings: a menu-bar/tray click is a
+/// request to *reveal* the popup, not to close whatever else the user is
+/// working in.
+const fn showing_main_window_keeps_settings_visible() -> bool {
+    true
+}
+
+/// Opening Settings hides the popup rather than stacking the two windows.
+///
+/// The popup is anchored under the menu-bar/tray item and the Settings window is
+/// centred, so leaving both up lets one cover the other. Opening Settings is an
+/// explicit switch of surface, so the transient panel yields to it; revealing the
+/// popup again later leaves Settings untouched.
+const fn opening_settings_hides_popup() -> bool {
+    true
+}
+
+/// Why a focus-loss event was classified the way it was.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PopupFocusMove {
+    /// The panel still owns the keyboard focus; nothing to dismiss.
+    StillFocused,
+    /// Focus left the popup for another window — including our own Settings
+    /// window, which is the common case once the user clicks it.
+    OutsidePopup,
+}
+
+/// Classifies a popup focus-loss event.
+///
+/// Any focus loss is an outside click. The popup owns the keyboard only while it
+/// is the window the user is working in; the moment they click anywhere else —
+/// the desktop, another application, or Quota01's own Settings window — the click
+/// landed outside the popup and the panel must get out of the way. Judging this
+/// at the application level instead would keep the popup visible over the very
+/// window the user just clicked into.
+fn classify_popup_focus_move(still_focused: bool) -> PopupFocusMove {
+    if still_focused {
+        PopupFocusMove::StillFocused
+    } else {
+        PopupFocusMove::OutsidePopup
+    }
+}
+
+/// Whether a delayed focus-loss dismissal should hide the popup.
+fn should_dismiss_popup_on_focus_loss(move_reason: PopupFocusMove) -> bool {
+    matches!(move_reason, PopupFocusMove::OutsidePopup)
+}
+
+/// macOS activation policy while Settings is hidden and only the popup exists.
+///
+/// The popup is a utility panel without a Dock presence, so `Accessory` stays
+/// the resting policy even while the popup is visible on its own. The policy
+/// therefore tracks the *Settings* window, never the popup.
+#[cfg(any(target_os = "macos", test))]
+const fn resting_activation_policy_is_regular() -> bool {
+    false
+}
+
+/// Ordered policy transitions performed by `open_settings_window` and its
+/// failure rollback. Declared as data so the ordering invariant is testable.
+#[cfg(any(target_os = "macos", test))]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPolicyStep {
+    RaiseToRegular,
+    RestoreAccessory,
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn settings_visibility_policy_order() -> (SettingsPolicyStep, SettingsPolicyStep) {
+    (
+        SettingsPolicyStep::RaiseToRegular,
+        SettingsPolicyStep::RestoreAccessory,
+    )
+}
+
 #[cfg(target_os = "macos")]
 const MENU_BAR_POPUP_POSITION_UNSET: u64 = u64::MAX;
 #[cfg(target_os = "macos")]
@@ -364,8 +458,19 @@ pub fn activate_existing_instance(app: &AppHandle) {
         return;
     };
     if app.try_state::<DesktopIntegration>().is_some() {
+        // Reconciliation reports zero instances both when the menu bar was lost
+        // *and* when the user deliberately turned the native surface off. Only
+        // the former should divert to Settings: with the switch off there is no
+        // menu-bar item to recover from, so relaunching must reveal the popup
+        // the user actually asked for instead of the Settings window.
+        let surface_disabled = app
+            .try_state::<Arc<SettingsService>>()
+            .is_some_and(|settings| !settings.get().taskband.enabled);
         if cfg!(any(target_os = "macos", target_os = "windows"))
-            && app.state::<DesktopIntegration>().provider_instance_count() == 0
+            && instance_loss_needs_recovery(
+                app.state::<DesktopIntegration>().provider_instance_count(),
+                !surface_disabled,
+            )
         {
             let _ = open_settings_window(app, "settings");
             return;
@@ -469,7 +574,9 @@ fn position_popup_above(window: &WebviewWindow, anchor: &TaskbandAnchor) {
 /// instance instead of the tray icon. In floating mode the anchor is ignored.
 #[cfg(target_os = "windows")]
 pub fn show_main_window_anchored(window: &WebviewWindow, anchor: TaskbandAnchor) {
-    hide_settings_window(window.app_handle());
+    // Settings stays open: revealing the popup must not close the user's other
+    // surface.
+    debug_assert!(showing_main_window_keeps_settings_visible());
     finish_native_panel_resize(window);
     crate::webview_memory::set_inactive(window, false);
     if window
@@ -546,7 +653,8 @@ fn position_popup_below_menu_bar_item(
 /// ignored.
 #[cfg(target_os = "macos")]
 pub fn show_main_window_below_menu_bar_item(window: &WebviewWindow, anchor: MenuBarAnchor) {
-    hide_settings_window(window.app_handle());
+    // Settings stays open; see `show_main_window_anchored`.
+    debug_assert!(showing_main_window_keeps_settings_visible());
     finish_native_panel_resize(window);
     crate::webview_memory::set_inactive(window, false);
     if window
@@ -580,7 +688,8 @@ pub fn show_main_window(window: &WebviewWindow) {
         let _ = open_settings_window(app, "settings");
         return;
     }
-    hide_settings_window(window.app_handle());
+    // Settings stays open: the popup is revealed alongside it, never instead.
+    debug_assert!(showing_main_window_keeps_settings_visible());
     #[cfg(target_os = "macos")]
     clear_menu_bar_popup_position();
 
@@ -710,11 +819,44 @@ fn hide_settings_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window(SETTINGS_WINDOW) {
         if window.hide().is_ok() {
             #[cfg(target_os = "macos")]
-            if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
-                crate::app_warn!("window", "could not hide Settings from the Dock: {error}");
+            {
+                debug_assert!(!resting_activation_policy_is_regular());
+                if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Accessory) {
+                    crate::app_warn!("window", "could not hide Settings from the Dock: {error}");
+                }
             }
         }
     }
+}
+
+/// Brings the application forward so the freshly shown Settings window is not
+/// left behind the still-visible popup. Showing the popup and showing Settings
+/// can land in the same run-loop pass, and on macOS merely ordering a window
+/// front does not raise it above another window of the same application.
+#[cfg(target_os = "macos")]
+fn activate_application() {
+    use objc2_app_kit::NSApplication;
+    use objc2_foundation::MainThreadMarker;
+
+    let Some(main_thread) = MainThreadMarker::new() else {
+        return;
+    };
+    NSApplication::sharedApplication(main_thread).activate();
+}
+
+/// Keeps the macOS activation policy and the Dock icon in sync with whether the
+/// Settings window is visible. `Regular` is raised only here, in the same step
+/// that reveals Settings.
+#[cfg(target_os = "macos")]
+fn reveal_settings_window(app: &AppHandle) {
+    debug_assert_eq!(
+        settings_visibility_policy_order().0,
+        SettingsPolicyStep::RaiseToRegular
+    );
+    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
+        crate::app_warn!("window", "could not show Settings in the Dock: {error}");
+    }
+    activate_application();
 }
 
 pub fn open_settings_window(app: &AppHandle, target: &str) -> Result<(), String> {
@@ -723,17 +865,21 @@ pub fn open_settings_window(app: &AppHandle, target: &str) -> Result<(), String>
         .get_webview_window(SETTINGS_WINDOW)
         .ok_or("Quota01 Settings window is unavailable.")?;
 
-    if let Some(window) = app.get_webview_window(MAIN_WINDOW) {
-        if window.is_visible().unwrap_or(false) {
-            hide_main_window(&window);
+    // Opening Settings is a switch of surface, not an extra one. The popup is
+    // anchored under the menu-bar/tray item while Settings is centred, so leaving
+    // the panel up lets it cover the settings content the user just asked for.
+    // The inverse is deliberately NOT symmetric: revealing the popup later leaves
+    // Settings alone, so a menu-bar click can never discard the user's work.
+    debug_assert!(opening_settings_hides_popup());
+    if let Some(main_window) = app.get_webview_window(MAIN_WINDOW) {
+        if main_window.is_visible().unwrap_or(false) {
+            hide_main_window(&main_window);
         }
     }
 
     fit_settings_window_to_work_area(&settings_window)?;
     #[cfg(target_os = "macos")]
-    if let Err(error) = app.set_activation_policy(tauri::ActivationPolicy::Regular) {
-        crate::app_warn!("window", "could not show Settings in the Dock: {error}");
-    }
+    reveal_settings_window(app);
     let show_result = settings_window
         .unminimize()
         .and_then(|_| settings_window.show())
@@ -1380,9 +1526,20 @@ fn schedule_outside_click_dismiss(window: Window) {
         let app_for_dismiss = app.clone();
         let _ = app.run_on_main_thread(move || {
             let guard = app_for_dismiss.state::<PopupDismissGuard>();
-            let still_unfocused = window.is_focused().is_ok_and(|focused| !focused);
+            let still_focused = window.is_focused().is_ok_and(|focused| focused);
+            // Any focus loss is an outside click. The popup is dismissed when the
+            // user clicks the desktop, another application, or our own Settings
+            // window — in the last case it would otherwise sit on top of the window
+            // they just clicked into.
+            let focus_move = classify_popup_focus_move(still_focused);
+            // Only this callback's *own* generation may act. A stale callback (a
+            // later show already bumped the counter) must not hide a freshly
+            // revealed popup.
+            if !guard.is_current(token) {
+                return;
+            }
 
-            if guard.is_current(token) && still_unfocused {
+            if should_dismiss_popup_on_focus_loss(focus_move) {
                 if let Some(session) = window.app_handle().try_state::<Arc<PanelResizeSession>>() {
                     session.finish(current_logical_height(&window));
                 }
@@ -1509,16 +1666,143 @@ mod tests {
 
     use super::{
         anchored_menu_bar_position, anchored_taskband_position, anchored_vertical_frame,
-        centered_horizontal_frame, logical_panel_height, logical_work_area_width,
-        main_window_dismiss_action, panel_resize_edge_for_context, panel_resize_edge_for_frames,
-        panel_surface_color, panel_width_for_screen, resolved_fixed_panel_height, HorizontalFrame,
-        MainWindowDismissAction, MenuBarAnchor, PanelHeightMode, PanelResizeEdge,
-        PanelResizeSession, TaskbandAnchor, VerticalFrame, DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE,
-        PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT, PANEL_WIDTH, SETTINGS_WIDTH,
+        centered_horizontal_frame, classify_popup_focus_move, instance_loss_needs_recovery,
+        logical_panel_height, logical_work_area_width, main_window_dismiss_action,
+        opening_settings_hides_popup, panel_resize_edge_for_context, panel_resize_edge_for_frames,
+        panel_surface_color, panel_width_for_screen, resolved_fixed_panel_height,
+        resting_activation_policy_is_regular, settings_visibility_policy_order,
+        should_dismiss_popup_on_focus_loss, showing_main_window_keeps_settings_visible,
+        HorizontalFrame, MainWindowDismissAction, MenuBarAnchor, PanelHeightMode, PanelResizeEdge,
+        PanelResizeSession, PopupFocusMove, SettingsPolicyStep, TaskbandAnchor, VerticalFrame,
+        DARK_PANEL_SURFACE, LIGHT_PANEL_SURFACE, PANEL_DEFAULT_HEIGHT, PANEL_MIN_HEIGHT,
+        PANEL_WIDTH, SETTINGS_WIDTH,
     };
     use crate::models::ThemePreference;
+    use crate::popup::PopupDismissGuard;
     use crate::storage::Storage;
     use tauri::Theme;
+
+    #[test]
+    fn revealing_the_popup_never_hides_the_settings_window() {
+        // Regression: every "show the main window" path used to call
+        // `hide_settings_window`, so clicking the menu-bar item closed Settings.
+        assert!(showing_main_window_keeps_settings_visible());
+    }
+
+    /// A lost menu bar (instances expected but none created) still recovers by
+    /// opening Settings, which is the historical safety net.
+    #[test]
+    fn losing_every_instance_still_needs_recovery() {
+        assert!(instance_loss_needs_recovery(0, true));
+    }
+
+    /// Turning the native surface off also reports zero instances, but that is a
+    /// requested state, not a loss: relaunching must show the popup rather than
+    /// diverting to Settings.
+    #[test]
+    fn a_deliberately_disabled_surface_is_not_an_instance_loss() {
+        assert!(!instance_loss_needs_recovery(0, false));
+    }
+
+    /// Instances that exist are never treated as a loss, whatever the switch says.
+    #[test]
+    fn live_instances_never_trigger_recovery() {
+        assert!(!instance_loss_needs_recovery(3, true));
+        assert!(!instance_loss_needs_recovery(3, false));
+    }
+
+    #[test]
+    fn opening_settings_hides_the_popup() {
+        // The popup is anchored under the menu-bar item and Settings is centred,
+        // so stacking them lets the panel cover the settings content. Opening
+        // Settings must therefore dismiss the popup.
+        assert!(opening_settings_hides_popup());
+    }
+
+    #[test]
+    fn a_focus_move_into_the_settings_window_dismisses_the_popup() {
+        // The reported bug: clicking Settings (a region outside the popup) left
+        // the popup on screen, covering the window the user had just clicked.
+        let reason = classify_popup_focus_move(false);
+        assert_eq!(reason, PopupFocusMove::OutsidePopup);
+        assert!(should_dismiss_popup_on_focus_loss(reason));
+    }
+
+    #[test]
+    fn a_focus_move_to_another_application_dismisses_the_popup() {
+        // Clicking the desktop or a different app must keep auto-dismissing.
+        let reason = classify_popup_focus_move(false);
+        assert_eq!(reason, PopupFocusMove::OutsidePopup);
+        assert!(should_dismiss_popup_on_focus_loss(reason));
+    }
+
+    #[test]
+    fn a_still_focused_popup_is_never_dismissed() {
+        let reason = classify_popup_focus_move(true);
+        assert_eq!(reason, PopupFocusMove::StillFocused);
+        assert!(!should_dismiss_popup_on_focus_loss(reason));
+    }
+
+    #[test]
+    fn an_outside_click_still_honours_the_pending_dismissal_token() {
+        let guard = PopupDismissGuard::default();
+        let pending = guard.token();
+
+        let reason = classify_popup_focus_move(false);
+        assert!(should_dismiss_popup_on_focus_loss(reason) && guard.is_current(pending));
+    }
+
+    /// A stale delayed callback must not hide a freshly revealed popup.
+    ///
+    /// The callback captures a token when the focus loss happens; a later `show`
+    /// bumps the generation. Without the `is_current(token)` precondition the
+    /// late callback would hide a popup the user had only just reopened.
+    #[test]
+    fn a_stale_callback_leaves_a_newer_token_intact() {
+        let guard = PopupDismissGuard::default();
+        let stale = guard.token();
+        // A later show/reveal bumps the generation; its token is the live one.
+        let live = guard.cancel_pending();
+        assert!(!guard.is_current(stale));
+
+        // Mirror the runtime guard: the stale callback returns before it can act.
+        let would_hide = guard.is_current(stale)
+            && should_dismiss_popup_on_focus_loss(classify_popup_focus_move(false));
+
+        assert!(
+            !would_hide,
+            "a stale focus callback must not hide a freshly revealed popup"
+        );
+        assert!(guard.is_current(live));
+    }
+
+    /// The resting activation policy is `Accessory`, i.e. it tracks whether the
+    /// *Settings* window is visible and deliberately ignores the popup. The
+    /// popup is a utility panel: it has never owned a Dock icon, and keeping it
+    /// visible after Settings closes must not leave Quota01 in `Regular`.
+    #[test]
+    fn the_resting_activation_policy_tracks_settings_not_the_popup() {
+        assert!(
+            !resting_activation_policy_is_regular(),
+            "Accessory must remain the resting policy for a visible popup"
+        );
+        assert!(showing_main_window_keeps_settings_visible());
+    }
+
+    /// Ordering invariant for the `open_settings_window` failure path: the
+    /// rollback restores `Accessory` only because it runs `hide_settings_window`
+    /// *after* `reveal_settings_window` raised the policy. If the two were
+    /// swapped the failure path would strand Quota01 in `Regular`.
+    #[test]
+    fn the_settings_rollback_restores_the_policy_it_raised() {
+        assert_eq!(
+            settings_visibility_policy_order(),
+            (
+                SettingsPolicyStep::RaiseToRegular,
+                SettingsPolicyStep::RestoreAccessory
+            ),
+        );
+    }
 
     #[test]
     fn settings_layout_clamps_to_available_work_area_and_popup_restores_fixed_width() {

@@ -4,16 +4,13 @@
   import { locale } from 'svelte-i18n';
   import type { ProviderCatalogIndex } from './metrics';
   import { desktopPlatform } from './platform';
-  import SelectMenu from './SelectMenu.svelte';
   import { t, tBackend, tStore } from './i18n';
   import type {
     AppSettings,
     MetricLayout,
     MetricSection,
     ProviderLayout,
-    TaskbandColorStyle,
     TaskbandLayout,
-    TaskbandSide,
   } from './types';
   import Icon from './Icon.svelte';
   import ProviderApiKeySection from './ProviderApiKeySection.svelte';
@@ -166,25 +163,6 @@
         [providerId]: { ...existing, ...value },
       },
     });
-  }
-  function updateTaskbandColor(line: 'topColor' | 'bottomColor', value: string) {
-    const color: TaskbandColorStyle | null = value ? { type: 'solid', value } : { type: 'default' };
-    updateTaskband({ [line]: color });
-  }
-  function restoreTaskbandDefaults() {
-    const rest = { ...settings.taskbandProviders };
-    delete rest[providerId];
-    onChange({ ...settings, taskbandProviders: rest });
-  }
-  function taskbandColor(line: 'top' | 'bottom'): { mode: 'auto' | 'custom'; value: string } {
-    const color = line === 'top' ? taskband?.topColor : taskband?.bottomColor;
-    if (color?.type === 'solid') return { mode: 'custom', value: color.value };
-    return { mode: 'auto', value: '#3b82f6' };
-  }
-  function clampInt(value: string, min: number, max: number) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return min;
-    return Math.min(max, Math.max(min, parsed));
   }
 </script>
 
@@ -343,139 +321,13 @@
             /><span></span></label
           >
         </div>
-        <div class="taskband-row">
-          <span class="taskband-row-label"><b>{$tStore('customize.position')}</b></span><SelectMenu
-            label={$tStore('customize.taskbarPosition')}
-            value={taskband?.side ?? ''}
-            options={[
-              { value: '', label: $tStore('customize.followDefault') },
-              { value: 'left', label: $tStore('customize.leftStart') },
-              { value: 'right', label: $tStore('customize.rightTray') },
-            ]}
-            onChange={(value) => updateTaskband({ side: value ? (value as TaskbandSide) : null })}
-          />
-        </div>
-        {#snippet taskbandLineStyle(label: string, line: 'top' | 'bottom')}
-          <div class="taskband-row">
-            <span class="taskband-row-label"
-              ><b>{$tStore('customize.lineColor', { label })}</b></span
-            >
-            <div class="taskband-color-control">
-              <SelectMenu
-                label={$tStore('customize.lineColor', { label })}
-                value={taskbandColor(line).mode}
-                options={[
-                  { value: 'auto', label: $tStore('customize.auto') },
-                  { value: 'custom', label: $tStore('customize.custom') },
-                ]}
-                onChange={(value) =>
-                  updateTaskbandColor(
-                    line === 'top' ? 'topColor' : 'bottomColor',
-                    value === 'auto' ? '' : taskbandColor(line).value,
-                  )}
-              />
-              {#if taskbandColor(line).mode === 'custom'}<input
-                  class="taskband-color-input"
-                  type="color"
-                  value={taskbandColor(line).value}
-                  aria-label={$tStore('customize.lineColor', { label })}
-                  onchange={(event) =>
-                    updateTaskbandColor(
-                      line === 'top' ? 'topColor' : 'bottomColor',
-                      event.currentTarget.value,
-                    )}
-                />{/if}
-            </div>
-          </div>
-          <div class="taskband-row">
-            <span class="taskband-row-label"><b>{$tStore('customize.lineBold', { label })}</b></span
-            >
-            <label class="switch"
-              ><input
-                type="checkbox"
-                aria-label={$tStore('customize.lineBold', { label })}
-                checked={line === 'top'
-                  ? (taskband?.topBold ?? false)
-                  : (taskband?.bottomBold ?? false)}
-                onchange={(event) =>
-                  updateTaskband({
-                    [line === 'top' ? 'topBold' : 'bottomBold']: event.currentTarget.checked,
-                  })}
-              /><span></span></label
-            >
-          </div>
-          <div class="taskband-row">
-            <span class="taskband-row-label"><b>{$tStore('customize.lineSize', { label })}</b></span
-            >
-            <input
-              class="number-field"
-              type="number"
-              min="7"
-              max="16"
-              step="0.5"
-              value={line === 'top' ? (taskband?.topSize ?? 9) : (taskband?.bottomSize ?? 9)}
-              aria-label={$tStore('customize.lineSize', { label })}
-              onchange={(event) =>
-                updateTaskband({
-                  [line === 'top' ? 'topSize' : 'bottomSize']: Number(event.currentTarget.value),
-                })}
-            />
-          </div>
-          <div class="taskband-row">
-            <span class="taskband-row-label"
-              ><b>{$tStore('customize.lineAlignment', { label })}</b></span
-            ><SelectMenu
-              label={$tStore('customize.lineAlignment', { label })}
-              value={String(
-                line === 'top' ? (taskband?.topAlign ?? 0) : (taskband?.bottomAlign ?? 0),
-              )}
-              options={[
-                { value: '0', label: $tStore('customize.left') },
-                { value: '1', label: $tStore('customize.center') },
-                { value: '2', label: $tStore('customize.right') },
-              ]}
-              onChange={(value) =>
-                updateTaskband({
-                  [line === 'top' ? 'topAlign' : 'bottomAlign']: Number(value),
-                })}
-            />
-          </div>
-        {/snippet}
-        {@render taskbandLineStyle($tStore('customize.firstLine'), 'top')}
-        {@render taskbandLineStyle($tStore('customize.secondLine'), 'bottom')}
-        <div class="taskband-row">
-          <span class="taskband-row-label"
-            ><b>{$tStore('customize.padding')}</b><small>{$tStore('customize.paddingDesc')}</small
-            ></span
-          >
-          <div class="taskband-pad-controls">
-            <input
-              class="number-field"
-              type="number"
-              min="0"
-              max="40"
-              value={taskband?.paddingLeft ?? 4}
-              aria-label={$tStore('customize.paddingLeft')}
-              onchange={(event) =>
-                updateTaskband({ paddingLeft: clampInt(event.currentTarget.value, 0, 40) })}
-            />
-            <input
-              class="number-field"
-              type="number"
-              min="0"
-              max="40"
-              value={taskband?.paddingRight ?? 4}
-              aria-label={$tStore('customize.paddingRight')}
-              onchange={(event) =>
-                updateTaskband({ paddingRight: clampInt(event.currentTarget.value, 0, 40) })}
-            />
-          </div>
-        </div>
-        <div class="taskband-row taskband-row--button">
-          <button class="taskband-restore" type="button" onclick={restoreTaskbandDefaults}
-            >{$tStore('customize.restoreDefaults')}</button
-          >
-        </div>
+        <!--
+          Style/layout controls for the native instance (position, line colour, bold,
+          size, alignment, padding, restore-defaults) are intentionally NOT rendered:
+          both surfaces are toggle-only now. The persisted `taskbandProviders` values
+          are untouched, so existing per-provider styling survives in storage and
+          keeps driving the native renderer.
+        -->
       </div>
     {/if}
     {#if catalog.supportsDeviceCodeSignIn(provider.id)}
