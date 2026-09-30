@@ -152,6 +152,8 @@
     onShareTotal: shareTotalSpend,
     onRefresh: refreshProvider,
     onRefreshIfDue: refreshProviderIfDue,
+    onRefreshAll: refresh,
+    statusProviderId: selectedProviderId,
     onOpenProviderLink: openProviderLink,
     onContentMorph: beginContentMorph,
     reducedMotion,

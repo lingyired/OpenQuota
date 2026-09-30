@@ -631,6 +631,8 @@ mod tests {
         let state = UsageViewState {
             providers: [("codex".into(), provider_state)].into_iter().collect(),
             last_full_refresh_at: None,
+            last_successful_refresh_at: None,
+            last_refresh_failed: false,
             next_refresh_at: None,
         };
         let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();
@@ -803,6 +805,8 @@ mod tests {
         let state = UsageViewState {
             providers: [("codex".into(), provider_state)].into_iter().collect(),
             last_full_refresh_at: None,
+            last_successful_refresh_at: None,
+            last_refresh_failed: false,
             next_refresh_at: None,
         };
         let catalog = ProviderRegistry::from_definitions(vec![codex::definition()]).unwrap();

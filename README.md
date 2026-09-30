@@ -117,6 +117,10 @@ subscription limits require a ChatGPT login and are not available in API-key-onl
 - **Scheduled refresh.** Cached values appear immediately. Providers with a menu bar or taskbar
   instance, or enabled pacing alerts, refresh every 5 minutes; other enabled providers refresh every
   15 minutes. Selecting cached data refreshes it after 5 minutes, and manual refresh always runs.
+- **Last successful update.** The top of the popup always shows how long ago the data was actually
+  refreshed, so a stale number is never mistaken for a fresh one. A batch that fails for every
+  provider leaves that timestamp untouched and marks the row as failed; click the row to refresh
+  everything.
 
 Quota01 runs locally and has no account, cloud backend, analytics, or usage telemetry of its own.
 

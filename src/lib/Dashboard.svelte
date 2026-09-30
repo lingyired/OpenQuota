@@ -28,6 +28,7 @@
     UpdateStatus,
   } from './types';
   import { tBackend, tStore, tBackendStore } from './i18n';
+  import { refreshStatus, refreshStatusSource } from './refreshStatus';
 
   export interface DashboardProps {
     viewState: UsageViewState;
@@ -46,6 +47,15 @@
     onShareTotal: (projection: SpendProjection) => boolean | Promise<boolean>;
     onRefresh: (providerId: string) => void | Promise<void>;
     onRefreshIfDue?: (providerId: string) => void | Promise<void>;
+    /** 刷新全部 provider；顶部「最近更新」那一行点击时用它。 */
+    onRefreshAll?: () => void | Promise<void>;
+    /**
+     * 顶部「最近更新」那一行描述哪个 provider；不传时描述整体。
+     *
+     * popup 一次只看一个 provider，那一行就贴在数字上方，所以它得说这份数据自己的
+     * 新鲜度，而不是把别人家的故障也算进来。
+     */
+    statusProviderId?: string | null;
     onOpenProviderLink: (providerId: string, linkIndex: number) => void;
     onContentMorph: () => void;
     reducedMotion: boolean;
@@ -77,6 +87,8 @@
     onShare,
     onShareTotal,
     onRefresh,
+    onRefreshAll,
+    statusProviderId = null,
     onOpenProviderLink,
     onContentMorph,
     reducedMotion,
@@ -172,6 +184,10 @@
         id: provider.id,
         usage: viewState.providers[provider.id]?.snapshot?.usage ?? emptyUsage,
       })),
+  );
+  /** 顶部「最近更新」那一行的点击在刷新进行中时应当禁用，避免叠加批次。 */
+  const anyRefreshing = $derived(
+    Object.values(viewState.providers).some((state) => state.refreshing),
   );
 
   function updateProvider(next: ProviderLayout, customization = true) {
@@ -357,6 +373,16 @@
     const info = stalenessTooltipInfo(refreshedAt);
     return [info.key, info.params];
   }
+  // 顶部「最近更新」那一行：描述当前正在看的那个 provider —— 看 WorkBuddy 时不该报
+  // Trae 的失败。没有选中 provider 时退回整体结论。
+  const refreshStatusData = $derived(refreshStatusSource(viewState, statusProviderId));
+  const lastRefreshStatus = $derived(
+    refreshStatus(refreshStatusData.lastSuccessfulAt, refreshStatusData.failed, now),
+  );
+  const lastRefreshFailed = $derived(refreshStatusData.failed);
+  function refreshAll() {
+    void onRefreshAll?.();
+  }
 </script>
 
 <svelte:window
@@ -365,6 +391,33 @@
     metricMenu = null;
   }}
 />
+
+{#if showGlobalContent}
+  <!-- 常驻在 popup 最顶：回答「我看到的数字是不是最新的」。点击触发一次全量刷新。
+       放在更新横幅之前，因为横幅可以被关掉，而这一行始终要在。 -->
+  <button
+    class="refresh-status"
+    class:refresh-status--failed={lastRefreshFailed}
+    type="button"
+    onclick={refreshAll}
+    disabled={anyRefreshing}
+    aria-label={$tStore('dashboard.refreshStatus.refreshAll')}
+    data-tooltip={$tStore('dashboard.refreshStatus.refreshAll')}
+  >
+    <span class="refresh-status__dot" aria-hidden="true"></span>
+    <span class="refresh-status__text"
+      >{$tStore(lastRefreshStatus.key, lastRefreshStatus.params)}</span
+    >
+    {#if lastRefreshFailed}
+      <span class="refresh-status__failed">{$tStore('dashboard.refreshStatus.failed')}</span>
+    {/if}
+    <span class="refresh-status__action"
+      >{anyRefreshing
+        ? $tStore('dashboard.refreshStatus.refreshing')
+        : $tStore('dashboard.refreshStatus.refresh')}</span
+    >
+  </button>
+{/if}
 
 {#if showGlobalContent && updateStatus?.available && updateStatus.version !== settings.dismissedUpdateVersion}
   <section class="hint-card update-banner" aria-label={$tStore('dashboard.updateAvailable')}>
@@ -466,6 +519,10 @@
 {/if}
 
 {#if settings.showTotalSpend && providerUsage.length > 0 && (!focusedProviderId || showGlobalContent)}
+  <!-- The cost surface is hidden from Settings and off by default, but the flag is
+       still honoured here so a user who opted in before the control was withdrawn
+       keeps their card. Re-exposing the toggle in SettingsScreen is all that is
+       needed to bring the feature back. -->
   <TotalSpend
     providers={providerUsage}
     {settings}
@@ -1098,6 +1155,63 @@
       background: var(--card);
     }
 
+    /* 常驻在 popup 最顶的「最近更新」一行。整行可点，点击触发一次全量刷新。 */
+    .refresh-status {
+      display: flex;
+      width: 100%;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      padding: 7px 10px;
+      border: 1px solid var(--separator);
+      border-radius: 10px;
+      color: var(--secondary);
+      background: var(--card);
+      font: inherit;
+      font-size: 11px;
+      text-align: left;
+      cursor: pointer;
+    }
+
+    .refresh-status:hover:not(:disabled) {
+      background: var(--button-hover);
+    }
+
+    .refresh-status:disabled {
+      cursor: default;
+      opacity: 0.7;
+    }
+
+    .refresh-status__dot {
+      width: 6px;
+      height: 6px;
+      flex: none;
+      border-radius: 50%;
+      background: var(--meter-fill);
+    }
+
+    .refresh-status--failed .refresh-status__dot {
+      background: var(--warning);
+    }
+
+    .refresh-status__text {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .refresh-status__failed {
+      flex: none;
+      color: var(--warning);
+      font-weight: 600;
+    }
+
+    .refresh-status__action {
+      flex: none;
+      color: var(--tertiary);
+    }
     .hint-card__icon {
       display: grid;
       width: 22px;

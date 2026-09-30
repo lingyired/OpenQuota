@@ -965,6 +965,8 @@ mod tests {
             .into_iter()
             .collect(),
             last_full_refresh_at: None,
+            last_successful_refresh_at: None,
+            last_refresh_failed: false,
             next_refresh_at: None,
         };
         pinned_provider_metrics(&state, &provider, &catalog_settings, &catalog)

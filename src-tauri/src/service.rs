@@ -44,6 +44,19 @@ pub(crate) fn resolve_proxy_url(
 pub struct UsageViewState {
     pub providers: BTreeMap<String, ProviderViewState>,
     pub last_full_refresh_at: Option<chrono::DateTime<Utc>>,
+    /// 最近一次**真的拿到数据**的刷新落地时间，批次和单点都算。
+    ///
+    /// 与 `last_full_refresh_at` 不同：那个是「最近一次尝试」，成功失败都前进；
+    /// 这个是「最近一次成功」，一次都没成功时保持不动。界面顶部用它回答「我看到的
+    /// 数字是不是最新的」，所以它绝不能在一次失败之后前进——那会把一个陈旧的数字
+    /// 伪装成刚更新过。
+    pub last_successful_refresh_at: Option<chrono::DateTime<Utc>>,
+    /// 当前是否有任何一个启用中的 provider 处于失败状态。
+    ///
+    /// 每次刷新（批次或单点）落地后按 provider 状态重算，而不是只在批次收尾时定一次。
+    /// 登录、保存密钥、菜单栏点击这些单点刷新不经过批次收尾，若只有批次能写这一位，
+    /// 用户刚登录成功、数据已经到手，顶部却还挂着上一批留下的失败标记。
+    pub last_refresh_failed: bool,
     pub next_refresh_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -56,6 +69,8 @@ pub struct ProviderService {
     last_live_refresh: Mutex<HashMap<String, Instant>>,
     last_failed_refresh: Mutex<HashMap<String, Instant>>,
     last_full_refresh_at: RwLock<Option<chrono::DateTime<Utc>>>,
+    last_successful_refresh_at: RwLock<Option<chrono::DateTime<Utc>>>,
+    last_refresh_failed: RwLock<bool>,
     refresh_timeout: Duration,
     settings: Option<Arc<SettingsService>>,
     http_clients: Arc<ProviderHttpClientFactory>,
@@ -126,6 +141,8 @@ impl ProviderService {
             last_live_refresh: Mutex::new(HashMap::new()),
             last_failed_refresh: Mutex::new(HashMap::new()),
             last_full_refresh_at: RwLock::new(None),
+            last_successful_refresh_at: RwLock::new(None),
+            last_refresh_failed: RwLock::new(false),
             refresh_timeout,
             settings,
             http_clients: Arc::new(ProviderHttpClientFactory::default()),
@@ -138,20 +155,42 @@ impl ProviderService {
             .read()
             .map(|value| value.clone())
             .unwrap_or_default();
-        for (provider_id, state) in providers.iter_mut() {
-            let interval = self
-                .refresh_interval_for_provider(provider_id)
-                .unwrap_or(crate::policy::SLOW_REFRESH_INTERVAL);
-            update_staleness_from_snapshot_age(state, interval);
+        // 顶部那一行按「当前正在看的 provider」显示，所以每个 provider 都要带上自己
+        // 的失败状态；判定与整批用的那条完全一致。
+        //
+        // 锁必须限定在这个块里：下面 `next_refresh_at()` 也要读这把锁，而它是不可重入
+        // 的 `Mutex`，持着再进就是自锁死。
+        {
+            let failures = self.last_failed_refresh.lock().ok();
+            for (provider_id, state) in providers.iter_mut() {
+                let interval = self
+                    .refresh_interval_for_provider(provider_id)
+                    .unwrap_or(crate::policy::SLOW_REFRESH_INTERVAL);
+                update_staleness_from_snapshot_age(state, interval);
+                state.last_refresh_failed =
+                    provider_refresh_failed(state, failures.as_deref(), provider_id);
+            }
         }
         let last_full_refresh_at = self
             .last_full_refresh_at
             .read()
             .ok()
             .and_then(|value| value.to_owned());
+        let last_successful_refresh_at = self
+            .last_successful_refresh_at
+            .read()
+            .ok()
+            .and_then(|value| value.to_owned());
+        let last_refresh_failed = self
+            .last_refresh_failed
+            .read()
+            .map(|value| *value)
+            .unwrap_or(false);
         UsageViewState {
             providers,
             last_full_refresh_at,
+            last_successful_refresh_at,
+            last_refresh_failed,
             next_refresh_at: self.next_refresh_at(),
         }
     }
@@ -199,6 +238,7 @@ impl ProviderService {
             return ProviderViewState {
                 error: Some("Unknown provider.".into()),
                 error_kind: Some(ProviderErrorKind::Internal),
+                last_refresh_failed: true,
                 ..ProviderViewState::default()
             };
         };
@@ -227,6 +267,7 @@ impl ProviderService {
                 return ProviderViewState {
                     error: Some("Provider refresh is temporarily unavailable.".into()),
                     error_kind: Some(ProviderErrorKind::Internal),
+                    last_refresh_failed: true,
                     ..self.provider_state(provider_id)
                 };
             };
@@ -373,6 +414,7 @@ impl ProviderService {
             } else if let Ok(mut failures) = self.last_failed_refresh.lock() {
                 failures.insert(provider_id.clone(), Instant::now());
             }
+            self.note_refresh_outcome(&state);
 
             let run_follow_up = if let Some(worker) = late_worker {
                 let completed_generation = if let Ok(mut flight_state) = flight.state.lock() {
@@ -468,6 +510,17 @@ impl ProviderService {
             on_progress(&current);
         }
         failed += provider_ids.len().saturating_sub(completed);
+        // 只有真的拿到数据才推进「最近更新成功」时间：整批全失败时保持旧值，顶部
+        // 于是会显示上一次真正成功的时刻，而不是假装刚刚更新过。一个 provider 都没
+        // 被要求刷新时（空批次）同样不算成功，否则空转也会刷新这个时间。
+        if succeeded > 0 {
+            self.note_refresh_succeeded();
+        }
+        // 空批次既没成功也没失败，保留上一次的结论；有结果时按各 provider 的现况重
+        // 算，与单点刷新同一套判定。
+        if completed > 0 {
+            self.note_refresh_failure_flag();
+        }
         crate::app_info!(
             "refresh",
             "batch end ({}ms, {succeeded} ok / {failed} failed)",
@@ -510,6 +563,10 @@ impl ProviderService {
             .refresh_interval_for_provider(provider_id)
             .unwrap_or(crate::policy::SLOW_REFRESH_INTERVAL);
         update_staleness_from_snapshot_age(&mut state, interval);
+        state.last_refresh_failed = {
+            let failures = self.last_failed_refresh.lock().ok();
+            provider_refresh_failed(&state, failures.as_deref(), provider_id)
+        };
         state
     }
 
@@ -566,6 +623,61 @@ impl ProviderService {
             }
         });
         self.provider_state(provider_id)
+    }
+
+    /// 单点刷新落地后，同步顶部那一行依赖的两个事实。
+    ///
+    /// 批次收尾（`refresh_enabled_with_progress`）也会写这两个字段，但单点刷新压根
+    /// 不经过批次收尾：登录、保存或删除密钥、菜单栏点击都走这里。少了这一步，用户
+    /// 刚登录成功、数据已经在屏幕上，顶部却还挂着上一批留下的「上次刷新失败」。
+    fn note_refresh_outcome(&self, state: &ProviderViewState) {
+        if state.error.is_none() {
+            self.note_refresh_succeeded();
+        }
+        self.note_refresh_failure_flag();
+    }
+
+    /// 记下「刚刚真的拿到过数据」。整批全失败或空批次都不会走到这里。
+    fn note_refresh_succeeded(&self) {
+        if let Ok(mut completed_at) = self.last_successful_refresh_at.write() {
+            *completed_at = Some(Utc::now());
+        }
+    }
+
+    /// 按各 provider 的现况重算失败标记，批次和单点共用这一条判定。
+    fn note_refresh_failure_flag(&self) {
+        // 先把结论算出来再拿写锁，别在持锁期间去读 states。
+        let failed = self.any_enabled_provider_failed();
+        if let Ok(mut failed_flag) = self.last_refresh_failed.write() {
+            *failed_flag = failed;
+        }
+    }
+
+    /// 屏幕上是否还有某个启用中的 provider 停在失败状态。
+    ///
+    /// 按每个 provider 的现况重算，而不是沿用「上一批有没有失败」这个结论：单点刷
+    /// 新不知道上一批的结果，但它看得见谁现在有数据、谁没有。这样登录成功后自己那
+    /// 一条立刻转好，而其他还没修好的 provider 依旧把这一行留成失败——一次局部成
+    /// 功不会顺手把别人的问题一起藏掉。
+    ///
+    /// 单条判定见 [`provider_refresh_failed`]，顶部按选中 provider 显示时用的是同一
+    /// 条规则。
+    fn any_enabled_provider_failed(&self) -> bool {
+        let enabled = self
+            .settings
+            .as_ref()
+            .map(|settings| settings.enabled_provider_ids());
+        // 先拿这把锁再读 states，顺序固定，避免和别的路径反向嵌套。
+        let failures = self.last_failed_refresh.lock().ok();
+        let Ok(states) = self.states.read() else {
+            return false;
+        };
+        states.iter().any(|(provider_id, state)| {
+            let is_enabled = enabled
+                .as_ref()
+                .is_none_or(|ids| ids.iter().any(|id| id == provider_id));
+            is_enabled && provider_refresh_failed(state, failures.as_deref(), provider_id)
+        })
     }
 
     fn is_fresh_this_session(
@@ -883,6 +995,19 @@ fn update_staleness_from_snapshot_age(state: &mut ProviderViewState, refresh_int
     state.stale = state.snapshot.as_ref().is_some_and(|snapshot| {
         Utc::now().signed_duration_since(snapshot.refreshed_at) >= stale_after(refresh_interval)
     });
+}
+
+/// 单个 provider 现在算不算「失败」。
+///
+/// 两个信号一起看：`error` 是给用户看的失败文案，`last_failed_refresh` 是「上一次
+/// 尝试失败了、还没成功过」。后者不能省——刷新开始时会把 `error` 清掉好让界面转圈，
+/// 只看 `error` 的话，一个正在重试的 provider 会被误判成已经好了。
+fn provider_refresh_failed(
+    state: &ProviderViewState,
+    failures: Option<&HashMap<String, Instant>>,
+    provider_id: &str,
+) -> bool {
+    state.error.is_some() || failures.is_some_and(|failures| failures.contains_key(provider_id))
 }
 
 #[cfg(test)]
@@ -2068,5 +2193,202 @@ mod tests {
             .lock()
             .unwrap()
             .contains_key("recovering"));
+    }
+
+    /// 顶部的「最近更新」要回答的是「我看到的数字是不是最新的」，所以它必须只在
+    /// 真的拿到数据时前进。整批全失败时若照常推进，用户会把一个陈旧的数字当成刚
+    /// 更新的——那正是这个功能要消除的误解。
+    #[test]
+    fn a_batch_where_every_provider_failed_does_not_advance_the_last_successful_refresh() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let provider = Arc::new(CredentialFailureProvider {
+            id: "offline",
+            error_kind: ProviderErrorKind::Authentication,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![provider]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let failed = tauri::async_runtime::block_on(service.refresh_all(&["offline".into()], true));
+
+        assert!(
+            failed.last_successful_refresh_at.is_none(),
+            "a batch with no successful provider must not claim a successful update"
+        );
+        assert!(
+            failed.last_refresh_failed,
+            "the failure has to be visible next to the timestamp"
+        );
+        // 批次确实结束了，所以「尝试时间」照常前进：两者语义不同。
+        assert!(failed.last_full_refresh_at.is_some());
+    }
+
+    /// 部分成功就算拿到数据：至少一个 provider 更新了，顶部时间应当前进，但失败
+    /// 标记仍要亮着，好让用户知道这屏里有一部分是旧的。
+    #[test]
+    fn a_partially_successful_batch_advances_the_timestamp_and_still_reports_failure() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let healthy = Arc::new(SequenceProvider {
+            id: "healthy",
+            calls: Arc::new(AtomicUsize::new(0)),
+            failures_before_success: 0,
+        }) as Arc<dyn UsageProvider>;
+        let broken = Arc::new(CredentialFailureProvider {
+            id: "broken",
+            error_kind: ProviderErrorKind::Authentication,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![healthy, broken]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let state = tauri::async_runtime::block_on(
+            service.refresh_all(&["healthy".into(), "broken".into()], true),
+        );
+
+        assert!(
+            state.last_successful_refresh_at.is_some(),
+            "one provider did return data, so the timestamp must move"
+        );
+        assert!(state.last_refresh_failed);
+    }
+
+    /// 一次全成功的批次要把上一次留下的失败标记清掉，否则顶部会一直挂着一条早已
+    /// 过期的警告。
+    #[test]
+    fn a_fully_successful_batch_clears_the_failure_flag() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let recovering = Arc::new(SequenceProvider {
+            id: "recovering",
+            calls: Arc::new(AtomicUsize::new(0)),
+            failures_before_success: 1,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![recovering]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let failed =
+            tauri::async_runtime::block_on(service.refresh_all(&["recovering".into()], true));
+        assert!(failed.last_refresh_failed);
+        assert!(failed.last_successful_refresh_at.is_none());
+
+        let succeeded =
+            tauri::async_runtime::block_on(service.refresh_all(&["recovering".into()], true));
+        assert!(!succeeded.last_refresh_failed);
+        assert!(succeeded.last_successful_refresh_at.is_some());
+    }
+
+    /// 首次登录就是这条路径：登录成功后只刷新刚登录的那一个 provider，不走批次。
+    /// 如果顶部那两个字段只有批次收尾能写，用户会看到数据已经到手、顶部却还挂着上
+    /// 一批留下的「上次刷新失败」。
+    #[test]
+    fn a_successful_single_provider_refresh_updates_the_top_row() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let provider = Arc::new(SequenceProvider {
+            id: "signing-in",
+            calls: Arc::new(AtomicUsize::new(0)),
+            failures_before_success: 1,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![provider]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let failed =
+            tauri::async_runtime::block_on(service.refresh_all(&["signing-in".into()], true));
+        assert!(failed.last_refresh_failed);
+        assert!(failed.last_successful_refresh_at.is_none());
+
+        let signed_in = refresh_with_test_timeout(&service, "signing-in", true);
+        assert!(
+            signed_in.error.is_none(),
+            "the sign-in refresh has to succeed"
+        );
+
+        let state = service.state();
+        assert!(
+            state.last_successful_refresh_at.is_some(),
+            "data arrived, so the top row must stop calling itself stale"
+        );
+        assert!(
+            !state.last_refresh_failed,
+            "the failed batch before sign-in is no longer the current truth"
+        );
+    }
+
+    /// 反面：单点成功不能顺手把别的 provider 的故障一起抹掉，否则顶部会假装整屏都
+    /// 是新的。
+    #[test]
+    fn a_single_provider_success_does_not_hide_another_providers_failure() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let first = Arc::new(SequenceProvider {
+            id: "first",
+            calls: Arc::new(AtomicUsize::new(0)),
+            failures_before_success: 1,
+        }) as Arc<dyn UsageProvider>;
+        let second = Arc::new(SequenceProvider {
+            id: "second",
+            calls: Arc::new(AtomicUsize::new(0)),
+            failures_before_success: 1,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![first, second]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let failed = tauri::async_runtime::block_on(
+            service.refresh_all(&["first".into(), "second".into()], true),
+        );
+        assert!(failed.last_refresh_failed);
+
+        assert!(refresh_with_test_timeout(&service, "first", true)
+            .error
+            .is_none());
+        let after_first = service.state();
+        assert!(after_first.last_successful_refresh_at.is_some());
+        assert!(
+            after_first.last_refresh_failed,
+            "second is still broken, so the warning has to stay up"
+        );
+
+        assert!(refresh_with_test_timeout(&service, "second", true)
+            .error
+            .is_none());
+        assert!(!service.state().last_refresh_failed);
+    }
+
+    /// 顶部那一行按「当前正在看的 provider」显示，所以每个 provider 都要带上自己的
+    /// 失败状态：看好好的那个时，不能因为另一个挂了就报失败。
+    #[test]
+    fn each_provider_carries_its_own_failure_flag() {
+        let directory = tempdir().unwrap();
+        let storage = Arc::new(Storage::open(&directory.path().join("quota01.db")).unwrap());
+        let healthy = Arc::new(SequenceProvider {
+            id: "healthy",
+            calls: Arc::new(AtomicUsize::new(0)),
+            failures_before_success: 0,
+        }) as Arc<dyn UsageProvider>;
+        let broken = Arc::new(CredentialFailureProvider {
+            id: "broken",
+            error_kind: ProviderErrorKind::Authentication,
+        }) as Arc<dyn UsageProvider>;
+        let registry = Arc::new(ProviderRegistry::new(vec![healthy, broken]).unwrap());
+        let service = Arc::new(ProviderService::new(registry, storage));
+
+        let state = tauri::async_runtime::block_on(
+            service.refresh_all(&["healthy".into(), "broken".into()], true),
+        );
+
+        assert!(
+            !state.providers["healthy"].last_refresh_failed,
+            "the healthy provider must not inherit the other one's failure"
+        );
+        assert!(state.providers["broken"].last_refresh_failed);
+        // 整体结论仍然亮着：这屏里确实有一份是旧的。
+        assert!(state.last_refresh_failed);
+
+        // 失败后停在退避里、直接返回现况的那条早退路径也要带上标记。
+        assert!(refresh_with_test_timeout(&service, "broken", false).last_refresh_failed);
+
+        // 单点成功只影响自己那一条，别的 provider 的标记原样留着。
+        assert!(!refresh_with_test_timeout(&service, "healthy", true).last_refresh_failed);
+        assert!(service.state().providers["broken"].last_refresh_failed);
     }
 }
