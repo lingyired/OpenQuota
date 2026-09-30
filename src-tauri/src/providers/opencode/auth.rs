@@ -49,7 +49,7 @@ impl OpenCodeAuthStore {
                     );
                     Ok(Some(key))
                 }
-                None => Err(OpenCodeError::CredentialStorage),
+                None => Err(OpenCodeError::CredentialStorage(error)),
             },
         }
     }
@@ -65,19 +65,19 @@ impl OpenCodeAuthStore {
         match self.store.status() {
             Ok(ApiKeyStatus::NotSet) => Ok(self.cli_sign_in_status()),
             Ok(status) => Ok(status),
-            Err(_) => match self.cli_sign_in_status() {
-                ApiKeyStatus::NotSet => Err(OpenCodeError::CredentialStorage),
+            Err(error) => match self.cli_sign_in_status() {
+                ApiKeyStatus::NotSet => Err(OpenCodeError::CredentialStorage(error)),
                 status => Ok(status),
             },
         }
     }
 
     pub fn save(&self, value: &str) -> Result<(), OpenCodeError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 OpenCodeError::MissingKey
             } else {
-                OpenCodeError::CredentialStorage
+                OpenCodeError::CredentialStorage(error)
             }
         })
     }
@@ -85,7 +85,7 @@ impl OpenCodeAuthStore {
     pub fn delete(&self) -> Result<(), OpenCodeError> {
         self.store
             .delete()
-            .map_err(|_| OpenCodeError::CredentialStorage)
+            .map_err(OpenCodeError::CredentialStorage)
     }
 
     fn cli_sign_in_status(&self) -> ApiKeyStatus {

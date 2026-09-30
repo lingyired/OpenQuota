@@ -1,7 +1,13 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
   import { locale } from 'svelte-i18n';
-  import { deleteProviderApiKey, getProviderApiKeyState, saveProviderApiKey } from './backend';
+  import {
+    deleteProviderApiKey,
+    getCredentialVaultState,
+    getProviderApiKeyState,
+    resetCredentialVault,
+    saveProviderApiKey,
+  } from './backend';
   import Icon from './Icon.svelte';
   import { t, tStore } from './i18n';
   import ProviderIcon from './ProviderIcon.svelte';
@@ -24,6 +30,14 @@
   let error = $state<string | null>(null);
   let notice = $state<string | null>(null);
   let availabilityError = $state<string | null>(null);
+  // The shared vault can be broken independently of this provider's key, in
+  // which case saving here is impossible until it is cleared.
+  let vaultUnrecoverable = $state(false);
+  let resettingVault = $state(false);
+  // Kept separate from `notice`/`error` because the reset control lives in the
+  // collapsed summary, which renders even while the editor is closed.
+  let vaultNotice = $state<string | null>(null);
+  let vaultError = $state<string | null>(null);
   let editorToggle = $state<HTMLButtonElement>();
   let removeTrigger = $state<HTMLButtonElement>();
   let removeCancelButton = $state<HTMLButtonElement>();
@@ -161,7 +175,40 @@
     void cancelRemoval();
   }
 
+  async function resetVault() {
+    if (resettingVault) return;
+    resettingVault = true;
+    error = null;
+    notice = null;
+    vaultError = null;
+    vaultNotice = null;
+    try {
+      await resetCredentialVault();
+      vaultUnrecoverable = false;
+      availabilityError = null;
+      // The provider's own key state is meaningless after a reset: every saved
+      // credential is gone, so report the provider as unconfigured.
+      credentialState = { providerId, status: 'notSet' };
+      resetEditor();
+      vaultNotice = t('provider.credentialVaultReset');
+      await tick();
+      editorToggle?.focus();
+    } catch (cause) {
+      vaultError = errorMessage(cause, t('provider.credentialVaultCouldNotReset'));
+    } finally {
+      resettingVault = false;
+    }
+  }
+
   onMount(() => {
+    void getCredentialVaultState()
+      .then((state) => {
+        vaultUnrecoverable = state.unrecoverable;
+      })
+      .catch(() => {
+        // A vault-state probe failure must not hide the API key editor; the
+        // save path reports the real error if the vault is unusable.
+      });
     void getProviderApiKeyState(providerId)
       .then((next) => {
         supported = next !== null;
@@ -190,6 +237,26 @@
               : $tStore('provider.edit')}</button
         >
       </div>
+      {#if vaultUnrecoverable}
+        <div class="vault-recovery" role="alert">
+          <span>{$tStore('provider.credentialVaultUnrecoverable')}</span>
+          <button
+            class="destructive-quiet"
+            type="button"
+            disabled={resettingVault}
+            onclick={() => void resetVault()}
+            >{resettingVault
+              ? $tStore('provider.resettingCredentialVault')
+              : $tStore('provider.resetCredentialVault')}</button
+          >
+        </div>
+      {/if}
+      {#if vaultNotice}
+        <div class="api-key-notice vault-notice" role="status">{vaultNotice}</div>
+      {/if}
+      {#if vaultError}
+        <div class="api-key-error vault-notice" role="alert">{vaultError}</div>
+      {/if}
       {#if availabilityError}
         <div class="api-key-error availability-error" role="alert">{availabilityError}</div>
       {/if}
@@ -220,7 +287,7 @@
                 <button
                   class="primary"
                   type="button"
-                  disabled={!apiKey.trim() || saving}
+                  disabled={!apiKey.trim() || saving || vaultUnrecoverable}
                   onclick={save}
                   >{saving ? $tStore('provider.saving') : $tStore('provider.save')}</button
                 >
@@ -498,6 +565,31 @@
   }
 
   .availability-error {
+    margin: 0 12px 11px;
+  }
+
+  .vault-recovery {
+    display: grid;
+    gap: 8px;
+    margin: 0 12px 11px;
+    padding: 9px;
+    border-radius: 8px;
+    color: var(--error);
+    background: var(--error-bg);
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  .vault-recovery .destructive-quiet {
+    min-height: 26px;
+    padding: 5px 10px;
+    justify-self: start;
+    color: var(--tray);
+    background: var(--error);
+    font-weight: 600;
+  }
+
+  .vault-notice {
     margin: 0 12px 11px;
   }
 </style>

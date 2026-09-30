@@ -127,6 +127,17 @@ export const zhTw = {
       minutesAgo: 'Last updated {minutes}m ago',
       hoursAgo: 'Last updated {hours}h{minutes} ago',
     },
+    refreshStatus: {
+      momentsAgo: '剛剛更新',
+      minutesAgo: '{minutes} 分鐘前更新',
+      hoursAgo: '{hours} 小時 {minutes} 分鐘前更新',
+      never: '尚未成功更新',
+      unavailable: '更新時間不可用',
+      failed: '上次重新整理失敗',
+      refresh: '立即重新整理',
+      refreshAll: '重新整理全部提供方',
+      refreshing: '重新整理中',
+    },
   },
   plan: {
     free: 'Free',
@@ -210,9 +221,11 @@ export const zhTw = {
     alwaysShowPacingTooltip:
       "Show how you're pacing on every metric, not just ones near their limit",
     taskbar: 'Taskbar',
+    menuBar: '選單列',
     showMonitorsOnTaskbar: 'Show Monitors on the Taskbar',
     showMonitorsOnTaskbarDesc:
       'Display each enabled monitor as a two-line label on the Windows taskbar.',
+    showMonitorsOnMenuBarDesc: '在 macOS 選單列中以兩行標籤顯示每個已啟用的監控項目。',
     defaultPosition: 'Default Position',
     leftStart: 'Left (Start)',
     rightTray: 'Right (Tray)',
@@ -339,6 +352,12 @@ export const zhTw = {
     apiKeyCouldNotSave: 'The API key could not be saved.',
     apiKeyCouldNotRemove: 'The saved API key could not be removed.',
     credentialStoreUnavailable: 'The system credential store is unavailable.',
+    credentialVaultUnrecoverable:
+      'Saved credentials can no longer be unlocked because the credential vault key is missing. Reset the credential storage to continue.',
+    resetCredentialVault: 'Reset credential storage',
+    resettingCredentialVault: 'Resetting…',
+    credentialVaultReset: 'Credential storage was reset. Enter your API keys again.',
+    credentialVaultCouldNotReset: 'The credential storage could not be reset.',
     done: 'Done',
     add: 'Add',
     edit: 'Edit',
@@ -472,6 +491,8 @@ export const zhTw = {
     invalidBillingResponse: '{provider} returned an invalid billing response.',
     apiKeyInvalid: 'The {provider} API key is invalid. Check it at {url}.',
     apiKeyInvalidInConsole: 'The Kimi API key is invalid. Check it in the Kimi Code console.',
+    credentialVaultUnrecoverable:
+      'The saved credentials could not be unlocked because the credential vault key is missing. Choose "Reset credential storage" to clear the unreadable vault, then enter your API keys again.',
     apiKeyUnreadable: 'The {provider} API key could not be read or updated.',
     sessionUnreadable: '{provider} 工作階段無法讀取或更新。',
     notLoggedInRunCmd: 'Not logged in. Run `{cmd}` to authenticate.',
@@ -500,8 +521,7 @@ export const zhTw = {
       'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.',
     noActiveMiniMaxPlanCn:
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
-    workbuddyCredentialsEncrypted:
-      'WorkBuddy 會加密儲存在本機的登入資料，因此無法直接讀取。請在 Quota01 中登入 WorkBuddy 以建立連線；本機若仍有舊版明文登入檔案，仍會繼續使用。',
+    workbuddyCredentialsEncrypted: '請先登入 WorkBuddy，以查看用量。',
     workbuddyUntrustedDomain: 'WorkBuddy 傳回了不受信任網域（{domain}）的憑證。請重新登入。',
     workbuddyCredentialsWithoutDomain: 'WorkBuddy 傳回的憑證缺少網域。請重新登入。',
     workbuddySignInAttemptUnknown: '此 WorkBuddy 登入嘗試未知。請重新開始。',
@@ -695,8 +715,6 @@ export const zhTw = {
     startSignIn: '登入',
     waitingForSignIn: '等待授權…',
     deviceCodeHint: '開啟授權連結並在其中確認登入，Quota01 會自動連線。',
-    fallbackHint:
-      '此處顯示的是 Quota01 自己的登入；本機既有的 WorkBuddy 或 CodeBuddy 登入會繼續作為後備可用。',
     verificationUri: '授權連結',
     cancel: '取消',
     expired: '本次登入嘗試已過期。請重新開始。',

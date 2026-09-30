@@ -129,8 +129,7 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
   'Claude live usage is rate limited; showing the last successful limits.':
     'metric.warnClaudeRateLimitedShowingStale',
   // Provider errors
-  'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.':
-    'providerError.workbuddyCredentialsEncrypted',
+  'Sign in to WorkBuddy to view usage.': 'providerError.workbuddyCredentialsEncrypted',
   'Could not reach WorkBuddy.': ['providerError.couldNotReach', { provider: 'WorkBuddy' }],
   'WorkBuddy returned credentials without a domain. Sign in again.':
     'providerError.workbuddyCredentialsWithoutDomain',
@@ -271,6 +270,10 @@ export const backendGlossary: Record<string, BackendGlossaryEntry> = {
     'providerError.claudeAccountChanged',
   'Claude OAuth settings contain an invalid URL.': 'providerError.claudeOAuthInvalidUrl',
   'Claude account settings could not be loaded.': 'providerError.claudeAccountSettingsUnavailable',
+  // The shared vault failed, so this is deliberately not phrased as one provider's key.
+  // Keep in sync with providers::credential_vault::UNRECOVERABLE_VAULT_ERROR.
+  'The saved credentials could not be unlocked because the credential vault key is missing. Choose "Reset credential storage" to clear the unreadable vault, then enter your API keys again.':
+    'providerError.credentialVaultUnrecoverable',
   'The Kimi API key could not be read or updated.': [
     'providerError.apiKeyUnreadable',
     { provider: 'Kimi' },

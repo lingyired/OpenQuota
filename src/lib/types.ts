@@ -141,11 +141,17 @@ export interface ProviderViewState {
   error: string | null;
   errorKind: ProviderErrorKind | null;
   lastAttemptAt: string | null;
+  /** 这个 provider 现在是不是停在失败状态；顶部那一行按选中 provider 显示时读它。 */
+  lastRefreshFailed?: boolean;
 }
 
 export interface UsageViewState {
   providers: Record<string, ProviderViewState>;
   lastFullRefreshAt?: string | null;
+  /** 最近一次真的拿到数据的刷新落地时间，批次和单点都算；全失败时保持上一次的值。 */
+  lastSuccessfulRefreshAt?: string | null;
+  /** 当前是否有启用中的 provider 处于失败状态；每次刷新落地后按 provider 现况重算。 */
+  lastRefreshFailed?: boolean;
   nextRefreshAt?: string | null;
 }
 
@@ -193,6 +199,11 @@ export interface ProviderApiKeyState {
 
 export interface ApiKeyMutationOutcome extends ProviderApiKeyState {
   warning?: string;
+}
+
+/** Health of the shared credential vault; `unrecoverable` blocks every provider's saves. */
+export interface CredentialVaultState {
+  unrecoverable: boolean;
 }
 
 export interface DeviceCodeChallenge {

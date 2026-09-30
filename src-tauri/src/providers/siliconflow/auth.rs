@@ -26,7 +26,7 @@ impl SiliconFlowAuthStore {
     pub fn load(&self) -> Result<Option<SecretString>, SiliconFlowError> {
         self.store
             .load()
-            .map_err(|_| SiliconFlowError::CredentialStorage(self.site))
+            .map_err(|error| SiliconFlowError::CredentialStorage(self.site, error))
     }
 
     pub fn has_local_credentials(&self) -> bool {
@@ -36,24 +36,24 @@ impl SiliconFlowAuthStore {
     pub fn status(&self) -> Result<ApiKeyStatus, SiliconFlowError> {
         self.store
             .status()
-            .map_err(|_| SiliconFlowError::CredentialStorage(self.site))
+            .map_err(|error| SiliconFlowError::CredentialStorage(self.site, error))
     }
 
     pub fn save(&self, value: &str) -> Result<(), SiliconFlowError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 SiliconFlowError::MissingKey(self.site)
             } else {
                 crate::app_warn!("auth:siliconflow", "system credential store write failed");
-                SiliconFlowError::CredentialStorage(self.site)
+                SiliconFlowError::CredentialStorage(self.site, error)
             }
         })
     }
 
     pub fn delete(&self) -> Result<(), SiliconFlowError> {
-        self.store.delete().map_err(|_| {
+        self.store.delete().map_err(|error| {
             crate::app_warn!("auth:siliconflow", "system credential store delete failed");
-            SiliconFlowError::CredentialStorage(self.site)
+            SiliconFlowError::CredentialStorage(self.site, error)
         })
     }
 }

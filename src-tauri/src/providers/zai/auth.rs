@@ -31,7 +31,7 @@ impl ZaiAuthStore {
     pub fn load(&self) -> Result<Option<SecretString>, ZaiError> {
         self.store
             .load()
-            .map_err(|_| ZaiError::CredentialStorage(self.site))
+            .map_err(|error| ZaiError::CredentialStorage(self.site, error))
     }
 
     pub fn has_local_credentials(&self) -> bool {
@@ -41,24 +41,24 @@ impl ZaiAuthStore {
     pub fn status(&self) -> Result<ApiKeyStatus, ZaiError> {
         self.store
             .status()
-            .map_err(|_| ZaiError::CredentialStorage(self.site))
+            .map_err(|error| ZaiError::CredentialStorage(self.site, error))
     }
 
     pub fn save(&self, value: &str) -> Result<(), ZaiError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 ZaiError::MissingKey(self.site)
             } else {
                 crate::app_warn!("auth:zai", "system credential store write failed");
-                ZaiError::CredentialStorage(self.site)
+                ZaiError::CredentialStorage(self.site, error)
             }
         })
     }
 
     pub fn delete(&self) -> Result<(), ZaiError> {
-        self.store.delete().map_err(|_| {
+        self.store.delete().map_err(|error| {
             crate::app_warn!("auth:zai", "system credential store delete failed");
-            ZaiError::CredentialStorage(self.site)
+            ZaiError::CredentialStorage(self.site, error)
         })
     }
 }
@@ -83,7 +83,7 @@ mod tests {
         },
     };
 
-    use super::{Site, ZaiAuthStore, CONFIG_PATHS, ENVIRONMENT_NAMES};
+    use super::{Site, ZaiAuthStore, ZaiError, CONFIG_PATHS, ENVIRONMENT_NAMES};
 
     #[derive(Default)]
     struct MemorySecrets(Mutex<HashMap<String, Vec<u8>>>);
@@ -248,7 +248,7 @@ mod tests {
     }
 
     #[test]
-    fn external_fallback_survives_vault_read_failures_without_leaking_diagnostics() {
+    fn external_fallback_survives_vault_read_failures_and_keeps_the_cause() {
         let auth = store(
             Arc::new(ReadErrorSecrets),
             &[(ENVIRONMENT_NAMES[0], "environment-key")],
@@ -258,12 +258,30 @@ mod tests {
         assert_eq!(auth.load().unwrap().unwrap().as_str(), "environment-key");
         assert_eq!(auth.status().unwrap(), ApiKeyStatus::FromEnvironment);
 
+        // With no external fallback the store's own message is what reaches the
+        // user: it names the failing vault operation. The site still rides along
+        // so the error stays attributable to this provider.
         let without_fallback = store(Arc::new(ReadErrorSecrets), &[], &[]);
         let error = without_fallback.load().err().unwrap();
         assert_eq!(
-            error.to_string(),
-            "The Z.ai API key could not be read or updated."
+            error,
+            ZaiError::CredentialStorage(
+                Site::Global,
+                "backend diagnostic contains secret-value".to_owned()
+            )
         );
-        assert!(!error.to_string().contains("secret-value"));
+
+        let provider_error = crate::providers::ProviderError::from(ZaiError::CredentialStorage(
+            Site::Global,
+            crate::providers::credential_vault::UNRECOVERABLE_VAULT_ERROR.to_owned(),
+        ));
+        assert_eq!(
+            provider_error.kind(),
+            crate::models::ProviderErrorKind::CredentialsUnavailable
+        );
+        assert_eq!(
+            provider_error.to_string(),
+            crate::providers::credential_vault::UNRECOVERABLE_VAULT_ERROR
+        );
     }
 }

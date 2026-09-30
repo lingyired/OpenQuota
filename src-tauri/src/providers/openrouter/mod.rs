@@ -113,13 +113,15 @@ enum OpenRouterError {
     InvalidResponse,
     #[error("OpenRouter request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The OpenRouter API key could not be read or updated.")]
-    CredentialStorage,
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice.
+    #[error("{0}")]
+    CredentialStorage(String),
 }
 
 impl From<OpenRouterError> for ProviderError {
     fn from(error: OpenRouterError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             OpenRouterError::MissingKey | OpenRouterError::InvalidKey => {
                 ProviderErrorKind::Authentication
             }
@@ -129,9 +131,9 @@ impl From<OpenRouterError> for ProviderError {
             OpenRouterError::RequestFailed(_) | OpenRouterError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            OpenRouterError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            OpenRouterError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 
@@ -233,7 +235,7 @@ impl UsageProvider for OpenRouterProvider {
         let api_key = self
             .auth
             .load()
-            .map_err(|_| ProviderError::from(OpenRouterError::CredentialStorage))?
+            .map_err(|error| ProviderError::from(OpenRouterError::CredentialStorage(error)))?
             .ok_or_else(|| ProviderError::from(OpenRouterError::MissingKey))?;
         self.refresh_snapshot(context, api_key.as_str())
     }
@@ -242,7 +244,7 @@ impl UsageProvider for OpenRouterProvider {
         Some(
             self.auth
                 .status()
-                .map_err(|_| ProviderError::from(OpenRouterError::CredentialStorage)),
+                .map_err(|error| ProviderError::from(OpenRouterError::CredentialStorage(error))),
         )
     }
 
@@ -253,13 +255,13 @@ impl UsageProvider for OpenRouterProvider {
     fn save_api_key(&self, value: &str) -> Result<(), ProviderError> {
         self.auth
             .save(value)
-            .map_err(|_| ProviderError::from(OpenRouterError::CredentialStorage))
+            .map_err(|error| ProviderError::from(OpenRouterError::CredentialStorage(error)))
     }
 
     fn delete_api_key(&self) -> Result<(), ProviderError> {
         self.auth
             .delete()
-            .map_err(|_| ProviderError::from(OpenRouterError::CredentialStorage))
+            .map_err(|error| ProviderError::from(OpenRouterError::CredentialStorage(error)))
     }
 }
 

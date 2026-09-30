@@ -65,7 +65,7 @@ pub(crate) fn definition() -> ProviderDefinition {
     }
 }
 
-#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum OpenCodeError {
     #[error("Add an OpenCode Go API key in Customize or set OPENCODE_GO_API_KEY.")]
     MissingKey,
@@ -79,13 +79,15 @@ pub(crate) enum OpenCodeError {
     InvalidResponse,
     #[error("OpenCode Go usage request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The OpenCode Go API key could not be read or updated.")]
-    CredentialStorage,
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice.
+    #[error("{0}")]
+    CredentialStorage(String),
 }
 
 impl From<OpenCodeError> for ProviderError {
     fn from(error: OpenCodeError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             OpenCodeError::MissingKey | OpenCodeError::InvalidKey => {
                 ProviderErrorKind::Authentication
             }
@@ -96,9 +98,9 @@ impl From<OpenCodeError> for ProviderError {
             OpenCodeError::InvalidResponse | OpenCodeError::RequestFailed(_) => {
                 ProviderErrorKind::InvalidResponse
             }
-            OpenCodeError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            OpenCodeError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

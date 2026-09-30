@@ -285,12 +285,19 @@ fn an_unreadable_store_without_a_cli_sign_in_is_a_storage_error() {
     let directory = tempdir().unwrap();
     let store = auth_with_store(Arc::new(UnreadableSecrets), None, directory.path().into());
 
+    // The store's own message must survive: it is what lets an orphaned vault be
+    // reclassified instead of reading as a missing API key.
+    const UNAVAILABLE: &str = "System credential store unavailable.";
+
     assert!(!store.has_local_credentials());
     assert_eq!(
         store.status().unwrap_err(),
-        OpenCodeError::CredentialStorage
+        OpenCodeError::CredentialStorage(UNAVAILABLE.into())
     );
-    assert_eq!(store.load().unwrap_err(), OpenCodeError::CredentialStorage);
+    assert_eq!(
+        store.load().unwrap_err(),
+        OpenCodeError::CredentialStorage(UNAVAILABLE.into())
+    );
 }
 
 #[test]

@@ -83,13 +83,15 @@ pub(super) enum InfiniError {
     InvalidResponse,
     #[error("Infini request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The Infini API key could not be read or updated.")]
-    CredentialStorage,
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice.
+    #[error("{0}")]
+    CredentialStorage(String),
 }
 
 impl From<InfiniError> for ProviderError {
     fn from(error: InfiniError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             InfiniError::MissingKey | InfiniError::InvalidKey => ProviderErrorKind::Authentication,
             InfiniError::ConnectionFailed => ProviderErrorKind::Network,
             InfiniError::RequestFailed(429) => ProviderErrorKind::RateLimited,
@@ -97,9 +99,9 @@ impl From<InfiniError> for ProviderError {
             InfiniError::RequestFailed(_) | InfiniError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            InfiniError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            InfiniError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

@@ -128,6 +128,17 @@ export const de = {
       minutesAgo: 'Last updated {minutes}m ago',
       hoursAgo: 'Last updated {hours}h{minutes} ago',
     },
+    refreshStatus: {
+      momentsAgo: 'Gerade eben aktualisiert',
+      minutesAgo: 'Vor {minutes} Min. aktualisiert',
+      hoursAgo: 'Vor {hours} Std.{minutes} aktualisiert',
+      never: 'Noch nie aktualisiert',
+      unavailable: 'Aktualisierungszeit nicht verfügbar',
+      failed: 'Letzte Aktualisierung fehlgeschlagen',
+      refresh: 'Jetzt aktualisieren',
+      refreshAll: 'Alle Anbieter aktualisieren',
+      refreshing: 'Wird aktualisiert',
+    },
   },
   plan: {
     free: 'Free',
@@ -211,9 +222,12 @@ export const de = {
     alwaysShowPacingTooltip:
       "Show how you're pacing on every metric, not just ones near their limit",
     taskbar: 'Taskbar',
+    menuBar: 'Menüleiste',
     showMonitorsOnTaskbar: 'Show Monitors on the Taskbar',
     showMonitorsOnTaskbarDesc:
       'Display each enabled monitor as a two-line label on the Windows taskbar.',
+    showMonitorsOnMenuBarDesc:
+      'Jeden aktivierten Monitor als zweizeilige Beschriftung in der macOS-Menüleiste anzeigen.',
     defaultPosition: 'Default Position',
     leftStart: 'Left (Start)',
     rightTray: 'Right (Tray)',
@@ -340,6 +354,12 @@ export const de = {
     apiKeyCouldNotSave: 'The API key could not be saved.',
     apiKeyCouldNotRemove: 'The saved API key could not be removed.',
     credentialStoreUnavailable: 'The system credential store is unavailable.',
+    credentialVaultUnrecoverable:
+      'Saved credentials can no longer be unlocked because the credential vault key is missing. Reset the credential storage to continue.',
+    resetCredentialVault: 'Reset credential storage',
+    resettingCredentialVault: 'Resetting…',
+    credentialVaultReset: 'Credential storage was reset. Enter your API keys again.',
+    credentialVaultCouldNotReset: 'The credential storage could not be reset.',
     done: 'Done',
     add: 'Add',
     edit: 'Edit',
@@ -473,6 +493,8 @@ export const de = {
     invalidBillingResponse: '{provider} returned an invalid billing response.',
     apiKeyInvalid: 'The {provider} API key is invalid. Check it at {url}.',
     apiKeyInvalidInConsole: 'The Kimi API key is invalid. Check it in the Kimi Code console.',
+    credentialVaultUnrecoverable:
+      'The saved credentials could not be unlocked because the credential vault key is missing. Choose "Reset credential storage" to clear the unreadable vault, then enter your API keys again.',
     apiKeyUnreadable: 'The {provider} API key could not be read or updated.',
     sessionUnreadable: 'The {provider} session could not be read or updated.',
     notLoggedInRunCmd: 'Not logged in. Run `{cmd}` to authenticate.',
@@ -501,8 +523,7 @@ export const de = {
       'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.',
     noActiveMiniMaxPlanCn:
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
-    workbuddyCredentialsEncrypted:
-      'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.',
+    workbuddyCredentialsEncrypted: 'Melde dich bei WorkBuddy an, um die Nutzung zu sehen.',
     workbuddyUntrustedDomain:
       'WorkBuddy returned credentials for an untrusted domain ({domain}). Sign in again.',
     workbuddyCredentialsWithoutDomain:
@@ -699,8 +720,6 @@ export const de = {
     startSignIn: 'Start Sign-In',
     waitingForSignIn: 'Waiting for confirmation…',
     deviceCodeHint: 'Open the authorization link and confirm the sign-in there.',
-    fallbackHint:
-      'This status shows the sign-in Quota01 owns. An existing local WorkBuddy or CodeBuddy login keeps working as a fallback.',
     verificationUri: 'Authorization link',
     cancel: 'Cancel',
     expired: 'This sign-in attempt expired. Start again.',

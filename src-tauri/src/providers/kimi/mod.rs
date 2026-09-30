@@ -69,13 +69,15 @@ pub(super) enum KimiError {
     InvalidResponse,
     #[error("Kimi request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The Kimi API key could not be read or updated.")]
-    CredentialStorage,
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice.
+    #[error("{0}")]
+    CredentialStorage(String),
 }
 
 impl From<KimiError> for ProviderError {
     fn from(error: KimiError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             KimiError::MissingKey | KimiError::InvalidKey => ProviderErrorKind::Authentication,
             KimiError::ConnectionFailed => ProviderErrorKind::Network,
             KimiError::RequestFailed(429) => ProviderErrorKind::RateLimited,
@@ -84,9 +86,9 @@ impl From<KimiError> for ProviderError {
             KimiError::RequestFailed(_) | KimiError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            KimiError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            KimiError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

@@ -33,6 +33,17 @@ pub struct ApiKeyMutationOutcome {
     pub warning: Option<String>,
 }
 
+/// Health of the shared credential vault.
+///
+/// `unrecoverable` means the vault file survived without its encryption key, so
+/// every provider's save/read fails until the vault is reset. It is reported
+/// separately from provider state because it is not any one provider's fault.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct CredentialVaultState {
+    pub unrecoverable: bool,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct QuotaWindow {
@@ -315,6 +326,13 @@ pub struct ProviderViewState {
     pub error: Option<String>,
     pub error_kind: Option<ProviderErrorKind>,
     pub last_attempt_at: Option<DateTime<Utc>>,
+    /// 这个 provider 现在是不是停在失败状态。
+    ///
+    /// 界面顶部那一行只描述**当前正在看的** provider，所以这个判定要跟着每个
+    /// provider 单独带上，而不是只留一个全局结论。判定与 `UsageViewState` 上那个
+    /// 全局字段共用同一条规则：`error` 有值，或者上一次尝试失败后还没成功过。
+    #[serde(default)]
+    pub last_refresh_failed: bool,
 }
 
 impl Default for ProviderViewState {
@@ -327,6 +345,7 @@ impl Default for ProviderViewState {
             error: None,
             error_kind: None,
             last_attempt_at: None,
+            last_refresh_failed: false,
         }
     }
 }
@@ -952,7 +971,11 @@ impl Default for AppSettings {
             known_provider_ids: Vec::new(),
             provider_names: BTreeMap::new(),
             language: LanguagePreference::System,
-            show_total_spend: true,
+            // The dashboard's cost surface is off unless a user opted in while the
+            // control was still offered. This decides the value for a fresh install
+            // only: an existing record keeps whatever it persisted, so nobody's
+            // dashboard changes under them on upgrade.
+            show_total_spend: false,
             theme: ThemePreference::System,
             density: DensityPreference::Default,
             reduce_animations: false,
@@ -1033,6 +1056,30 @@ mod tests {
         MetricValueKind, ProviderApiKeyState, ProviderErrorKind, ProviderLink, ProviderSnapshot,
         ProviderViewState, UsageCompleteness, UsagePeriod, WindowMode,
     };
+
+    /// The dashboard's cost surface is hidden and off for a fresh install. This
+    /// only pins the default; a stored record keeps whatever it persisted.
+    #[test]
+    fn total_spend_is_off_by_default() {
+        assert!(!AppSettings::default().show_total_spend);
+    }
+
+    /// A record written while the toggle was still offered keeps its own value:
+    /// the default must not reach in and switch a user's dashboard off.
+    #[test]
+    fn a_persisted_total_spend_choice_survives_deserialization() {
+        let stored = serde_json::json!({ "showTotalSpend": true });
+        let restored: AppSettings = serde_json::from_value(stored).expect("stored settings load");
+        assert!(
+            restored.show_total_spend,
+            "an opted-in record must not be reset by the new default"
+        );
+
+        // A record that predates the field falls back to the default (off).
+        let legacy: AppSettings =
+            serde_json::from_value(serde_json::json!({})).expect("legacy settings load");
+        assert!(!legacy.show_total_spend);
+    }
 
     #[test]
     fn language_preference_uses_frontend_contract_and_reads_legacy_rust_names() {

@@ -26,9 +26,7 @@ impl DeepSeekAuthStore {
     }
 
     pub fn load(&self) -> Result<Option<SecretString>, DeepSeekError> {
-        self.store
-            .load()
-            .map_err(|_| DeepSeekError::CredentialStorage)
+        self.store.load().map_err(DeepSeekError::CredentialStorage)
     }
 
     pub fn has_credentials(&self) -> bool {
@@ -38,23 +36,25 @@ impl DeepSeekAuthStore {
     pub fn status(&self) -> Result<ApiKeyStatus, DeepSeekError> {
         self.store
             .status()
-            .map_err(|_| DeepSeekError::CredentialStorage)
+            .map_err(DeepSeekError::CredentialStorage)
     }
 
     pub fn save(&self, value: &str) -> Result<(), DeepSeekError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 DeepSeekError::MissingToken
             } else {
-                DeepSeekError::CredentialStorage
+                crate::app_warn!("auth:deepseek", "system credential store write failed");
+                DeepSeekError::CredentialStorage(error)
             }
         })
     }
 
     pub fn delete(&self) -> Result<(), DeepSeekError> {
-        self.store
-            .delete()
-            .map_err(|_| DeepSeekError::CredentialStorage)
+        self.store.delete().map_err(|error| {
+            crate::app_warn!("auth:deepseek", "system credential store delete failed");
+            DeepSeekError::CredentialStorage(error)
+        })
     }
 }
 

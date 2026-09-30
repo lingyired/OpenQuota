@@ -4,6 +4,7 @@ import type {
   ApiKeyMutationOutcome,
   AppSettings,
   BootstrapState,
+  CredentialVaultState,
   DeviceCodeChallenge,
   DeviceCodePoll,
   ProviderApiKeyState,
@@ -45,6 +46,10 @@ export function claimCodexResetCredit(expiresAt: string, redeemRequestId: string
 
 export function resetCredentialVault(): Promise<void> {
   return invoke<void>('reset_credential_vault');
+}
+
+export function getCredentialVaultState() {
+  return invoke<CredentialVaultState>('get_credential_vault_state');
 }
 
 export function openProviderLink(providerId: string, linkIndex: number) {

@@ -26,9 +26,7 @@ impl InfiniAuthStore {
     }
 
     pub fn load(&self) -> Result<Option<SecretString>, InfiniError> {
-        self.store
-            .load()
-            .map_err(|_| InfiniError::CredentialStorage)
+        self.store.load().map_err(InfiniError::CredentialStorage)
     }
 
     pub fn has_local_credentials(&self) -> bool {
@@ -36,26 +34,24 @@ impl InfiniAuthStore {
     }
 
     pub fn status(&self) -> Result<ApiKeyStatus, InfiniError> {
-        self.store
-            .status()
-            .map_err(|_| InfiniError::CredentialStorage)
+        self.store.status().map_err(InfiniError::CredentialStorage)
     }
 
     pub fn save(&self, value: &str) -> Result<(), InfiniError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 InfiniError::MissingKey
             } else {
                 crate::app_warn!("auth:infini", "system credential store write failed");
-                InfiniError::CredentialStorage
+                InfiniError::CredentialStorage(error)
             }
         })
     }
 
     pub fn delete(&self) -> Result<(), InfiniError> {
-        self.store.delete().map_err(|_| {
+        self.store.delete().map_err(|error| {
             crate::app_warn!("auth:infini", "system credential store delete failed");
-            InfiniError::CredentialStorage
+            InfiniError::CredentialStorage(error)
         })
     }
 }

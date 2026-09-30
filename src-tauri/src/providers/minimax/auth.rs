@@ -26,7 +26,7 @@ impl MiniMaxAuthStore {
     pub fn load(&self) -> Result<Option<SecretString>, MiniMaxError> {
         self.store
             .load()
-            .map_err(|_| MiniMaxError::CredentialStorage(self.site))
+            .map_err(|error| MiniMaxError::CredentialStorage(self.site, error))
     }
 
     pub fn has_local_credentials(&self) -> bool {
@@ -36,24 +36,24 @@ impl MiniMaxAuthStore {
     pub fn status(&self) -> Result<ApiKeyStatus, MiniMaxError> {
         self.store
             .status()
-            .map_err(|_| MiniMaxError::CredentialStorage(self.site))
+            .map_err(|error| MiniMaxError::CredentialStorage(self.site, error))
     }
 
     pub fn save(&self, value: &str) -> Result<(), MiniMaxError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 MiniMaxError::MissingKey(self.site)
             } else {
                 crate::app_warn!("auth:minimax", "system credential store write failed");
-                MiniMaxError::CredentialStorage(self.site)
+                MiniMaxError::CredentialStorage(self.site, error)
             }
         })
     }
 
     pub fn delete(&self) -> Result<(), MiniMaxError> {
-        self.store.delete().map_err(|_| {
+        self.store.delete().map_err(|error| {
             crate::app_warn!("auth:minimax", "system credential store delete failed");
-            MiniMaxError::CredentialStorage(self.site)
+            MiniMaxError::CredentialStorage(self.site, error)
         })
     }
 }

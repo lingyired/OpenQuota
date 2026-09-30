@@ -36,8 +36,9 @@ fn default_token_type() -> String {
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub enum WorkBuddySessionError {
-    #[error("WorkBuddy session could not be read or updated.")]
-    Storage,
+    /// 携带凭据存储自己的说明：保管库写不进去和保管库钥匙丢了需要两种不同的出路。
+    #[error("{0}")]
+    Storage(String),
     #[error("WorkBuddy session data is invalid.")]
     Malformed,
 }
@@ -85,11 +86,7 @@ impl WorkBuddySessionStore {
     }
 
     pub fn load(&self) -> Result<Option<WorkBuddySession>, WorkBuddySessionError> {
-        match self
-            .store
-            .load()
-            .map_err(|_| WorkBuddySessionError::Storage)?
-        {
+        match self.store.load().map_err(WorkBuddySessionError::Storage)? {
             Some(secret) => Ok(Some(WorkBuddySession::from_json(secret.as_str())?)),
             None => Ok(None),
         }
@@ -99,19 +96,15 @@ impl WorkBuddySessionStore {
         WorkBuddySession::from_json(value)?;
         self.store
             .save(value)
-            .map_err(|_| WorkBuddySessionError::Storage)
+            .map_err(WorkBuddySessionError::Storage)
     }
 
     pub fn delete(&self) -> Result<(), WorkBuddySessionError> {
-        self.store
-            .delete()
-            .map_err(|_| WorkBuddySessionError::Storage)
+        self.store.delete().map_err(WorkBuddySessionError::Storage)
     }
 
     pub fn status(&self) -> Result<ApiKeyStatus, WorkBuddySessionError> {
-        self.store
-            .status()
-            .map_err(|_| WorkBuddySessionError::Storage)
+        self.store.status().map_err(WorkBuddySessionError::Storage)
     }
 }
 
@@ -267,22 +260,20 @@ mod tests {
         ));
         let document = session().to_json().unwrap();
 
-        assert!(matches!(
+        // 保管库的失败原因必须原样保留：孤儿保管库要靠它才能被识别成
+        // 「可重置」而不是「重新登录」。
+        for outcome in [
             subject.save(&document),
-            Err(WorkBuddySessionError::Storage)
-        ));
-        assert!(matches!(
-            subject.load(),
-            Err(WorkBuddySessionError::Storage)
-        ));
-        assert!(matches!(
-            subject.status(),
-            Err(WorkBuddySessionError::Storage)
-        ));
-        assert!(matches!(
+            subject.load().map(|_| ()),
+            subject.status().map(|_| ()),
             subject.delete(),
-            Err(WorkBuddySessionError::Storage)
-        ));
+        ] {
+            assert!(matches!(
+                outcome,
+                Err(WorkBuddySessionError::Storage(message))
+                    if message == "The system credential store is unavailable."
+            ));
+        }
     }
 
     #[test]

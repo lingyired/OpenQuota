@@ -118,9 +118,11 @@ pub(crate) enum WorkBuddyError {
     NotLoggedIn,
     #[error("WorkBuddy login data is invalid. Sign in again to WorkBuddy or CodeBuddy.")]
     InvalidAuth,
-    #[error("WorkBuddy credentials could not be read or updated.")]
-    CredentialStorage,
-    #[error("WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.")]
+    /// 携带凭据存储自己的说明：共享保管库故障（可重置）和登录文件故障（需重新登录）
+    /// 是两条不同的出路，不能共用一句「凭据无法读取或更新」。
+    #[error("{0}")]
+    CredentialStorage(String),
+    #[error("Sign in to WorkBuddy to view usage.")]
     CredentialsEncrypted,
     #[error("WorkBuddy access token expired and could not be refreshed. Sign in again.")]
     TokenExpired,
@@ -143,7 +145,7 @@ impl From<WorkBuddyAuthError> for WorkBuddyError {
         match error {
             WorkBuddyAuthError::NotLoggedIn => Self::NotLoggedIn,
             WorkBuddyAuthError::Invalid => Self::InvalidAuth,
-            WorkBuddyAuthError::Storage => Self::CredentialStorage,
+            WorkBuddyAuthError::Storage(message) => Self::CredentialStorage(message),
             WorkBuddyAuthError::Encrypted => Self::CredentialsEncrypted,
         }
     }
@@ -154,7 +156,7 @@ impl From<WorkBuddySessionError> for WorkBuddyError {
         match error {
             // 会话文档损坏等同于登录数据无效：两者都只能靠重新登录解决。
             WorkBuddySessionError::Malformed => Self::InvalidAuth,
-            WorkBuddySessionError::Storage => Self::CredentialStorage,
+            WorkBuddySessionError::Storage(message) => Self::CredentialStorage(message),
         }
     }
 }
@@ -180,14 +182,14 @@ impl From<WorkBuddyLoginError> for WorkBuddyError {
 
 impl From<WorkBuddyError> for ProviderError {
     fn from(error: WorkBuddyError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             WorkBuddyError::NotLoggedIn
             | WorkBuddyError::InvalidAuth
             | WorkBuddyError::TokenExpired
             | WorkBuddyError::RefreshFailed
             | WorkBuddyError::RequestFailed(401) => ProviderErrorKind::Authentication,
             WorkBuddyError::RequestFailed(403) => ProviderErrorKind::Permission,
-            WorkBuddyError::CredentialStorage | WorkBuddyError::CredentialsEncrypted => {
+            WorkBuddyError::CredentialStorage(_) | WorkBuddyError::CredentialsEncrypted => {
                 ProviderErrorKind::CredentialStorage
             }
             WorkBuddyError::RequestFailed(429) => ProviderErrorKind::RateLimited,
@@ -988,7 +990,7 @@ impl WorkBuddyError {
         match self {
             Self::NotLoggedIn => Self::NotLoggedIn,
             Self::InvalidAuth => Self::InvalidAuth,
-            Self::CredentialStorage => Self::CredentialStorage,
+            Self::CredentialStorage(message) => Self::CredentialStorage(message.clone()),
             Self::CredentialsEncrypted => Self::CredentialsEncrypted,
             Self::TokenExpired => Self::TokenExpired,
             Self::RefreshFailed => Self::RefreshFailed,
@@ -1225,9 +1227,34 @@ mod tests {
         let encrypted = ProviderError::from(WorkBuddyError::CredentialsEncrypted);
         assert_eq!(encrypted.kind(), ProviderErrorKind::CredentialStorage);
 
+        // The message stays distinct from `NotLoggedIn` so the frontend glossary
+        // keeps routing it to its own copy, but it is deliberately user-facing and
+        // terse: WorkBuddy is encrypted-only now, so the old explanation of the
+        // encryption mechanism and the legacy plaintext fallback was noise.
         let message = WorkBuddyError::CredentialsEncrypted.to_string();
         assert_ne!(message, WorkBuddyError::NotLoggedIn.to_string());
-        assert!(message.contains("5.6"));
+        assert_eq!(message, "Sign in to WorkBuddy to view usage.");
+        assert!(!message.contains("5.6"));
+        assert!(!message.contains("plaintext"));
+    }
+
+    /// WorkBuddy 的 vault 会话和登录文件都可能失败，但只有前者会被孤儿保管库污染。
+    /// 两者的分类必须分开，否则用户会被引导去「重新登录」一个其实好的登录。
+    #[test]
+    fn an_orphaned_vault_and_a_login_file_fault_lead_to_different_advice() {
+        let vault = ProviderError::from(WorkBuddyError::CredentialStorage(
+            crate::providers::credential_vault::UNRECOVERABLE_VAULT_ERROR.to_owned(),
+        ));
+        assert_eq!(vault.kind(), ProviderErrorKind::CredentialsUnavailable);
+        assert!(vault.to_string().contains("Reset credential storage"));
+
+        let login_file = ProviderError::from(WorkBuddyError::CredentialStorage(
+            "The WorkBuddy login file could not be updated. Sign in to WorkBuddy again.".to_owned(),
+        ));
+        assert_eq!(login_file.kind(), ProviderErrorKind::CredentialStorage);
+        assert!(login_file
+            .to_string()
+            .contains("Sign in to WorkBuddy again"));
     }
 
     #[test]

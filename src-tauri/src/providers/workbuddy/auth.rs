@@ -58,14 +58,22 @@ const EXPIRES_AT_PATHS: &[&[&str]] = &[
     &["auth", "expires_at"],
 ];
 
+/// 登录文件的本地读写失败：与共享保管库无关，也不该被当成保管库故障去引导用户重置。
+const LOGIN_FILE_NOT_WRITABLE: &str =
+    "The WorkBuddy login file could not be updated. Sign in to WorkBuddy again.";
+/// 写入前复检发现登录文件已被别的进程改写，丢弃这次刷新以免覆盖更新的凭据。
+const LOGIN_FILE_CHANGED: &str =
+    "The WorkBuddy login file changed while Quota01 was running. Sign in to WorkBuddy again.";
+
 #[derive(Debug, Error)]
 pub enum WorkBuddyAuthError {
     #[error("WorkBuddy is not logged in.")]
     NotLoggedIn,
     #[error("WorkBuddy login data is invalid.")]
     Invalid,
-    #[error("WorkBuddy credentials could not be read or updated.")]
-    Storage,
+    /// 携带凭据存储自己的说明，理由同 `WorkBuddySessionError::Storage`。
+    #[error("{0}")]
+    Storage(String),
     /// WorkBuddy 5.6 起把 token 写成 `{$wbEncrypted, envelope}` 加密信封，本机读不出
     /// 明文。这不是「未登录」，必须与 `NotLoggedIn` 区分开，否则会把用户引向无用的
     /// 「重新登录」；真正的出路是在 Quota01 里登录 WorkBuddy（旧版明文登录文件仍照常使用）。
@@ -180,11 +188,13 @@ impl WorkBuddyAuth {
         // 会话视图没有可写的登录文件；它的刷新结果属于 vault。
         // 这里直接拒绝，避免会话凭据被误写进 WorkBuddy 的登录文件。
         if !self.file_backed {
-            return Err(WorkBuddyAuthError::Storage);
+            return Err(WorkBuddyAuthError::Storage(
+                LOGIN_FILE_NOT_WRITABLE.to_owned(),
+            ));
         }
         let current = Self::load_from_path(&self.path)?;
         if current.access_token != self.access_token || current.document != self.document {
-            return Err(WorkBuddyAuthError::Storage);
+            return Err(WorkBuddyAuthError::Storage(LOGIN_FILE_CHANGED.to_owned()));
         }
         let object = self
             .document
@@ -269,14 +279,13 @@ fn parse_datetime(value: &Value) -> Option<DateTime<Utc>> {
 }
 
 fn atomic_write(path: &Path, document: &Value) -> Result<(), WorkBuddyAuthError> {
-    let parent = path.parent().ok_or(WorkBuddyAuthError::Storage)?;
-    let mut temp = NamedTempFile::new_in(parent).map_err(|_| WorkBuddyAuthError::Storage)?;
-    serde_json::to_writer_pretty(&mut temp, document).map_err(|_| WorkBuddyAuthError::Storage)?;
-    temp.write_all(b"\n")
-        .map_err(|_| WorkBuddyAuthError::Storage)?;
-    temp.flush().map_err(|_| WorkBuddyAuthError::Storage)?;
-    temp.persist(path)
-        .map_err(|_| WorkBuddyAuthError::Storage)?;
+    let write_error = || WorkBuddyAuthError::Storage(LOGIN_FILE_NOT_WRITABLE.to_owned());
+    let parent = path.parent().ok_or_else(write_error)?;
+    let mut temp = NamedTempFile::new_in(parent).map_err(|_| write_error())?;
+    serde_json::to_writer_pretty(&mut temp, document).map_err(|_| write_error())?;
+    temp.write_all(b"\n").map_err(|_| write_error())?;
+    temp.flush().map_err(|_| write_error())?;
+    temp.persist(path).map_err(|_| write_error())?;
     Ok(())
 }
 
@@ -394,9 +403,11 @@ mod tests {
     fn a_session_view_refuses_to_write_the_login_file() {
         let mut view = WorkBuddyAuth::from_session(&session());
 
+        // 这条拒绝来自「会话视图没有可写登录文件」，与共享保管库无关，
+        // 所以必须带上登录文件自己的说明，而不是保管库故障文案。
         assert!(matches!(
             view.save_tokens("new-access".into(), Some("new-refresh".into())),
-            Err(WorkBuddyAuthError::Storage)
+            Err(WorkBuddyAuthError::Storage(message)) if message == LOGIN_FILE_NOT_WRITABLE
         ));
     }
 }

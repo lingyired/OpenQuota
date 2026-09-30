@@ -28,7 +28,7 @@ impl CommandCodeAuthStore {
     pub fn load(&self) -> Result<Option<SecretString>, CommandCodeError> {
         self.store
             .load()
-            .map_err(|_| CommandCodeError::CredentialStorage)
+            .map_err(CommandCodeError::CredentialStorage)
     }
 
     pub fn has_local_credentials(&self) -> bool {
@@ -38,24 +38,24 @@ impl CommandCodeAuthStore {
     pub fn status(&self) -> Result<ApiKeyStatus, CommandCodeError> {
         self.store
             .status()
-            .map_err(|_| CommandCodeError::CredentialStorage)
+            .map_err(CommandCodeError::CredentialStorage)
     }
 
     pub fn save(&self, value: &str) -> Result<(), CommandCodeError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 CommandCodeError::MissingKey
             } else {
                 crate::app_warn!("auth:commandcode", "system credential store write failed");
-                CommandCodeError::CredentialStorage
+                CommandCodeError::CredentialStorage(error)
             }
         })
     }
 
     pub fn delete(&self) -> Result<(), CommandCodeError> {
-        self.store.delete().map_err(|_| {
+        self.store.delete().map_err(|error| {
             crate::app_warn!("auth:commandcode", "system credential store delete failed");
-            CommandCodeError::CredentialStorage
+            CommandCodeError::CredentialStorage(error)
         })
     }
 }

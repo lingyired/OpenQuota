@@ -28,6 +28,22 @@ const KEY_LEN: usize = 32;
 const NONCE_LEN: usize = 12;
 static VAULT: OnceLock<Arc<CredentialVault>> = OnceLock::new();
 
+/// The vault file survived but its encryption key did not, so the stored
+/// credentials can never be decrypted again.
+///
+/// This is deliberately distinct from a generic credential-store failure: the
+/// user has to clear the orphaned vault before any provider can save a key
+/// again, so the message names the recovery action instead of blaming the
+/// provider's API key. [`is_unrecoverable_vault_error`] lets callers recognise
+/// this condition after it has crossed the `String` boundary.
+pub const UNRECOVERABLE_VAULT_ERROR: &str = "The saved credentials could not be unlocked because the credential vault key is missing. Choose \"Reset credential storage\" to clear the unreadable vault, then enter your API keys again.";
+
+/// Reports whether a credential-store error string is the unrecoverable
+/// vault-key condition rather than an ordinary read/write failure.
+pub fn is_unrecoverable_vault_error(message: &str) -> bool {
+    message == UNRECOVERABLE_VAULT_ERROR
+}
+
 pub fn initialize(path: PathBuf) -> Result<(), String> {
     let vault = Arc::new(CredentialVault::new(path));
     VAULT
@@ -53,6 +69,19 @@ pub fn delete(account: &str) -> Result<(), String> {
 
 pub fn reset() -> Result<(), String> {
     global()?.reset()
+}
+
+/// Reports whether the vault file is present but undecryptable because its key
+/// file is gone.
+///
+/// Customize uses this to offer the reset affordance even when the provider it
+/// is showing has no saved key, because the broken vault blocks every provider
+/// equally.
+pub fn is_unrecoverable() -> bool {
+    match global() {
+        Ok(vault) => vault.is_unrecoverable(),
+        Err(_) => false,
+    }
 }
 
 fn global() -> Result<&'static Arc<CredentialVault>, String> {
@@ -326,6 +355,16 @@ impl CredentialVault {
         Ok(())
     }
 
+    /// A vault file with no key file: the ciphertext is permanently
+    /// undecryptable, so the only way forward is to clear it.
+    ///
+    /// A key store that errors is *not* this condition — it may recover once
+    /// the platform credential store is reachable again, and offering a
+    /// destructive reset for it would be wrong.
+    fn is_unrecoverable(&self) -> bool {
+        self.path.exists() && matches!(self.key_store.read(), Ok(None))
+    }
+
     fn ensure_loaded(&self, state: &mut VaultState) -> Result<(), String> {
         if state.loaded {
             return Ok(());
@@ -336,7 +375,7 @@ impl CredentialVault {
                 Some(key) if key.len() == KEY_LEN => Zeroizing::new(key),
                 Some(_) => return Err("The credential vault key is invalid.".to_owned()),
                 None if self.path.exists() => {
-                    return Err("The credential vault key is unavailable.".to_owned());
+                    return Err(UNRECOVERABLE_VAULT_ERROR.to_owned());
                 }
                 None => {
                     let mut key = Zeroizing::new(vec![0_u8; KEY_LEN]);
@@ -482,7 +521,28 @@ mod tests {
 
     use tempfile::tempdir;
 
-    use super::{CredentialVault, FileVaultKeyStore, VaultKeyStore, KEY_LEN};
+    use super::{
+        is_unrecoverable_vault_error, CredentialVault, FileVaultKeyStore, VaultKeyStore, KEY_LEN,
+        UNRECOVERABLE_VAULT_ERROR,
+    };
+
+    /// Models a platform credential store that refuses to answer at all, which
+    /// is a different condition from a vault whose key file went missing.
+    struct ReadErrorKeyStore;
+
+    impl VaultKeyStore for ReadErrorKeyStore {
+        fn read(&self) -> Result<Option<Vec<u8>>, String> {
+            Err("System credential store unavailable.".to_owned())
+        }
+
+        fn write(&self, _value: &[u8]) -> Result<(), String> {
+            Err("System credential store unavailable.".to_owned())
+        }
+
+        fn delete(&self) -> Result<(), String> {
+            Err("System credential store unavailable.".to_owned())
+        }
+    }
 
     #[derive(Default)]
     struct MemoryKeyStore {
@@ -640,8 +700,75 @@ mod tests {
         let vault =
             CredentialVault::with_backends(path.clone(), Arc::new(MemoryKeyStore::default()));
 
-        assert!(vault.read_bytes("trae-cn").is_err());
+        assert_eq!(
+            vault.read_bytes("trae-cn").unwrap_err(),
+            UNRECOVERABLE_VAULT_ERROR,
+            "an orphaned vault must name its recovery action, not read as a generic failure"
+        );
         assert_eq!(fs::read(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn an_orphaned_vault_is_reported_as_unrecoverable_and_healthy_ones_are_not() {
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let path = app_data.join("credentials.vault");
+        let open = || {
+            CredentialVault::with_backends(
+                path.clone(),
+                Arc::new(FileVaultKeyStore::new(app_data.clone())),
+            )
+        };
+
+        // No vault on disk yet: a fresh key will simply be created.
+        assert!(!open().is_unrecoverable());
+
+        // A vault with its key beside it is healthy.
+        open().write("commandcode", b"cc-secret").unwrap();
+        assert!(!open().is_unrecoverable());
+
+        // Losing the key while the vault survives is the unrecoverable state.
+        fs::remove_file(app_data.join("credentials.key")).unwrap();
+        assert!(open().is_unrecoverable());
+
+        // Some other credential-store failure is not this condition.
+        let unreadable = CredentialVault::with_backends(path.clone(), Arc::new(ReadErrorKeyStore));
+        assert!(!unreadable.is_unrecoverable());
+        assert!(!is_unrecoverable_vault_error(
+            "System credential store unavailable."
+        ));
+    }
+
+    #[test]
+    fn resetting_an_orphaned_vault_lets_a_new_key_be_created() {
+        let directory = tempdir().unwrap();
+        let app_data = directory.path().join("app-data");
+        let path = app_data.join("credentials.vault");
+        let open = || {
+            CredentialVault::with_backends(
+                path.clone(),
+                Arc::new(FileVaultKeyStore::new(app_data.clone())),
+            )
+        };
+        open().write("commandcode", b"cc-secret").unwrap();
+        fs::remove_file(app_data.join("credentials.key")).unwrap();
+
+        // Reopening models the app restart that surfaces the broken vault.
+        let vault = open();
+        assert_eq!(
+            vault.read_bytes("commandcode").unwrap_err(),
+            UNRECOVERABLE_VAULT_ERROR
+        );
+
+        vault.reset().unwrap();
+
+        assert!(!open().is_unrecoverable());
+        assert!(open().read_bytes("commandcode").unwrap().is_none());
+        open().write("commandcode", b"cc-replacement").unwrap();
+        assert_eq!(
+            open().read_bytes("commandcode").unwrap().unwrap(),
+            b"cc-replacement"
+        );
     }
 
     #[test]

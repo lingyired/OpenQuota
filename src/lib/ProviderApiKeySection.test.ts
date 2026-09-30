@@ -8,6 +8,9 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: mocks.invoke }));
 describe('ProviderApiKeySection', () => {
   beforeEach(() => {
     mocks.invoke.mockReset().mockImplementation((command: string) => {
+      if (command === 'get_credential_vault_state') {
+        return Promise.resolve({ unrecoverable: false });
+      }
       if (command === 'get_provider_api_key_state') {
         return Promise.resolve({ providerId: 'openrouter', status: 'notSet' });
       }
@@ -259,5 +262,68 @@ describe('ProviderApiKeySection', () => {
       'Linux Secret Service is unavailable. Start or unlock your keyring and try again.',
     );
     expect(screen.getByRole('button', { name: 'Add' })).toBeInTheDocument();
+  });
+
+  it('offers a vault reset when the credential vault cannot be unlocked', async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === 'get_credential_vault_state') {
+        return Promise.resolve({ unrecoverable: true });
+      }
+      if (command === 'get_provider_api_key_state') {
+        return Promise.resolve({ providerId: 'commandcode', status: 'notSet' });
+      }
+      if (command === 'reset_credential_vault') {
+        return Promise.resolve(undefined);
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+
+    render(ProviderApiKeySection, {
+      providerId: 'commandcode',
+      providerName: 'CommandCode',
+    });
+
+    const recovery = await screen.findByText(
+      'Saved credentials can no longer be unlocked because the credential vault key is missing. Reset the credential storage to continue.',
+    );
+    expect(recovery).toBeInTheDocument();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Reset credential storage' }));
+
+    await waitFor(() => expect(mocks.invoke).toHaveBeenCalledWith('reset_credential_vault'));
+    // After a reset every stored key is gone, so the provider must read as unconfigured.
+    expect(
+      await screen.findByText('Credential storage was reset. Enter your API keys again.'),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByText(
+        'Saved credentials can no longer be unlocked because the credential vault key is missing. Reset the credential storage to continue.',
+      ),
+    ).not.toBeInTheDocument();
+  });
+
+  it('blocks saving while the credential vault is unrecoverable', async () => {
+    mocks.invoke.mockImplementation((command: string) => {
+      if (command === 'get_credential_vault_state') {
+        return Promise.resolve({ unrecoverable: true });
+      }
+      if (command === 'get_provider_api_key_state') {
+        return Promise.resolve({ providerId: 'openrouter', status: 'notSet' });
+      }
+      return Promise.reject(new Error(`unexpected command ${command}`));
+    });
+
+    render(ProviderApiKeySection, {
+      providerId: 'openrouter',
+      providerName: 'OpenRouter',
+    });
+
+    await fireEvent.click(await screen.findByRole('button', { name: 'Add' }));
+    await fireEvent.input(screen.getByLabelText('OpenRouter API key'), {
+      target: { value: 'sk-or-secret' },
+    });
+
+    // Saving cannot succeed against an unreadable vault, so it must not be offered.
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 });

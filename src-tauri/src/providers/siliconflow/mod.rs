@@ -100,13 +100,6 @@ impl Site {
         }
     }
 
-    pub(crate) const fn unreadable_key_message(self) -> &'static str {
-        match self {
-            Self::Global => "The SiliconFlow API key could not be read or updated.",
-            Self::Cn => "The SiliconFlow CN API key could not be read or updated.",
-        }
-    }
-
     fn links(self) -> Vec<ProviderLink> {
         match self {
             Self::Global => vec![
@@ -176,13 +169,16 @@ pub(super) enum SiliconFlowError {
     InvalidResponse,
     #[error("SiliconFlow request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("{}", .0.unreadable_key_message())]
-    CredentialStorage(Site),
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice. The site is kept so the
+    /// error still knows which account it belongs to.
+    #[error("{1}")]
+    CredentialStorage(Site, String),
 }
 
 impl From<SiliconFlowError> for ProviderError {
     fn from(error: SiliconFlowError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             SiliconFlowError::MissingKey(_) | SiliconFlowError::InvalidKey(_) => {
                 ProviderErrorKind::Authentication
             }
@@ -192,9 +188,9 @@ impl From<SiliconFlowError> for ProviderError {
             SiliconFlowError::RequestFailed(_) | SiliconFlowError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            SiliconFlowError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
+            SiliconFlowError::CredentialStorage(_, _) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

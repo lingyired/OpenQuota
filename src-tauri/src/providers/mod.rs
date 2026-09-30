@@ -174,10 +174,22 @@ pub struct ProviderError {
 
 impl ProviderError {
     pub fn new(kind: ProviderErrorKind, message: impl Into<String>) -> Self {
-        Self {
-            kind,
-            message: message.into(),
+        let message = message.into();
+        // An orphaned credential vault is not a provider problem and not
+        // something retrying can fix. Providers report it through their own
+        // `CredentialStorage` variant, so reclassify it here, at the single
+        // point every provider error passes through, and keep the actionable
+        // "reset the vault" wording instead of the provider's "API key could
+        // not be read" text.
+        if kind == ProviderErrorKind::CredentialStorage
+            && credential_vault::is_unrecoverable_vault_error(&message)
+        {
+            return Self {
+                kind: ProviderErrorKind::CredentialsUnavailable,
+                message,
+            };
         }
+        Self { kind, message }
     }
 
     pub fn from_display(kind: ProviderErrorKind, error: impl std::fmt::Display) -> Self {
@@ -349,6 +361,29 @@ mod tests {
             storage.load_provider_account_records("codex").unwrap(),
             [("identity-a".into(), "codex".into(), "{}".into())]
         );
+    }
+
+    #[test]
+    fn an_orphaned_vault_is_reported_as_unavailable_credentials_not_a_broken_key() {
+        // Every provider funnels credential-store failures through
+        // `CredentialStorage`; the orphaned-vault cause must win, because a
+        // retry cannot fix it and the recovery step is a vault reset.
+        let error = ProviderError::new(
+            ProviderErrorKind::CredentialStorage,
+            super::credential_vault::UNRECOVERABLE_VAULT_ERROR,
+        );
+        assert_eq!(error.kind(), ProviderErrorKind::CredentialsUnavailable);
+        assert_eq!(
+            error.to_string(),
+            super::credential_vault::UNRECOVERABLE_VAULT_ERROR
+        );
+
+        // An ordinary credential-store fault keeps its own kind.
+        let ordinary = ProviderError::new(
+            ProviderErrorKind::CredentialStorage,
+            "System credential store unavailable.",
+        );
+        assert_eq!(ordinary.kind(), ProviderErrorKind::CredentialStorage);
     }
 
     #[test]

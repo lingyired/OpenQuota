@@ -103,13 +103,6 @@ impl Site {
         }
     }
 
-    pub(crate) const fn unreadable_key_message(self) -> &'static str {
-        match self {
-            Self::Global => "The Z.ai API key could not be read or updated.",
-            Self::Cn => "The Z.ai CN API key could not be read or updated.",
-        }
-    }
-
     pub(crate) const fn no_coding_plan_message(self) -> &'static str {
         match self {
             Self::Global => "No active GLM Coding Plan. Subscribe at z.ai/subscribe to view usage.",
@@ -193,13 +186,16 @@ pub(super) enum ZaiError {
     RequestFailed(u16),
     #[error("{}", .0.no_coding_plan_message())]
     NoCodingPlan(Site),
-    #[error("{}", .0.unreadable_key_message())]
-    CredentialStorage(Site),
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice. The site is kept so the
+    /// error still knows which account it belongs to.
+    #[error("{1}")]
+    CredentialStorage(Site, String),
 }
 
 impl From<ZaiError> for ProviderError {
     fn from(error: ZaiError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             ZaiError::MissingKey(_) | ZaiError::InvalidKey(_) => ProviderErrorKind::Authentication,
             ZaiError::ConnectionFailed => ProviderErrorKind::Network,
             ZaiError::RequestFailed(429) => ProviderErrorKind::RateLimited,
@@ -208,9 +204,9 @@ impl From<ZaiError> for ProviderError {
             ZaiError::RequestFailed(_) | ZaiError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            ZaiError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
+            ZaiError::CredentialStorage(_, _) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

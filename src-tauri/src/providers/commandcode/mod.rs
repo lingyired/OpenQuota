@@ -67,7 +67,7 @@ pub(crate) fn definition() -> ProviderDefinition {
     }
 }
 
-#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
 pub(crate) enum CommandCodeError {
     #[error("Add a CommandCode API key in Customize or set COMMANDCODE_API_KEY.")]
     MissingKey,
@@ -79,13 +79,15 @@ pub(crate) enum CommandCodeError {
     InvalidResponse,
     #[error("CommandCode billing request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The CommandCode API key could not be read or updated.")]
-    CredentialStorage,
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice.
+    #[error("{0}")]
+    CredentialStorage(String),
 }
 
 impl From<CommandCodeError> for ProviderError {
     fn from(error: CommandCodeError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             CommandCodeError::MissingKey | CommandCodeError::InvalidKey => {
                 ProviderErrorKind::Authentication
             }
@@ -94,9 +96,9 @@ impl From<CommandCodeError> for ProviderError {
             CommandCodeError::InvalidResponse | CommandCodeError::RequestFailed(_) => {
                 ProviderErrorKind::InvalidResponse
             }
-            CommandCodeError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            CommandCodeError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

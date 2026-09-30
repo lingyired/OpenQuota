@@ -87,13 +87,15 @@ pub(super) enum DeepSeekError {
     InvalidResponse,
     #[error("DeepSeek request failed (HTTP {0}).")]
     RequestFailed(u16),
-    #[error("The DeepSeek session could not be read or updated.")]
-    CredentialStorage,
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice.
+    #[error("{0}")]
+    CredentialStorage(String),
 }
 
 impl From<DeepSeekError> for ProviderError {
     fn from(error: DeepSeekError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             DeepSeekError::MissingToken | DeepSeekError::InvalidToken => {
                 ProviderErrorKind::Authentication
             }
@@ -103,9 +105,9 @@ impl From<DeepSeekError> for ProviderError {
             DeepSeekError::RequestFailed(_) | DeepSeekError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            DeepSeekError::CredentialStorage => ProviderErrorKind::CredentialStorage,
+            DeepSeekError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

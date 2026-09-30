@@ -575,6 +575,7 @@ pub fn run() {
             commands::usage::claim_codex_reset_credit,
             commands::settings::get_app_settings,
             commands::settings::reset_credential_vault,
+            commands::settings::get_credential_vault_state,
             commands::settings::save_app_settings,
             commands::settings::reset_customization,
             commands::settings::reset_all_settings,

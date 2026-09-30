@@ -128,6 +128,17 @@ export const ko = {
       minutesAgo: 'Last updated {minutes}m ago',
       hoursAgo: 'Last updated {hours}h{minutes} ago',
     },
+    refreshStatus: {
+      momentsAgo: '방금 업데이트됨',
+      minutesAgo: '{minutes}분 전 업데이트',
+      hoursAgo: '{hours}시간 {minutes}분 전 업데이트',
+      never: '아직 업데이트되지 않음',
+      unavailable: '업데이트 시간을 알 수 없음',
+      failed: '지난 새로 고침 실패',
+      refresh: '지금 새로 고침',
+      refreshAll: '모든 제공자 새로 고침',
+      refreshing: '새로 고치는 중',
+    },
   },
   plan: {
     free: 'Free',
@@ -211,9 +222,11 @@ export const ko = {
     alwaysShowPacingTooltip:
       "Show how you're pacing on every metric, not just ones near their limit",
     taskbar: 'Taskbar',
+    menuBar: '메뉴 막대',
     showMonitorsOnTaskbar: 'Show Monitors on the Taskbar',
     showMonitorsOnTaskbarDesc:
       'Display each enabled monitor as a two-line label on the Windows taskbar.',
+    showMonitorsOnMenuBarDesc: '활성화된 각 모니터를 macOS 메뉴 막대에 두 줄 레이블로 표시합니다.',
     defaultPosition: 'Default Position',
     leftStart: 'Left (Start)',
     rightTray: 'Right (Tray)',
@@ -340,6 +353,12 @@ export const ko = {
     apiKeyCouldNotSave: 'The API key could not be saved.',
     apiKeyCouldNotRemove: 'The saved API key could not be removed.',
     credentialStoreUnavailable: 'The system credential store is unavailable.',
+    credentialVaultUnrecoverable:
+      'Saved credentials can no longer be unlocked because the credential vault key is missing. Reset the credential storage to continue.',
+    resetCredentialVault: 'Reset credential storage',
+    resettingCredentialVault: 'Resetting…',
+    credentialVaultReset: 'Credential storage was reset. Enter your API keys again.',
+    credentialVaultCouldNotReset: 'The credential storage could not be reset.',
     done: 'Done',
     add: 'Add',
     edit: 'Edit',
@@ -473,6 +492,8 @@ export const ko = {
     invalidBillingResponse: '{provider} returned an invalid billing response.',
     apiKeyInvalid: 'The {provider} API key is invalid. Check it at {url}.',
     apiKeyInvalidInConsole: 'The Kimi API key is invalid. Check it in the Kimi Code console.',
+    credentialVaultUnrecoverable:
+      'The saved credentials could not be unlocked because the credential vault key is missing. Choose "Reset credential storage" to clear the unreadable vault, then enter your API keys again.',
     apiKeyUnreadable: 'The {provider} API key could not be read or updated.',
     sessionUnreadable: 'The {provider} session could not be read or updated.',
     notLoggedInRunCmd: 'Not logged in. Run `{cmd}` to authenticate.',
@@ -501,8 +522,7 @@ export const ko = {
       'No active GLM Coding Plan. Subscribe at bigmodel.cn/glm-coding to view usage.',
     noActiveMiniMaxPlanCn:
       'No active MiniMax token plan. Subscribe at platform.minimaxi.com to view usage.',
-    workbuddyCredentialsEncrypted:
-      'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.',
+    workbuddyCredentialsEncrypted: 'WorkBuddy에 로그인하면 사용량을 확인할 수 있습니다.',
     workbuddyUntrustedDomain:
       'WorkBuddy returned credentials for an untrusted domain ({domain}). Sign in again.',
     workbuddyCredentialsWithoutDomain:
@@ -699,8 +719,6 @@ export const ko = {
     startSignIn: 'Start Sign-In',
     waitingForSignIn: 'Waiting for confirmation…',
     deviceCodeHint: 'Open the authorization link and confirm the sign-in there.',
-    fallbackHint:
-      'This status shows the sign-in Quota01 owns. An existing local WorkBuddy or CodeBuddy login keeps working as a fallback.',
     verificationUri: 'Authorization link',
     cancel: 'Cancel',
     expired: 'This sign-in attempt expired. Start again.',

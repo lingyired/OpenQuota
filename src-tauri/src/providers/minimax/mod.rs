@@ -87,13 +87,6 @@ impl Site {
         }
     }
 
-    pub(crate) const fn unreadable_key_message(self) -> &'static str {
-        match self {
-            Self::Global => "The MiniMax API key could not be read or updated.",
-            Self::Cn => "The MiniMax CN API key could not be read or updated.",
-        }
-    }
-
     pub(crate) const fn no_token_plan_message(self) -> &'static str {
         match self {
             Self::Global => "No active MiniMax token plan. Subscribe at minimax.io to view usage.",
@@ -165,13 +158,16 @@ pub(super) enum MiniMaxError {
     RequestFailed(u16),
     #[error("{}", .0.no_token_plan_message())]
     NoTokenPlan(Site),
-    #[error("{}", .0.unreadable_key_message())]
-    CredentialStorage(Site),
+    /// Carries the credential store's own message, because an unwritable vault
+    /// and a missing vault key need different advice. The site is kept so the
+    /// error still knows which account it belongs to.
+    #[error("{1}")]
+    CredentialStorage(Site, String),
 }
 
 impl From<MiniMaxError> for ProviderError {
     fn from(error: MiniMaxError) -> Self {
-        let kind = match error {
+        let kind = match &error {
             MiniMaxError::MissingKey(_) | MiniMaxError::InvalidKey(_) => {
                 ProviderErrorKind::Authentication
             }
@@ -182,9 +178,9 @@ impl From<MiniMaxError> for ProviderError {
             MiniMaxError::RequestFailed(_) | MiniMaxError::InvalidResponse => {
                 ProviderErrorKind::InvalidResponse
             }
-            MiniMaxError::CredentialStorage(_) => ProviderErrorKind::CredentialStorage,
+            MiniMaxError::CredentialStorage(_, _) => ProviderErrorKind::CredentialStorage,
         };
-        ProviderError::new(kind, error.to_string())
+        ProviderError::from_display(kind, error)
     }
 }
 

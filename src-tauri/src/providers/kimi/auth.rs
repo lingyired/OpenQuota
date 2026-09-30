@@ -33,7 +33,7 @@ impl KimiAuthStore {
     }
 
     pub fn load(&self) -> Result<Option<SecretString>, KimiError> {
-        self.store.load().map_err(|_| KimiError::CredentialStorage)
+        self.store.load().map_err(KimiError::CredentialStorage)
     }
 
     pub fn has_local_credentials(&self) -> bool {
@@ -41,26 +41,24 @@ impl KimiAuthStore {
     }
 
     pub fn status(&self) -> Result<ApiKeyStatus, KimiError> {
-        self.store
-            .status()
-            .map_err(|_| KimiError::CredentialStorage)
+        self.store.status().map_err(KimiError::CredentialStorage)
     }
 
     pub fn save(&self, value: &str) -> Result<(), KimiError> {
-        self.store.save(value).map_err(|_| {
+        self.store.save(value).map_err(|error| {
             if value.trim().is_empty() {
                 KimiError::MissingKey
             } else {
                 crate::app_warn!("auth:kimi", "system credential store write failed");
-                KimiError::CredentialStorage
+                KimiError::CredentialStorage(error)
             }
         })
     }
 
     pub fn delete(&self) -> Result<(), KimiError> {
-        self.store.delete().map_err(|_| {
+        self.store.delete().map_err(|error| {
             crate::app_warn!("auth:kimi", "system credential store delete failed");
-            KimiError::CredentialStorage
+            KimiError::CredentialStorage(error)
         })
     }
 }

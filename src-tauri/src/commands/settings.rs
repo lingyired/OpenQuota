@@ -14,7 +14,7 @@ use tauri_plugin_opener::OpenerExt;
 use crate::{
     apply_shortcut_change, autostart_is_enabled, child_process,
     desktop_integration::DesktopIntegration,
-    models::{AppSettings, SettingsViewState},
+    models::{AppSettings, CredentialVaultState, SettingsViewState},
     notifications::{finish_refresh, permission as notification_permission},
     pacing::NotificationEvaluator,
     providers::{detect_local_credentials, ProviderRegistry},
@@ -35,7 +35,24 @@ const NOTIFICATION_PERMISSION_ERROR: &str = "Notification permission could not b
 
 #[tauri::command]
 pub fn reset_credential_vault() -> Result<(), String> {
-    crate::providers::credential_vault::reset()
+    let reset = crate::providers::credential_vault::reset();
+    if reset.is_ok() {
+        crate::app_info!("auth", "credential vault was reset");
+    }
+    reset
+}
+
+/// Reports whether the credential vault must be reset before any provider can
+/// save a key again.
+///
+/// Customize surfaces this so the user gets one recovery action instead of a
+/// per-provider "your API key could not be read" message for a fault that is
+/// not about any particular key.
+#[tauri::command]
+pub fn get_credential_vault_state() -> CredentialVaultState {
+    CredentialVaultState {
+        unrecoverable: crate::providers::credential_vault::is_unrecoverable(),
+    }
 }
 
 fn notification_permission_error<T, E>(result: Result<T, E>) -> Option<String> {

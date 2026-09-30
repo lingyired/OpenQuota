@@ -25,7 +25,7 @@ impl TraeAuthStore {
     }
 
     pub fn load(&self) -> Result<Option<SecretString>, TraeError> {
-        self.store.load().map_err(|_| TraeError::CredentialStorage)
+        self.store.load().map_err(TraeError::CredentialStorage)
     }
 
     pub fn has_credentials(&self) -> bool {
@@ -33,9 +33,7 @@ impl TraeAuthStore {
     }
 
     pub fn status(&self) -> Result<ApiKeyStatus, TraeError> {
-        self.store
-            .status()
-            .map_err(|_| TraeError::CredentialStorage)
+        self.store.status().map_err(TraeError::CredentialStorage)
     }
 
     pub fn save(&self, value: &str) -> Result<(), TraeError> {
@@ -43,15 +41,11 @@ impl TraeAuthStore {
         if value.is_empty() {
             return Err(TraeError::SessionMissing);
         }
-        self.store
-            .save(value)
-            .map_err(|_| TraeError::CredentialStorage)
+        self.store.save(value).map_err(TraeError::CredentialStorage)
     }
 
     pub fn delete(&self) -> Result<(), TraeError> {
-        self.store
-            .delete()
-            .map_err(|_| TraeError::CredentialStorage)
+        self.store.delete().map_err(TraeError::CredentialStorage)
     }
 }
 
