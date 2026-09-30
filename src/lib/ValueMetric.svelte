@@ -27,6 +27,10 @@
   const showsResetDetail = $derived(metric?.id === 'rateLimitResets');
   const hasEstimatedValue = $derived(metric?.values.some((value) => value.estimated) ?? false);
 
+  // The dashboard card has room for the exact reading, so it never falls back to
+  // the compact `1.8K` form. Abbreviation is a space constraint that only the
+  // menu bar / taskbar / rail actually have; here it would hide the real balance
+  // behind a rounded figure the user cannot act on.
   const reading = $derived.by(() => {
     void currentLocale;
     return (
@@ -35,7 +39,7 @@
           formatMetricValue(
             value.number,
             value.kind,
-            'row',
+            'full',
             value.label ? tBackend(value.label) : undefined,
           ),
         )
@@ -61,18 +65,9 @@
     }
     const count = metric.values[0]?.number ?? 0;
     if (metric.id === 'rateLimitResets' && count > 0) return t('metric.expiryTimesUnavailable');
-    if (metric.values.some((value) => Math.abs(value.number) >= 1000)) {
-      return metric.values
-        .map((value) =>
-          formatMetricValue(
-            value.number,
-            value.kind,
-            'full',
-            value.label ? tBackend(value.label) : undefined,
-          ),
-        )
-        .join(' · ');
-    }
+    // No tooltip is needed to spell out a large reading: the card already prints
+    // the exact number, so a duplicate full-precision tooltip would say nothing
+    // new.
     return undefined;
   });
   const expirySeverity = $derived.by(() => {

@@ -67,7 +67,6 @@ describe('native UI language contract', () => {
   it('uses the shared Settings labels and single-line control rows', () => {
     const settingsLabels: Record<string, string> = {
       'settings.general': 'General',
-      'settings.showTotalSpend': 'Show Total Spend',
       'settings.launchAtLogin': 'Launch at Login',
       'settings.globalShortcut': 'Global Shortcut',
       'settings.appearance': 'Appearance',
@@ -83,6 +82,11 @@ describe('native UI language contract', () => {
       expect(settings).toContain(`$tStore('${key}')`);
       expect(en.settings[key.replace('settings.', '') as keyof typeof en.settings]).toBe(label);
     }
+    // The total-spend toggle is deliberately not offered right now. Its label must
+    // stay in the dictionaries so re-exposing the row needs no translation work,
+    // but the template must not render the control.
+    expect(en.settings.showTotalSpend).toBe('Show Total Spend');
+    expect(settings).not.toContain("$tStore('settings.showTotalSpend')");
     expect(settings).toContain("{ value: 'system', label: $tStore('settings.languageAuto') }");
     expect(en.settings.languageAuto).toBe('Auto');
     expect(settings).toContain("{ value: 'twelveHour', label: $tStore('settings.twelveHour') }");

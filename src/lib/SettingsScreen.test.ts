@@ -36,14 +36,16 @@ describe('SettingsScreen', () => {
 function renderSettingsScreen({
   platform,
   proxyUrl = 'http://127.0.0.1:8888',
+  settings: overrides,
 }: {
   platform: DesktopPlatform;
   proxyUrl?: string | null;
+  settings?: Partial<SettingsViewState['settings']>;
 }) {
   const onChange = vi.fn();
   const settingsView: SettingsViewState = {
     ...settingsState,
-    settings: { ...settingsState.settings, proxyUrl },
+    settings: { ...settingsState.settings, proxyUrl, ...overrides },
   };
 
   render(SettingsScreen, {
@@ -125,5 +127,153 @@ describe('SettingsScreen proxy URL setting', () => {
     expect(
       screen.getByText('Providers use this localized shared URL when proxying.'),
     ).toBeInTheDocument();
+  });
+});
+
+const hiddenTaskbandStyleLabels = [
+  'settings.labelSpacing',
+  'settings.leftEdgeMargin',
+  'settings.rightEdgeMargin',
+] as const;
+
+describe('SettingsScreen taskbar surface (Windows: toggle + position only)', () => {
+  it('keeps the enable toggle and the position selector on Windows', () => {
+    renderSettingsScreen({ platform: 'windows' });
+
+    expect(
+      screen.getByRole('checkbox', { name: t('settings.showMonitorsOnTaskbar') }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole('combobox', { name: t('settings.defaultPosition') }),
+    ).toBeInTheDocument();
+  });
+
+  it('hides label spacing and both edge margins on Windows', () => {
+    renderSettingsScreen({ platform: 'windows' });
+
+    for (const key of hiddenTaskbandStyleLabels) {
+      expect(screen.queryByText(t(key))).not.toBeInTheDocument();
+      expect(screen.queryByRole('spinbutton', { name: t(key) })).not.toBeInTheDocument();
+    }
+  });
+
+  it('toggling the Windows switch persists only the enable flag and keeps hidden values', async () => {
+    const { onChange } = renderSettingsScreen({
+      platform: 'windows',
+      settings: {
+        taskband: {
+          enabled: true,
+          defaultSide: 'left',
+          margin: 17,
+          edgeMarginLeft: 23,
+          edgeMarginRight: 29,
+        },
+      },
+    });
+
+    await fireEvent.click(
+      screen.getByRole('checkbox', { name: t('settings.showMonitorsOnTaskbar') }),
+    );
+
+    const next = onChange.mock.calls.at(-1)?.[0];
+    // The toggle must flip `enabled` while every hidden-but-persisted style value
+    // survives the round trip untouched.
+    expect(next.taskband).toEqual({
+      enabled: false,
+      defaultSide: 'left',
+      margin: 17,
+      edgeMarginLeft: 23,
+      edgeMarginRight: 29,
+    });
+  });
+});
+
+describe('SettingsScreen menu bar surface (macOS: enable toggle only)', () => {
+  it('renders exactly one control: the enable toggle', () => {
+    renderSettingsScreen({ platform: 'macos' });
+
+    const section = screen
+      .getByText(t('settings.showMonitorsOnTaskbar'))
+      .closest('.settings-section');
+    expect(section).not.toBeNull();
+
+    const controls = section!.querySelectorAll('input, select, button, [role="combobox"]');
+    expect(controls).toHaveLength(1);
+    expect(controls[0]).toHaveAttribute('type', 'checkbox');
+  });
+
+  it('hides the position selector on macOS', () => {
+    renderSettingsScreen({ platform: 'macos' });
+
+    expect(
+      screen.queryByRole('combobox', { name: t('settings.defaultPosition') }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('hides label spacing and both edge margins on macOS', () => {
+    renderSettingsScreen({ platform: 'macos' });
+
+    for (const key of hiddenTaskbandStyleLabels) {
+      expect(screen.queryByText(t(key))).not.toBeInTheDocument();
+      expect(screen.queryByRole('spinbutton', { name: t(key) })).not.toBeInTheDocument();
+    }
+  });
+
+  it('drives the persisted taskband.enabled master switch that gates macOS menu-bar instances', async () => {
+    const { onChange } = renderSettingsScreen({
+      platform: 'macos',
+      settings: {
+        taskband: {
+          enabled: true,
+          defaultSide: 'right',
+          margin: 11,
+          edgeMarginLeft: 13,
+          edgeMarginRight: 15,
+        },
+      },
+    });
+
+    await fireEvent.click(
+      screen.getByRole('checkbox', { name: t('settings.showMonitorsOnTaskbar') }),
+    );
+
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        taskband: {
+          enabled: false,
+          defaultSide: 'right',
+          margin: 11,
+          edgeMarginLeft: 13,
+          edgeMarginRight: 15,
+        },
+      }),
+    );
+  });
+
+  it('reflects the persisted value so an off switch renders as unchecked', () => {
+    renderSettingsScreen({
+      platform: 'macos',
+      settings: {
+        taskband: {
+          enabled: false,
+          defaultSide: 'right',
+          margin: 4,
+          edgeMarginLeft: 0,
+          edgeMarginRight: 0,
+        },
+      },
+    });
+
+    expect(
+      screen.getByRole('checkbox', { name: t('settings.showMonitorsOnTaskbar') }),
+    ).not.toBeChecked();
+  });
+
+  it('offers no menu bar surface on other platforms', () => {
+    renderSettingsScreen({ platform: 'linux' });
+
+    expect(
+      screen.queryByRole('checkbox', { name: t('settings.showMonitorsOnTaskbar') }),
+    ).not.toBeInTheDocument();
   });
 });

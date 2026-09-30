@@ -2,7 +2,16 @@ import { cleanup, render, screen } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { locale } from 'svelte-i18n';
-import { resolveLocale, setLanguage, t, tBackend, tBackendStore, tStore } from './i18n';
+import {
+  isShippedLocale,
+  resolveLocale,
+  setLanguage,
+  shippedLocales,
+  t,
+  tBackend,
+  tBackendStore,
+  tStore,
+} from './i18n';
 import { ar } from './i18n/messages/ar';
 import { de } from './i18n/messages/de';
 import { en } from './i18n/messages/en';
@@ -55,15 +64,26 @@ describe('resolveLocale', () => {
     expect(resolveLocale('system')).toBe('zh-CN');
   });
 
-  it('resolves supported system languages and falls back to en', () => {
+  // Only English and the two Chinese variants are offered, so auto-detection
+  // must not resolve a system language the UI can no longer select — otherwise a
+  // user would land in a locale with no matching entry in the language picker.
+  it('auto-detects only the shipped locales and falls back to en', () => {
     stubNavigatorLanguage('en-US');
     expect(resolveLocale('system')).toBe('en');
+    stubNavigatorLanguage('zh-CN');
+    expect(resolveLocale('system')).toBe('zh-CN');
     stubNavigatorLanguage('ja-JP');
-    expect(resolveLocale('system')).toBe('ja');
+    expect(resolveLocale('system')).toBe('en');
     stubNavigatorLanguage('pt-PT');
-    expect(resolveLocale('system')).toBe('pt-BR');
+    expect(resolveLocale('system')).toBe('en');
     stubNavigatorLanguage('xx-YY');
     expect(resolveLocale('system')).toBe('en');
+  });
+
+  it('exposes exactly the shipped locales as selectable', () => {
+    expect(shippedLocales).toEqual(['en', 'zh-CN', 'zh-TW']);
+    expect(shippedLocales.every((candidate) => isShippedLocale(candidate))).toBe(true);
+    expect(isShippedLocale('ja')).toBe(false);
   });
 
   it('honors an explicit language preference over the system language', () => {
@@ -71,6 +91,8 @@ describe('resolveLocale', () => {
     expect(resolveLocale('en')).toBe('en');
     stubNavigatorLanguage('en-US');
     expect(resolveLocale('zh-CN')).toBe('zh-CN');
+    // A preference saved by an older build keeps resolving, so upgrading does not
+    // silently switch the language out from under an existing user.
     expect(resolveLocale('ar')).toBe('ar');
   });
 });
@@ -159,6 +181,20 @@ describe('translation helpers', () => {
     );
   });
 
+  it('translates the unrecoverable credential-vault message instead of blaming a provider', async () => {
+    await switchLocale('zh-CN');
+    // The English literal must match providers::credential_vault::
+    // UNRECOVERABLE_VAULT_ERROR exactly. `verify-vault-message.js` (part of
+    // `pnpm verify:contracts`) enforces that pairing against the Rust source,
+    // because reading files needs Node types the app tsconfig excludes.
+    const message =
+      'The saved credentials could not be unlocked because the credential vault key is missing. ' +
+      'Choose "Reset credential storage" to clear the unreadable vault, then enter your API keys again.';
+    expect(tBackend(message)).toBe(
+      '由于凭据保管库密钥丢失，已保存的凭据无法解锁。请选择「重置凭据存储」以清除无法读取的保管库，然后重新输入你的 API 密钥。',
+    );
+  });
+
   it('translates the WorkBuddy sign-in and device-code backend messages', async () => {
     await switchLocale('zh-CN');
     expect(
@@ -187,12 +223,8 @@ describe('translation helpers', () => {
     expect(tBackend('That provider does not have a saved connection.')).toBe(
       '该提供方没有已保存的连接。',
     );
-    expect(
-      tBackend(
-        'WorkBuddy 5.6 encrypts the login data it keeps on this computer, so it cannot be read directly. Sign in to WorkBuddy from Quota01 to connect; the legacy plaintext login file is still used when present.',
-      ),
-    ).toBe(
-      'WorkBuddy 会加密保存在本机的登录数据，因此无法直接读取。请在 Quota01 中登录 WorkBuddy 以建立连接；本机若仍有旧版明文登录文件，仍会继续使用。',
+    expect(tBackend('Sign in to WorkBuddy to view usage.')).toBe(
+      '请先登录 WorkBuddy，以查看用量。',
     );
   });
 

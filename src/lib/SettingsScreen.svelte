@@ -55,6 +55,15 @@
   let lastSubmittedProxyUrl: string | null | undefined;
   const settings = $derived(settingsView.settings);
   const currentLocale = $derived(locale);
+  // Only English and the two Chinese variants are offered. A preference saved by
+  // an older build (e.g. `ja`) is still honoured when rendering, but it has no
+  // option in this list and `SelectMenu` would otherwise print the bare value, so
+  // show the automatic entry instead of a stray locale code.
+  const languageSelection = $derived(
+    (['system', 'en', 'zh-CN', 'zh-TW'] as string[]).includes(settings.language)
+      ? settings.language
+      : 'system',
+  );
   const revealLogLabel = $derived.by(() => {
     void currentLocale;
     return platform === 'macos'
@@ -101,11 +110,6 @@
   function patchNotification(key: keyof NotificationPreferences, enabled: boolean) {
     patch({ notifications: { ...settings.notifications, [key]: enabled } });
     if (enabled && settingsView.notificationPermission === 'prompt') onRequestNotifications();
-  }
-  function clampInt(value: string, min: number, max: number) {
-    const parsed = Number.parseInt(value, 10);
-    if (Number.isNaN(parsed)) return min;
-    return Math.min(max, Math.max(min, parsed));
   }
   async function copyLogPath() {
     try {
@@ -188,25 +192,12 @@
       <div class="setting-row">
         <span><b>{$tStore('settings.language')}</b></span><SelectMenu
           label={$tStore('settings.language')}
-          value={settings.language}
+          value={languageSelection}
           options={[
             { value: 'system', label: $tStore('settings.languageAuto') },
             { value: 'en', label: $tStore('settings.english') },
             { value: 'zh-CN', label: $tStore('settings.chinese') },
             { value: 'zh-TW', label: $tStore('settings.traditionalChinese') },
-            { value: 'es', label: $tStore('settings.spanish') },
-            { value: 'pt-BR', label: $tStore('settings.portugueseBrazil') },
-            { value: 'ja', label: $tStore('settings.japanese') },
-            { value: 'ko', label: $tStore('settings.korean') },
-            { value: 'de', label: $tStore('settings.german') },
-            { value: 'fr', label: $tStore('settings.french') },
-            { value: 'ru', label: $tStore('settings.russian') },
-            { value: 'hi', label: $tStore('settings.hindi') },
-            { value: 'ar', label: $tStore('settings.arabic') },
-            { value: 'it', label: $tStore('settings.italian') },
-            { value: 'pl', label: $tStore('settings.polish') },
-            { value: 'tr', label: $tStore('settings.turkish') },
-            { value: 'vi', label: $tStore('settings.vietnamese') },
           ]}
           onChange={(value) => patch({ language: value as AppSettings['language'] })}
         />
@@ -231,13 +222,11 @@
           }}
         />
       </div>
-      <label class="setting-row"
-        ><span><b>{$tStore('settings.showTotalSpend')}</b></span><input
-          type="checkbox"
-          checked={settings.showTotalSpend}
-          onchange={(event) => patch({ showTotalSpend: event.currentTarget.checked })}
-        /></label
-      >
+      <!-- The "show total spend" toggle is hidden for now: the dashboard's cost
+           surface is off by default and the control is not offered. The setting
+           itself stays in the model, is still persisted, and the TotalSpend card
+           still honours it, so re-exposing this row is all that is needed to
+           bring the feature back. -->
       <label class="setting-row"
         ><span><b>{$tStore('settings.launchAtLogin')}</b></span><input
           type="checkbox"
@@ -384,79 +373,44 @@
       >
     </div>
 
-    {#if platform === 'windows'}
+    {#if platform === 'windows' || platform === 'macos'}
       <div class="settings-section">
-        <h2>{$tStore('settings.taskbar')}</h2>
+        <h2>{$tStore(platform === 'macos' ? 'settings.menuBar' : 'settings.taskbar')}</h2>
         <label class="setting-row"
           ><span
             ><b>{$tStore('settings.showMonitorsOnTaskbar')}</b><small
-              >{$tStore('settings.showMonitorsOnTaskbarDesc')}</small
+              >{$tStore(
+                platform === 'macos'
+                  ? 'settings.showMonitorsOnMenuBarDesc'
+                  : 'settings.showMonitorsOnTaskbarDesc',
+              )}</small
             ></span
           ><input
             type="checkbox"
+            aria-label={$tStore('settings.showMonitorsOnTaskbar')}
             checked={settings.taskband.enabled}
             onchange={(event) => patchTaskband({ enabled: event.currentTarget.checked })}
           /></label
         >
-        <div class="setting-row">
-          <span><b>{$tStore('settings.defaultPosition')}</b></span><SelectMenu
-            label={$tStore('settings.defaultPosition')}
-            value={settings.taskband.defaultSide}
-            options={[
-              { value: 'left', label: $tStore('settings.leftStart') },
-              { value: 'right', label: $tStore('settings.rightTray') },
-            ]}
-            onChange={(value) => patchTaskband({ defaultSide: value as TaskbandSide })}
-          />
-        </div>
-        <div class="setting-row">
-          <span
-            ><b>{$tStore('settings.labelSpacing')}</b><small
-              >{$tStore('settings.labelSpacingDesc')}</small
-            ></span
-          ><input
-            class="number-field"
-            type="number"
-            min="0"
-            max="40"
-            value={settings.taskband.margin}
-            aria-label={$tStore('settings.labelSpacing')}
-            onchange={(event) =>
-              patchTaskband({ margin: clampInt(event.currentTarget.value, 0, 40) })}
-          />
-        </div>
-        <div class="setting-row">
-          <span
-            ><b>{$tStore('settings.leftEdgeMargin')}</b><small
-              >{$tStore('settings.leftEdgeMarginDesc')}</small
-            ></span
-          ><input
-            class="number-field"
-            type="number"
-            min="0"
-            max="400"
-            value={settings.taskband.edgeMarginLeft}
-            aria-label={$tStore('settings.leftEdgeMargin')}
-            onchange={(event) =>
-              patchTaskband({ edgeMarginLeft: clampInt(event.currentTarget.value, 0, 400) })}
-          />
-        </div>
-        <div class="setting-row">
-          <span
-            ><b>{$tStore('settings.rightEdgeMargin')}</b><small
-              >{$tStore('settings.rightEdgeMarginDesc')}</small
-            ></span
-          ><input
-            class="number-field"
-            type="number"
-            min="0"
-            max="400"
-            value={settings.taskband.edgeMarginRight}
-            aria-label={$tStore('settings.rightEdgeMargin')}
-            onchange={(event) =>
-              patchTaskband({ edgeMarginRight: clampInt(event.currentTarget.value, 0, 400) })}
-          />
-        </div>
+        {#if platform === 'windows'}
+          <div class="setting-row">
+            <span><b>{$tStore('settings.defaultPosition')}</b></span><SelectMenu
+              label={$tStore('settings.defaultPosition')}
+              value={settings.taskband.defaultSide}
+              options={[
+                { value: 'left', label: $tStore('settings.leftStart') },
+                { value: 'right', label: $tStore('settings.rightTray') },
+              ]}
+              onChange={(value) => patchTaskband({ defaultSide: value as TaskbandSide })}
+            />
+          </div>
+        {/if}
+        <!--
+          Label spacing / left edge margin / right edge margin are intentionally NOT
+          rendered: the taskbar surface is toggle + position only. `taskband.margin`,
+          `edgeMarginLeft` and `edgeMarginRight` stay in the settings model and keep
+          round-tripping through save, so existing values are preserved.
+        -->
       </div>
     {/if}
 

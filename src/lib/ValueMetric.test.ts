@@ -10,7 +10,10 @@ describe('ValueMetric', () => {
     mocks.invoke.mockReset();
   });
   afterEach(cleanup);
-  it('renders combined credit values with an exact tooltip for large balances', () => {
+  // The dashboard card has room for the exact reading, so large balances print in
+  // full instead of the compact `1.2K` form that only the menu bar / taskbar /
+  // rail need. No tooltip repeats the number, because the card already shows it.
+  it('prints large balances in full instead of abbreviating them', () => {
     render(ValueMetric, {
       label: 'Extra Usage',
       metric: {
@@ -27,7 +30,28 @@ describe('ValueMetric', () => {
       timeFormat: 'twentyFourHour',
     });
 
-    expect(screen.getByText('$1.2K · ✦30K')).toHaveAttribute('data-tooltip', '$1,200 · ✦30,000');
+    const reading = screen.getByText('$1,200 · ✦30,000');
+    expect(reading).toBeInTheDocument();
+    // The old abbreviated form and its duplicate tooltip must not come back.
+    expect(screen.queryByText('$1.2K · ✦30K')).not.toBeInTheDocument();
+    expect(reading).not.toHaveAttribute('data-tooltip');
+  });
+
+  it('leaves readings below a thousand untouched', () => {
+    render(ValueMetric, {
+      label: 'Credits',
+      metric: {
+        id: 'credits',
+        label: 'Credits',
+        values: [{ number: 999, kind: 'count', label: 'credits', estimated: false }],
+        expiriesAt: [],
+      },
+      now: Date.parse('2026-02-20T16:00:00Z'),
+      resetDisplay: 'countdown',
+      timeFormat: 'twentyFourHour',
+    });
+
+    expect(screen.getByText('✦999')).toBeInTheDocument();
   });
 
   it('marks only value rows that contain an estimated value', () => {

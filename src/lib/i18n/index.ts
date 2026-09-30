@@ -64,36 +64,27 @@ export type { Messages };
 /** Resolve a language preference to an actual locale. */
 export type SupportedLocale = Exclude<LanguagePreference, 'system'>;
 
-const supportedLocales: readonly SupportedLocale[] = [
-  'en',
-  'zh-CN',
-  'zh-TW',
-  'es',
-  'pt-BR',
-  'ja',
-  'ko',
-  'de',
-  'fr',
-  'ru',
-  'hi',
-  'ar',
-  'it',
-  'pl',
-  'tr',
-  'vi',
-];
+/**
+ * Locales the UI offers right now. Every other dictionary stays registered and
+ * translations keep working, so a preference saved by an older build still
+ * renders correctly — only these are selectable and auto-detected.
+ */
+export const shippedLocales: readonly SupportedLocale[] = ['en', 'zh-CN', 'zh-TW'];
 
 export function resolveLocale(pref: LanguagePreference): SupportedLocale {
+  // An explicit choice is honoured verbatim, including a legacy one.
   if (pref !== 'system') return pref;
   const language = typeof navigator !== 'undefined' ? navigator.language : 'en';
   const normalized = language.toLowerCase();
   if (normalized.startsWith('zh-tw') || normalized.startsWith('zh-hk')) return 'zh-TW';
   if (normalized.startsWith('zh')) return 'zh-CN';
-  if (normalized.startsWith('pt')) return 'pt-BR';
-  const match = supportedLocales.find((candidate) =>
-    normalized.startsWith(candidate.toLowerCase()),
-  );
-  return match ?? 'en';
+  // Auto-detection only reaches a shipped locale; anything else is English.
+  return 'en';
+}
+
+/** Whether a locale is currently offered by the UI. */
+export function isShippedLocale(locale: SupportedLocale): boolean {
+  return shippedLocales.includes(locale);
 }
 
 /** Apply a language preference; all active components update reactively. */

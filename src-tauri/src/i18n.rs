@@ -22,6 +22,13 @@ pub enum Locale {
     Vi,
 }
 
+/// Locales the UI currently ships. The `Locale` enum below still carries every
+/// translation the backend has ever had, so a preference saved by an older build
+/// keeps resolving; only these three are offered and auto-detected.
+fn is_shipped_locale(locale: Locale) -> bool {
+    matches!(locale, Locale::En | Locale::ZhCn | Locale::ZhTw)
+}
+
 fn resolve_system_locale(language: &str) -> Locale {
     let language = language.to_ascii_lowercase();
     if language.starts_with("zh-tw") || language.starts_with("zh-hk") {
@@ -60,11 +67,17 @@ fn resolve_system_locale(language: &str) -> Locale {
 }
 
 /// Resolve the effective locale from a language preference.
+///
+/// Only English and the two Chinese variants are offered in the UI right now, so
+/// auto-detection falls back to English for every other system language. An
+/// explicitly saved preference still resolves to its exact locale, so a value
+/// written by an older build keeps working instead of silently switching.
 pub fn resolve(language: LanguagePreference) -> Locale {
     match language {
         LanguagePreference::System => sys_locale::get_locale()
             .as_deref()
             .map(resolve_system_locale)
+            .filter(|locale| is_shipped_locale(*locale))
             .unwrap_or(Locale::En),
         LanguagePreference::En => Locale::En,
         LanguagePreference::ZhCn => Locale::ZhCn,
@@ -412,7 +425,7 @@ pub fn bar_action_label(locale: Locale, action: &str, agent_name: &str) -> Strin
 
 #[cfg(test)]
 mod tests {
-    use super::{resolve, tr, Locale};
+    use super::{is_shipped_locale, resolve, resolve_system_locale, tr, Locale};
     use crate::models::LanguagePreference;
 
     #[test]
@@ -421,6 +434,33 @@ mod tests {
         assert_eq!(resolve(LanguagePreference::ZhTw), Locale::ZhTw);
         assert_eq!(resolve(LanguagePreference::PtBr), Locale::PtBr);
         assert_eq!(resolve(LanguagePreference::Ar), Locale::Ar);
+        assert_eq!(resolve(LanguagePreference::Vi), Locale::Vi);
+    }
+
+    /// Only English and the two Chinese variants are offered, so auto-detection
+    /// must not select a locale the language picker cannot show. The detection
+    /// chain still recognises other languages — `resolve` filters the result.
+    #[test]
+    fn only_shipped_locales_are_auto_detected() {
+        assert!(is_shipped_locale(Locale::En));
+        assert!(is_shipped_locale(Locale::ZhCn));
+        assert!(is_shipped_locale(Locale::ZhTw));
+        assert!(!is_shipped_locale(Locale::Ja));
+        assert!(!is_shipped_locale(Locale::Ar));
+
+        // Detection still classifies the language correctly before filtering, so
+        // the shipped-locale filter is the single decision point.
+        assert_eq!(resolve_system_locale("ja-JP"), Locale::Ja);
+        assert_eq!(resolve_system_locale("de-DE"), Locale::De);
+        assert_eq!(resolve_system_locale("zh-Hans"), Locale::ZhCn);
+    }
+
+    /// A preference written by an older build keeps its exact locale instead of
+    /// silently switching to English on upgrade.
+    #[test]
+    fn a_legacy_explicit_preference_still_resolves() {
+        assert_eq!(resolve(LanguagePreference::Ja), Locale::Ja);
+        assert_eq!(resolve(LanguagePreference::De), Locale::De);
         assert_eq!(resolve(LanguagePreference::Vi), Locale::Vi);
     }
 
